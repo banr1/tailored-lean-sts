@@ -265,32 +265,58 @@ def spec (Pr : Protocol V Msg State Ev) (S : Schedule V) :
       Apply _ c := { c with sent := insert ⟨p, m⟩ c.sent }
       feasible _ _ := ⟨(), trivial⟩ }
 
-/-- The step relation: **one** constructor, citing the acting action's spec.
+/-- The step relation: **one constructor per action**, each citing that action's spec.
 
-    Six constructors collapse to one because every action now has the same shape —
-    enabled, a permitted choice, apply it. The successor is still an expression in the
-    constructor's binders, so `cases` on a `Step` hands you the choice and rewrites the
-    successor, with no existential written and no `subst` needed. -/
+    Two properties, both wanted. `cases` on a `Step` splits by action immediately —
+    giving six named goals with the action refined in each — rather than leaving `a`
+    abstract for a second `cases`. And the successor is `Apply ch c`, an expression in
+    the constructor's binders, so `cases` also rewrites it: no existential is written
+    and no `subst` is needed.
+
+    The conditions are not duplicated: each constructor cites `Enabled`/`Permits` from
+    the table above, so adding an action means adding a `spec` arm and a constructor
+    that names it. -/
 inductive Step (Pr : Protocol V Msg State Ev) (S : Schedule V) :
     Action V Msg Ev → Config V Msg State → Config V Msg State → Prop where
-  | act {a : Action V Msg Ev} {c : Config V Msg State} (ch : (spec Pr S a).Choice) :
-      (spec Pr S a).Enabled c → (spec Pr S a).Permits c ch →
-      Step Pr S a c ((spec Pr S a).Apply ch c)
+  | advance {c : Config V Msg State} :
+      (spec Pr S .advance).Enabled c →
+      Step Pr S .advance c ((spec Pr S .advance).Apply () c)
+  | tick {c : Config V Msg State} {p : V} (eff : Effect State Msg) :
+      (spec Pr S (.tick p)).Enabled c → (spec Pr S (.tick p)).Permits c eff →
+      Step Pr S (.tick p) c ((spec Pr S (.tick p)).Apply eff c)
+  | deliver {c : Config V Msg State} {p : V} {m : SignedMsg V Msg}
+      (eff : Effect State Msg) :
+      (spec Pr S (.deliver p m)).Enabled c → (spec Pr S (.deliver p m)).Permits c eff →
+      Step Pr S (.deliver p m) c ((spec Pr S (.deliver p m)).Apply eff c)
+  | wake {c : Config V Msg State} {p : V} (eff : Effect State Msg) :
+      (spec Pr S (.wake p)).Enabled c → (spec Pr S (.wake p)).Permits c eff →
+      Step Pr S (.wake p) c ((spec Pr S (.wake p)).Apply eff c)
+  | custom {c : Config V Msg State} {p : V} {ev : Ev} (eff : Effect State Msg) :
+      (spec Pr S (.custom p ev)).Enabled c → (spec Pr S (.custom p ev)).Permits c eff →
+      Step Pr S (.custom p ev) c ((spec Pr S (.custom p ev)).Apply eff c)
+  | adversarial {c : Config V Msg State} {p : V} {m : Msg} :
+      (spec Pr S (.adversarial p m)).Enabled c →
+      Step Pr S (.adversarial p m) c ((spec Pr S (.adversarial p m)).Apply () c)
 
 /-- A step is possible exactly when the action is enabled.
 
-    No case analysis at all now: the forward direction reads the guard off the single
-    constructor, the backward direction gets a choice from `feasible`. That is the
-    payoff of tabulating all four components per action. -/
+    The forward direction is uniform — every constructor carries its `Enabled` — and
+    the backward direction gets a choice from `feasible`, then names the constructor
+    for the action at hand. -/
 theorem enabled_iff (Pr : Protocol V Msg State Ev) (S : Schedule V)
     (a : Action V Msg Ev) (c : Config V Msg State) :
     (∃ c', Step Pr S a c c') ↔ (spec Pr S a).Enabled c := by
   constructor
-  · intro ⟨_, h⟩
-    cases h with | act ch hg _ => exact hg
+  · intro ⟨_, h⟩; cases h <;> assumption
   · intro hg
     obtain ⟨ch, hp⟩ := (spec Pr S a).feasible c hg
-    exact ⟨_, .act ch hg hp⟩
+    cases a with
+    | advance => exact ⟨_, .advance hg⟩
+    | tick p => exact ⟨_, .tick ch hg hp⟩
+    | deliver p m => exact ⟨_, .deliver ch hg hp⟩
+    | wake p => exact ⟨_, .wake ch hg hp⟩
+    | custom p ev => exact ⟨_, .custom ch hg hp⟩
+    | adversarial p m => exact ⟨_, .adversarial hg⟩
 
 /-- Initial configurations. -/
 def Init (Pr : Protocol V Msg State Ev) (c : Config V Msg State) : Prop :=
