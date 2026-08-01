@@ -1,5 +1,4 @@
 import Mathlib.Data.Set.Image
-import Framework.Sts2.System
 import Framework.Sts2.Schedule
 
 /-!
@@ -57,6 +56,8 @@ different ones over the same step relation.
 -/
 
 set_option autoImplicit false
+
+universe u v
 
 namespace Framework.Sts2
 
@@ -192,6 +193,21 @@ inductive Step (V Msg State Ev : Type) [DecidableEq V] [DecidableEq Msg]
 def Init (Pr : Protocol V Msg State Ev) (c : Config V Msg State) : Prop :=
   c.time = 0 ∧ (∀ p, c.clock p = 0) ∧ (∀ p, c.st p = Pr.init p) ∧
     (∀ p, c.view p = ∅) ∧ c.sent = ∅
+
+/-- A labelled transition system: initial states, and a labelled step relation
+    that may be nondeterministic and partial.
+
+    The framework's own, so that `Framework/` depends on nothing outside itself.
+    Only the structure is here — no reachability or inductive-invariant machinery,
+    since the framework carries no proofs while its shape is being iterated on.
+    `Common/System.lean` has that machinery for the `Sts` attempt; when proofs
+    return, **build it here rather than importing `Common`**, because liveness needs
+    statements over `Execution` that a state-based invariant cannot express. -/
+structure System (State : Type u) (Label : Type v) where
+  /-- States the system may start in. -/
+  Init : State → Prop
+  /-- Labelled transition relation. -/
+  Step : Label → State → State → Prop
 
 /-- The protocol as a transition system. -/
 def system (V Msg State Ev : Type) [DecidableEq V] [DecidableEq Msg]

@@ -1,4 +1,3 @@
-import Framework.Sts2.System
 import Framework.Sts2.Message
 import Framework.Sts2.Schedule
 import Framework.Sts2.Protocol
@@ -21,14 +20,13 @@ claim is checked by the compiler rather than asserted.
 
 ## Modules
 
-* `System` — labelled transition systems, the framework's own so that nothing
-  here depends on `Common`.
 * `Message` — rounds, signed messages, views.
 * `Schedule` — the adversary's choices over an execution: time-indexed
   corruption, awakeness *and* permission to act, plus both interval operators
   (awake *somewhere* vs awake *throughout*) and the constraints a model may
   impose on them.
-* `Protocol` — `Protocol`, `Config`, and the step relation. A protocol reacts to
+* `Protocol` — `System` (the framework's own, so `Framework/` depends on nothing
+  outside itself), `Protocol`, `Config`, and the step relation. A protocol reacts to
   **events**: `tick` and `recv m`, which the framework generates, plus `custom`
   events of the protocol's own type `Ev`, gated by `Protocol.enabled`.
 * `Execution` — executions, and every network/participation assumption as a
