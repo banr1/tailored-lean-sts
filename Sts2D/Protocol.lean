@@ -298,6 +298,68 @@ inductive Step (Pr : Protocol V Msg State Ev) (S : Schedule V) :
       (spec Pr S (.adversarial p m)).Enabled c →
       Step Pr S (.adversarial p m) c ((spec Pr S (.adversarial p m)).Apply () c)
 
+/-- The same relation with everything spelled out, for comparison: no `spec`, no
+    `ActionSpec`, each condition and each successor written inline.
+
+    Read the two side by side to judge the tabulated version. What the table buys is
+    that each condition exists once and is reachable by name (`Execution.Enabled` reads
+    `(spec Pr S a).Enabled`, whatever `a` is), that `feasible` is discharged where the
+    action is defined, and that the four reacting actions share one shape. What it
+    costs is the indirection you see below being absent — here you can read a
+    constructor without looking anything up.
+
+    `step_iff_inline` proves they are the same relation, so this is a comparison rather
+    than a second definition to keep in step. -/
+inductive StepInline (Pr : Protocol V Msg State Ev) (S : Schedule V) :
+    Action V Msg Ev → Config V Msg State → Config V Msg State → Prop where
+  | advance {c : Config V Msg State} :
+      StepInline Pr S .advance c { c with time := c.time + 1 }
+  | tick {c : Config V Msg State} {p : V} (eff : Effect State Msg) :
+      p ∈ S.awake (c.time : Int) → c[p].clock < c.time →
+      Pr.step p (bumped p c)[p].clock (bumped p c)[p].view (bumped p c)[p].st .tick eff →
+      StepInline Pr S (.tick p) c (install p eff (bumped p c))
+  | deliver {c : Config V Msg State} {p : V} {m : SignedMsg V Msg}
+      (eff : Effect State Msg) :
+      m ∈ c.sent → p ∈ S.awake (c.time : Int) →
+      Pr.step p (receive p m c)[p].clock (receive p m c)[p].view (receive p m c)[p].st
+        (.recv m) eff →
+      StepInline Pr S (.deliver p m) c (install p eff (receive p m c))
+  | wake {c : Config V Msg State} {p : V} (eff : Effect State Msg) :
+      p ∈ S.awake (c.time : Int) → p ∉ S.awake ((c.time : Int) - 1) →
+      Pr.step p c[p].clock c[p].view c[p].st .wake eff →
+      StepInline Pr S (.wake p) c (install p eff c)
+  | custom {c : Config V Msg State} {p : V} {ev : Ev} (eff : Effect State Msg) :
+      p ∈ S.awake (c.time : Int) → Pr.enabled c[p].clock c[p].st ev →
+      Pr.step p c[p].clock c[p].view c[p].st (.custom ev) eff →
+      StepInline Pr S (.custom p ev) c (install p eff c)
+  | adversarial {c : Config V Msg State} {p : V} {m : Msg} :
+      p ∈ S.adv (c.time : Int) →
+      StepInline Pr S (.adversarial p m) c { c with sent := insert ⟨p, m⟩ c.sent }
+
+/-- The tabulated and inlined relations agree. Each direction is one line per action:
+    the tabulated form pairs the environment conditions into `Enabled`, the inlined form
+    keeps them apart, so the translation is `⟨h1, h2⟩` one way and `.1`/`.2` the other. -/
+theorem step_iff_inline (Pr : Protocol V Msg State Ev) (S : Schedule V)
+    (a : Action V Msg Ev) (c c' : Config V Msg State) :
+    Step Pr S a c c' ↔ StepInline Pr S a c c' := by
+  constructor
+  · intro h
+    cases h with
+    | advance _ => exact .advance
+    | tick eff hg hp => exact .tick eff hg.1 hg.2 hp
+    | deliver eff hg hp => exact .deliver eff hg.1 hg.2 hp
+    | wake eff hg hp => exact .wake eff hg.1 hg.2 hp
+    | custom eff hg hp => exact .custom eff hg.1 hg.2 hp
+    | adversarial hg => exact .adversarial hg
+  · intro h
+    cases h with
+    | advance => exact .advance trivial
+    | tick eff h1 h2 hp => exact .tick eff ⟨h1, h2⟩ hp
+    | deliver eff h1 h2 hp => exact .deliver eff ⟨h1, h2⟩ hp
+    | wake eff h1 h2 hp => exact .wake eff ⟨h1, h2⟩ hp
+    | custom eff h1 h2 hp => exact .custom eff ⟨h1, h2⟩ hp
+    | adversarial h => exact .adversarial h
+
 /-- A step is possible exactly when the action is enabled.
 
     The forward direction is uniform — every constructor carries its `Enabled` — and
