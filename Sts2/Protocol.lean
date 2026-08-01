@@ -135,8 +135,13 @@ structure Config (Node Msg NodeState : Type) where
 instance : GetElem (Config Node Msg NodeState) Node (Local Node Msg NodeState) (fun _ _ => True) where
   getElem c p _ := c.nodes p
 
-/-- Indexing is just the `nodes` map; `simp` needs telling. -/
-@[simp] theorem getElem_nodes (c : Config Node Msg NodeState) (p : Node) : c[p] = c.nodes p := rfl
+/-- Indexing is the `nodes` map.
+
+    Oriented *towards* the brackets, because brackets are this framework's normal form:
+    they are how `Execution`'s statements read, and how the field lemmas below are phrased.
+    A `c.nodes q` exposed by unfolding a definition is rewritten to `c[q]`, so the two
+    spellings cannot drift apart in a goal. -/
+@[simp] theorem nodes_apply (c : Config Node Msg NodeState) (q : Node) : c.nodes q = c[q] := rfl
 
 variable [DecidableEq Node] [DecidableEq Msg]
 
@@ -148,20 +153,19 @@ variable [DecidableEq Node] [DecidableEq Msg]
     the three, where a record-level setter factored it out once. -/
 def Config.setNodeState (c : Config Node Msg NodeState) (p : Node) (s : NodeState) :
     Config Node Msg NodeState :=
-  { c with nodes := fun q => if p = q then { c.nodes q with st := s } else c.nodes q }
+  { c with nodes := fun q => if p = q then { c[q] with st := s } else c[q] }
 
 omit [DecidableEq Msg] in
 /-- How a `setNodeState` reads back. -/
 @[simp] theorem Config.setNodeState_apply (c : Config Node Msg NodeState) (p : Node)
     (s : NodeState) (q : Node) :
-    (c.setNodeState p s).nodes q =
-      if p = q then { c.nodes q with st := s } else c.nodes q := rfl
+    (c.setNodeState p s)[q] = if p = q then { c[q] with st := s } else c[q] := rfl
 
 /-- File a delivered message into `p`'s view, without reacting to it. -/
 def receive (p : Node) (m : SignedMsg Node Msg) (c : Config Node Msg NodeState) :
     Config Node Msg NodeState :=
   { c with nodes := fun q =>
-      if p = q then { c.nodes q with view := insert m (c.nodes q).view } else c.nodes q }
+      if p = q then { c[q] with view := insert m c[q].view } else c[q] }
 
 /-- Apply a reaction: install `p`'s new state and add what it sent to the network,
     signed by `p`.
@@ -179,7 +183,7 @@ def install (p : Node) (eff : NodeStepResult NodeState Msg) (c : Config Node Msg
 def setClock (p : Node) (t : Time) (c : Config Node Msg NodeState) :
     Config Node Msg NodeState :=
   { c with nodes := fun q =>
-      if p = q then { c.nodes q with clock := t } else c.nodes q }
+      if p = q then { c[q] with clock := t } else c[q] }
 
 /-- `Reacts Pr p e pre c'` — `c'` is a configuration `p` may reach by reacting to `e`
     in `pre`. Existential over the permitted reactions, which is where honest
@@ -354,53 +358,69 @@ theorem sent_mono {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node} {a :
   · exact fun _ _ _ _ _ _ _ hx => Or.inl hx
   · exact fun _ _ _ _ _ hx => Or.inr hx
 
-omit [DecidableEq Msg] in
-/-- Installing a reaction leaves every clock alone: only `st` and `sent` change.
-
-    Stated over `.nodes` rather than `[…]` because `getElem_nodes` is itself a `simp`
-    lemma and fires first; a version phrased with `[…]` would never match. -/
-@[simp] theorem install_clock (q : Node) (eff : NodeStepResult NodeState Msg)
-    (d : Config Node Msg NodeState) (p : Node) :
-    ((install q eff d).nodes p).clock = (d.nodes p).clock := by
-  by_cases hpq : q = p <;> simp [install, hpq]
-
-/-- Filing a delivered message leaves every clock alone. -/
-@[simp] theorem receive_clock (q : Node) (m : SignedMsg Node Msg)
-    (d : Config Node Msg NodeState) (p : Node) :
-    ((receive q m d).nodes p).clock = (d.nodes p).clock := by
-  by_cases hpq : q = p <;> simp [receive, hpq]
-
 /-! ### What the helpers do to each field
 
-The API any invariant proof needs: for `install`, `receive` and `bumped`, what happens to
-each field of each validator. Phrased over `.nodes` for the reason given above. -/
+Two layers. First a read-back lemma per definition, saying what `c[p]` is after it — these
+are what make brackets work as the normal form, since `simp` cannot otherwise reduce a
+bracket applied to a literal record. Then the per-field consequences, which are what
+invariant proofs actually cite.
+
+Only the second layer is `@[simp]`. The read-back lemmas are cited explicitly, because as
+`simp` lemmas they fire first and expand a bracket into nested `if`s, after which the field
+lemmas no longer match — the same shadowing that once made `install_clock` unusable, in the
+opposite direction. -/
 
 omit [DecidableEq Msg] in
-@[simp] theorem install_view (q : Node) (eff : NodeStepResult NodeState Msg) (d : Config Node Msg NodeState)
-    (p : Node) : ((install q eff d).nodes p).view = (d.nodes p).view := by
-  by_cases hpq : q = p <;> simp [install, hpq]
+theorem install_getElem (q : Node) (eff : NodeStepResult NodeState Msg)
+    (d : Config Node Msg NodeState) (p : Node) :
+    (install q eff d)[p] = (d.setNodeState q eff.state)[p] := rfl
+
+theorem receive_getElem (q : Node) (m : SignedMsg Node Msg)
+    (d : Config Node Msg NodeState) (p : Node) :
+    (receive q m d)[p] = if q = p then { d[p] with view := insert m d[p].view } else d[p] :=
+  rfl
 
 omit [DecidableEq Msg] in
-@[simp] theorem install_sent (q : Node) (eff : NodeStepResult NodeState Msg) (d : Config Node Msg NodeState) :
+theorem setClock_getElem (q : Node) (t : Time) (d : Config Node Msg NodeState)
+    (p : Node) : (setClock q t d)[p] = if q = p then { d[p] with clock := t } else d[p] := rfl
+
+omit [DecidableEq Msg] in
+@[simp] theorem install_clock (q : Node) (eff : NodeStepResult NodeState Msg)
+    (d : Config Node Msg NodeState) (p : Node) :
+    (install q eff d)[p].clock = d[p].clock := by
+  by_cases hpq : q = p <;> simp [install_getElem, hpq]
+
+omit [DecidableEq Msg] in
+@[simp] theorem install_view (q : Node) (eff : NodeStepResult NodeState Msg)
+    (d : Config Node Msg NodeState) (p : Node) :
+    (install q eff d)[p].view = d[p].view := by
+  by_cases hpq : q = p <;> simp [install_getElem, hpq]
+
+omit [DecidableEq Msg] in
+@[simp] theorem install_sent (q : Node) (eff : NodeStepResult NodeState Msg)
+    (d : Config Node Msg NodeState) :
     (install q eff d).sent = d.sent ∪ (SignedMsg.mk q '' (eff.send : Set Msg)) := rfl
+
+@[simp] theorem receive_clock (q : Node) (m : SignedMsg Node Msg)
+    (d : Config Node Msg NodeState) (p : Node) :
+    (receive q m d)[p].clock = d[p].clock := by
+  by_cases hpq : q = p <;> simp [receive_getElem, hpq]
 
 @[simp] theorem receive_view_self (q : Node) (m : SignedMsg Node Msg)
     (d : Config Node Msg NodeState) :
-    ((receive q m d).nodes q).view = insert m ((d.nodes q).view) := by
-  simp [receive]
+    (receive q m d)[q].view = insert m d[q].view := by simp [receive_getElem]
 
 @[simp] theorem receive_view_other (q : Node) (m : SignedMsg Node Msg)
     (d : Config Node Msg NodeState) (p : Node) (h : p ≠ q) :
-    ((receive q m d).nodes p).view = (d.nodes p).view := by
-  simp [receive, Ne.symm h]
+    (receive q m d)[p].view = d[p].view := by simp [receive_getElem, Ne.symm h]
 
-@[simp] theorem receive_sent (q : Node) (m : SignedMsg Node Msg) (d : Config Node Msg NodeState) :
-    (receive q m d).sent = d.sent := rfl
+@[simp] theorem receive_sent (q : Node) (m : SignedMsg Node Msg)
+    (d : Config Node Msg NodeState) : (receive q m d).sent = d.sent := rfl
 
 omit [DecidableEq Msg] in
 @[simp] theorem setClock_view (q : Node) (t : Time) (d : Config Node Msg NodeState)
-    (p : Node) : ((setClock q t d).nodes p).view = (d.nodes p).view := by
-  by_cases hpq : q = p <;> simp [setClock, hpq]
+    (p : Node) : (setClock q t d)[p].view = d[p].view := by
+  by_cases hpq : q = p <;> simp [setClock_getElem, hpq]
 
 omit [DecidableEq Msg] in
 @[simp] theorem setClock_sent (q : Node) (t : Time) (d : Config Node Msg NodeState) :
@@ -413,7 +433,7 @@ of weakening the spec — the old version made a scheduling decision look like a
 
 /-- Initial configurations. -/
 def Init (Pr : Protocol Node Msg NodeState Ev) (c : Config Node Msg NodeState) : Prop :=
-  c.time = 0 ∧ (∀ p, c.nodes p = { clock := 0, st := Pr.init p, view := ∅ }) ∧
+  c.time = 0 ∧ (∀ p : Node, c[p] = { clock := 0, st := Pr.init p, view := ∅ }) ∧
     c.sent = ∅
 
 /-- A labelled transition system: initial states, and a labelled step relation
