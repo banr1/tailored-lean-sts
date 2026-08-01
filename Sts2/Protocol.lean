@@ -140,16 +140,28 @@ instance : GetElem (Config Node Msg NodeState) Node (Local Node Msg NodeState) (
 
 variable [DecidableEq Node] [DecidableEq Msg]
 
-/-- Change one validator's local record, leaving everything else alone. Every
-    per-validator update goes through this. -/
-def Config.update (c : Config Node Msg NodeState) (p : Node)
-    (f : Local Node Msg NodeState → Local Node Msg NodeState) : Config Node Msg NodeState :=
-  { c with nodes := fun q => if q = p then f (c.nodes q) else c.nodes q }
+/-- Replace one validator's local record, leaving everything else alone. Every
+    per-validator update goes through this.
+
+    Takes the new record rather than a function of the old one: a caller that needs the old
+    record reads it as `c[p]`, which is more explicit at the site, and it gives
+    `set_apply` below something useful to say — a function-shaped update would only ever
+    yield lemmas mentioning an opaque `f (c.nodes q)`. -/
+def Config.set (c : Config Node Msg NodeState) (p : Node)
+    (l : Local Node Msg NodeState) : Config Node Msg NodeState :=
+  { c with nodes := fun q => if p = q then l else c.nodes q }
+
+omit [DecidableEq Msg] in
+/-- How a `set` reads back. One unconditional lemma rather than a pair of conditional
+    ones, so a proof splits the `if` with whatever orientation its own `by_cases` used. -/
+@[simp] theorem Config.set_apply (c : Config Node Msg NodeState) (p : Node)
+    (l : Local Node Msg NodeState) (q : Node) :
+    (c.set p l).nodes q = if p = q then l else c.nodes q := rfl
 
 /-- File a delivered message into `p`'s view, without reacting to it. -/
 def receive (p : Node) (m : SignedMsg Node Msg) (c : Config Node Msg NodeState) :
     Config Node Msg NodeState :=
-  c.update p fun l => { l with view := insert m l.view }
+  c.set p { c[p] with view := insert m c[p].view }
 
 /-- Apply a reaction: install `p`'s new state and add what it sent to the network,
     signed by `p`.
@@ -159,14 +171,14 @@ def receive (p : Node) (m : SignedMsg Node Msg) (c : Config Node Msg NodeState) 
     `voting(t)`" — and it achieves that by choosing `send := ∅` in its own `step`. -/
 def install (p : Node) (eff : NodeStepResult NodeState Msg) (c : Config Node Msg NodeState) :
     Config Node Msg NodeState :=
-  { c.update p (fun l => { l with st := eff.state })
+  { c.set p { c[p] with st := eff.state }
       with sent := c.sent ∪ (SignedMsg.mk p '' (eff.send : Set Msg)) }
 
 /-- `p`'s clock now reads `t`. The framework says nothing about which `t` — see
     `Framework.Sts2.Execution` for the assumptions that pin it down. -/
 def setClock (p : Node) (t : Time) (c : Config Node Msg NodeState) :
     Config Node Msg NodeState :=
-  c.update p fun l => { l with clock := t }
+  c.set p { c[p] with clock := t }
 
 /-- `Reacts Pr p e pre c'` — `c'` is a configuration `p` may reach by reacting to `e`
     in `pre`. Existential over the permitted reactions, which is where honest
@@ -349,13 +361,13 @@ omit [DecidableEq Msg] in
 @[simp] theorem install_clock (q : Node) (eff : NodeStepResult NodeState Msg)
     (d : Config Node Msg NodeState) (p : Node) :
     ((install q eff d).nodes p).clock = (d.nodes p).clock := by
-  by_cases hpq : p = q <;> simp [install, Config.update, hpq]
+  by_cases hpq : q = p <;> simp [install, hpq]
 
 /-- Filing a delivered message leaves every clock alone. -/
 @[simp] theorem receive_clock (q : Node) (m : SignedMsg Node Msg)
     (d : Config Node Msg NodeState) (p : Node) :
     ((receive q m d).nodes p).clock = (d.nodes p).clock := by
-  by_cases hpq : p = q <;> simp [receive, Config.update, hpq]
+  by_cases hpq : q = p <;> simp [receive, hpq]
 
 /-! ### What the helpers do to each field
 
@@ -365,7 +377,7 @@ each field of each validator. Phrased over `.nodes` for the reason given above. 
 omit [DecidableEq Msg] in
 @[simp] theorem install_view (q : Node) (eff : NodeStepResult NodeState Msg) (d : Config Node Msg NodeState)
     (p : Node) : ((install q eff d).nodes p).view = (d.nodes p).view := by
-  by_cases hpq : p = q <;> simp [install, Config.update, hpq]
+  by_cases hpq : q = p <;> simp [install, hpq]
 
 omit [DecidableEq Msg] in
 @[simp] theorem install_sent (q : Node) (eff : NodeStepResult NodeState Msg) (d : Config Node Msg NodeState) :
@@ -374,12 +386,12 @@ omit [DecidableEq Msg] in
 @[simp] theorem receive_view_self (q : Node) (m : SignedMsg Node Msg)
     (d : Config Node Msg NodeState) :
     ((receive q m d).nodes q).view = insert m ((d.nodes q).view) := by
-  simp [receive, Config.update]
+  simp [receive]
 
 @[simp] theorem receive_view_other (q : Node) (m : SignedMsg Node Msg)
     (d : Config Node Msg NodeState) (p : Node) (h : p ≠ q) :
     ((receive q m d).nodes p).view = (d.nodes p).view := by
-  simp [receive, Config.update, h]
+  simp [receive, Ne.symm h]
 
 @[simp] theorem receive_sent (q : Node) (m : SignedMsg Node Msg) (d : Config Node Msg NodeState) :
     (receive q m d).sent = d.sent := rfl
@@ -387,7 +399,7 @@ omit [DecidableEq Msg] in
 omit [DecidableEq Msg] in
 @[simp] theorem setClock_view (q : Node) (t : Time) (d : Config Node Msg NodeState)
     (p : Node) : ((setClock q t d).nodes p).view = (d.nodes p).view := by
-  by_cases hpq : p = q <;> simp [setClock, Config.update, hpq]
+  by_cases hpq : q = p <;> simp [setClock, hpq]
 
 omit [DecidableEq Msg] in
 @[simp] theorem setClock_sent (q : Node) (t : Time) (d : Config Node Msg NodeState) :
