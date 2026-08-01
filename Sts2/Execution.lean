@@ -47,13 +47,13 @@ instance {St Lbl : Type} {Sys : System St Lbl} :
     GetElem (Execution Sys) Nat St (fun _ _ => True) where
   getElem x i _ := x.cfg i
 
-variable {V Msg NodeState Ev : Type} [DecidableEq V] [DecidableEq Msg]
+variable {Node Msg NodeState Ev : Type} [DecidableEq Node] [DecidableEq Msg]
 
 /-- Executions of a protocol under a participation rule and a schedule. -/
-abbrev Exec (Pr : Protocol V Msg NodeState Ev) (S : Schedule V) :=
-  Execution (system V Msg NodeState Ev Pr S)
+abbrev Exec (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) :=
+  Execution (system Node Msg NodeState Ev Pr S)
 
-variable {Pr : Protocol V Msg NodeState Ev} {S : Schedule V}
+variable {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
 
 /-! ### Reading an execution
 
@@ -66,12 +66,12 @@ opposed to merely awake — is decided by its own program, so no framework-level
 predicate can express it. Statements that need it take it as a parameter. -/
 
 /-- Is `p` awake after `i` steps? -/
-def Execution.Awake (x : Exec Pr S) (i : Nat) (p : V) : Prop :=
+def Execution.Awake (x : Exec Pr S) (i : Nat) (p : Node) : Prop :=
   p ∈ S.awake (x[i].time : Int)
 
 /-- Is `p` still honest after `i` steps? Corruption is time-dependent, so this is
     relative to the round. -/
-def Execution.Honest (x : Exec Pr S) (i : Nat) (p : V) : Prop :=
+def Execution.Honest (x : Exec Pr S) (i : Nat) (p : Node) : Prop :=
   p ∉ S.adv (x[i].time : Int)
 
 /-! ### Clocks
@@ -127,21 +127,21 @@ fairness assumption cannot describe the wrong condition. -/
     as a separate argument, with nothing tying the two together: a wrong one made the
     assumption either vacuous or unsatisfiable, and an unsatisfiable assumption makes
     every theorem under it vacuously true. -/
-def Execution.Enabled (x : Exec Pr S) (i : Nat) (a : Action V Msg Ev) : Prop :=
+def Execution.Enabled (x : Exec Pr S) (i : Nat) (a : Action Node Msg Ev) : Prop :=
   (spec Pr S a).Enabled x[i]
 
 /-- Weak fairness for one action: continuously enabled implies eventually taken. -/
-def WeakFair (x : Exec Pr S) (a : Action V Msg Ev) : Prop :=
+def WeakFair (x : Exec Pr S) (a : Action Node Msg Ev) : Prop :=
   ∀ i : Nat, (∀ j, i ≤ j → x.Enabled j a) → ∃ j, i ≤ j ∧ x.lbl j = a
 
 /-- Strong fairness: enabled infinitely often implies eventually taken. Needed for a
     validator that only flickers awake, rather than staying awake. -/
-def StrongFair (x : Exec Pr S) (a : Action V Msg Ev) : Prop :=
+def StrongFair (x : Exec Pr S) (a : Action Node Msg Ev) : Prop :=
   (∀ i : Nat, ∃ j, i ≤ j ∧ x.Enabled j a) → ∀ i : Nat, ∃ j, i ≤ j ∧ x.lbl j = a
 
 /-- Validators do not stop ticking. Without this a validator can stay awake with a
     lagging clock forever, so it never runs its protocol again. -/
-def TickFair (x : Exec Pr S) : Prop := ∀ p : V, WeakFair x (.tick p)
+def TickFair (x : Exec Pr S) : Prop := ∀ p : Node, WeakFair x (.tick p)
 
 /-- Time does not stop advancing. `advance` is enabled everywhere, so this reduces
     to "taken infinitely often". Implies `TimeDiverges`. -/
@@ -150,20 +150,20 @@ def AdvanceFair (x : Exec Pr S) : Prop := WeakFair x .advance
 /-- Eventual delivery, for use where `Synchrony` does not reach — before GST there
     is no bound, but one may still want messages to arrive at all. -/
 def DeliverFair (x : Exec Pr S) : Prop :=
-  ∀ (p : V) (m : SignedMsg V Msg), WeakFair x (.deliver p m)
+  ∀ (p : Node) (m : SignedMsg Node Msg), WeakFair x (.deliver p m)
 
 /-- A protocol-specific event that stays enabled eventually fires. This is the case
     state-based fairness could not express at all: what a `custom` reaction changes
     is up to the protocol, so there is no canonical state witness for it. -/
 def CustomFair (x : Exec Pr S) : Prop :=
-  ∀ (p : V) (ev : Ev), WeakFair x (.custom p ev)
+  ∀ (p : Node) (ev : Ev), WeakFair x (.custom p ev)
 
 /-! ### Network
 
 Every sent message is covered by the guarantee below. Majorum will eventually
 want that qualified — "a proposal for slot `t` is gossiped only during the first
 Δ rounds of slot `t`", so a proposal sent outside its window is owed nothing —
-which means adding a `gossiped : SignedMsg V Msg → Round → Prop` filter as an
+which means adding a `gossiped : SignedMsg Node Msg → Round → Prop` filter as an
 extra hypothesis of `Synchrony`. Left out until a model actually restricts it. -/
 
 /-- Δ-synchrony after GST.
@@ -198,7 +198,7 @@ theorem Execution.reachable (x : Exec Pr S) (i : Nat) : Reachable Pr S x[i] := b
     This used to be an **assumption** in both models. It is a theorem: a message enters a
     view only through `deliver`, whose enabling condition requires it to be in `sent`
     already, and `sent` never shrinks. See `Framework.Sts2.viewsSound`. -/
-theorem views_sound (x : Exec Pr S) (i : Nat) (p : V) (m : SignedMsg V Msg)
+theorem views_sound (x : Exec Pr S) (i : Nat) (p : Node) (m : SignedMsg Node Msg)
     (hm : m ∈ x[i][p].view) : m ∈ x[i].sent :=
   viewsSound (x.reachable i) p m hm
 
@@ -212,7 +212,7 @@ variable {Out : Type}
 
 /-- Majorum Def. 1 (Safe protocol), after `tafter`: the outputs of validators
     that are honest at the time are always prefix-comparable. -/
-def Safe (out : V → Config V Msg NodeState → Out) (Pre : Out → Out → Prop)
+def Safe (out : Node → Config Node Msg NodeState → Out) (Pre : Out → Out → Prop)
     (tafter : Round) (x : Exec Pr S) : Prop :=
   ∀ (i j : Nat) p q, tafter ≤ x[i].time → tafter ≤ x[j].time →
     x.Honest i p → x.Honest j q →
@@ -226,13 +226,13 @@ def Safe (out : V → Config V Msg NodeState → Out) (Pre : Out → Out → Pro
     protocol-specific notion; stating it over the awake ones is stronger, so a
     protocol whose joining delay matters will want to weaken this with its own
     participation predicate. -/
-def Live {Tx : Type} (out : V → Config V Msg NodeState → Out) (mem : Tx → Out → Prop)
+def Live {Tx : Type} (out : Node → Config Node Msg NodeState → Out) (mem : Tx → Out → Prop)
     (pool : Round → Set Tx) (tafter tconf : Round) (x : Exec Pr S) : Prop :=
   ∀ (i j : Nat) p tx, tafter ≤ x[i].time → tx ∈ pool x[i].time →
     x[i].time + tconf ≤ x[j].time → x.Awake j p → mem tx (out p x[j])
 
 /-- Majorum Def. 3 (Secure protocol). -/
-def Secure {Tx : Type} (out : V → Config V Msg NodeState → Out)
+def Secure {Tx : Type} (out : Node → Config Node Msg NodeState → Out)
     (Pre : Out → Out → Prop) (mem : Tx → Out → Prop) (pool : Round → Set Tx)
     (tafter tconf : Round) (x : Exec Pr S) : Prop :=
   Safe out Pre tafter x ∧ Live out mem pool tafter tconf x

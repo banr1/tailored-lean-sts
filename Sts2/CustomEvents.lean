@@ -26,7 +26,7 @@ set_option autoImplicit false
 namespace Framework.Sts2.CustomEvents
 
 /-- Four validators. -/
-abbrev V := Fin 4
+abbrev Node := Fin 4
 
 /-- Votes carry a view and a value; complaints carry the abandoned view. -/
 inductive Msg where
@@ -60,8 +60,8 @@ structure St where
 
 /-- Vote once per view; re-broadcast on `resend`; abandon the view on
     `viewTimeout`. Both timer reactions push their own deadline forward. -/
-def reaction (p : V) (r : Round) (_view : View V Msg) (s : St) :
-    Event V Msg Ev → NodeStepResult St Msg :=
+def reaction (p : Node) (r : Round) (_view : View Node Msg) (s : St) :
+    Event Node Msg Ev → NodeStepResult St Msg :=
   fun e =>
     match e with
     | .tick =>
@@ -87,7 +87,7 @@ def reaction (p : V) (r : Round) (_view : View V Msg) (s : St) :
         | none => { state := s, send := ∅ }
 /-- The protocol, lifting the deterministic `reaction` into the relational
     `Protocol.step`. -/
-def proto : Protocol V Msg St Ev where
+def proto : Protocol Node Msg St Ev where
   init _ := { view := 0, voted := none, heard := ∅, timeoutAt := 4, resendAt := 2 }
   step p r view s e eff := eff = reaction p r view s e
   total _ _ _ _ _ := ⟨_, rfl⟩

@@ -27,9 +27,9 @@ scoped notation "Round" => Nat
 
 /-- A message together with its signer. Signing is structural: appearing under
     `sender = p` *is* being signed by `p`. -/
-structure SignedMsg (V Msg : Type) where
+structure SignedMsg (Node Msg : Type) where
   /-- The signer. -/
-  sender : V
+  sender : Node
   /-- The message. -/
   msg : Msg
   deriving DecidableEq
@@ -37,6 +37,6 @@ structure SignedMsg (V Msg : Type) where
 /-- A validator's view: every message it has received so far (Majorum's `V^r_i`,
     TOB-SVD's received-message state). Maintained by the framework, so a
     protocol can neither forget nor fabricate a delivery. -/
-abbrev View (V Msg : Type) := Finset (SignedMsg V Msg)
+abbrev View (Node Msg : Type) := Finset (SignedMsg Node Msg)
 
 end Framework.Sts2

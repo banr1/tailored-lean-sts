@@ -16,19 +16,19 @@ set_option autoImplicit false
 
 namespace Framework.Sts2
 
-variable {V Msg NodeState Ev : Type} [DecidableEq V] [DecidableEq Msg]
-  {Pr : Protocol V Msg NodeState Ev} {S : Schedule V}
+variable {Node Msg NodeState Ev : Type} [DecidableEq Node] [DecidableEq Msg]
+  {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
 
 /-- Configurations reachable from an initial one. -/
-inductive Reachable (Pr : Protocol V Msg NodeState Ev) (S : Schedule V) :
-    Config V Msg NodeState → Prop where
-  | init {c : Config V Msg NodeState} : Init Pr c → Reachable Pr S c
-  | step {a : Action V Msg Ev} {c c' : Config V Msg NodeState} :
+inductive Reachable (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) :
+    Config Node Msg NodeState → Prop where
+  | init {c : Config Node Msg NodeState} : Init Pr c → Reachable Pr S c
+  | step {a : Action Node Msg Ev} {c c' : Config Node Msg NodeState} :
       Reachable Pr S c → Step Pr S a c c' → Reachable Pr S c'
 
 /-- Everything in a validator's view was signed and sent. -/
-def ViewsSound (c : Config V Msg NodeState) : Prop :=
-  ∀ (p : V) (m : SignedMsg V Msg), m ∈ c[p].view → m ∈ c.sent
+def ViewsSound (c : Config Node Msg NodeState) : Prop :=
+  ∀ (p : Node) (m : SignedMsg Node Msg), m ∈ c[p].view → m ∈ c.sent
 
 /-- `ViewsSound` holds everywhere reachable — so `Execution.ViewsSound` need not be
     assumed.
@@ -36,7 +36,7 @@ def ViewsSound (c : Config V Msg NodeState) : Prop :=
     Note how the induction hypothesis reaches the cases: the motive is an *implication*,
     `ViewsSound d → ViewsSound d'`, and the eliminator's result is applied to `ih`. That
     is the one idiom `Step.elim` needs that `cases` on an inductive would not. -/
-theorem viewsSound {c : Config V Msg NodeState} (h : Reachable Pr S c) : ViewsSound c := by
+theorem viewsSound {c : Config Node Msg NodeState} (h : Reachable Pr S c) : ViewsSound c := by
   induction h with
   | init hi =>
       obtain ⟨-, hnodes, -⟩ := hi

@@ -11,7 +11,7 @@ compiles, that the parameterisation actually fits together.
 
 Read it as the answer to "how do I use this?":
 
-1. pick `V`, `Msg`, `NodeState` and write a `Protocol` (`init` and `step`);
+1. pick `Node`, `Msg`, `NodeState` and write a `Protocol` (`init` and `step`);
 2. pick a `Schedule` — who is corrupted, who is awake, at each time;
 3. `system`/`Exec` then give you the transition system and its executions;
 4. state which model's assumptions you are working under.
@@ -24,7 +24,7 @@ namespace Framework.Sts2.Example
 /-! ## 1. A protocol -/
 
 /-- Four validators. -/
-abbrev V := Fin 4
+abbrev Node := Fin 4
 
 /-- One message: a validator announces a number. -/
 inductive Msg where
@@ -41,7 +41,7 @@ structure St where
   deriving DecidableEq
 
 /-- The number carried by a signed message. -/
-def announced (m : SignedMsg V Msg) : Nat :=
+def announced (m : SignedMsg Node Msg) : Nat :=
   match m.msg with
   | .announce k => k
 
@@ -51,8 +51,8 @@ def announced (m : SignedMsg V Msg) : Nat :=
     so that honest behaviour *may* be nondeterministic. A deterministic protocol like
     this one lifts with `eff = reaction …`, which keeps it computable — the `decide`
     checks below run on this function. -/
-def reaction (p : V) (r : Round) (_view : View V Msg) (s : St) :
-    Event V Msg Empty → NodeStepResult St Msg
+def reaction (p : Node) (r : Round) (_view : View Node Msg) (s : St) :
+    Event Node Msg Empty → NodeStepResult St Msg
   | .tick =>
       if r = 0 then { state := s, send := {Msg.announce p.val} }
       else { state := s, send := ∅ }
@@ -62,7 +62,7 @@ def reaction (p : V) (r : Round) (_view : View V Msg) (s : St) :
 
 /-- `Ev := Empty` because this protocol has no events of its own — a protocol with
     timers would put them there and constrain them via `enabled`. -/
-def proto : Protocol V Msg St Empty where
+def proto : Protocol Node Msg St Empty where
   init _ := { heard := ∅ }
   step p r view s e eff := eff = reaction p r view s e
   total _ _ _ _ _ := ⟨_, rfl⟩
@@ -92,12 +92,12 @@ say "awake at every time, including negative", which is TOB-SVD's convention;
 Majorum instead wants `∅` before round 0. -/
 
 /-- Nobody is ever corrupted and nobody ever sleeps. -/
-def noFaults : Schedule V where
+def noFaults : Schedule Node where
   adv := fun _ => ∅
   awake := fun _ => Finset.univ
 
 /-- Validator 3 sleeps until round 10. -/
-def threeSleeps : Schedule V where
+def threeSleeps : Schedule Node where
   adv := fun _ => ∅
   awake := fun r => if r < 10 then {0, 1, 2} else Finset.univ
 
@@ -152,9 +152,9 @@ def MajCompliant (x : MajExec) : Prop := maj.Model x
     proofs while its structure is still moving. -/
 def EveryoneHeardEveryone (x : TobExec) : Prop :=
   TobCompliant x →
-    ∀ (i : Nat) (p q : V), 1 ≤ x[i].time →
+    ∀ (i : Nat) (p q : Node), 1 ≤ x[i].time →
       x.Awake i p →
-      (⟨q, .announce q.val⟩ : SignedMsg V Msg) ∈ x[i].sent →
+      (⟨q, .announce q.val⟩ : SignedMsg Node Msg) ∈ x[i].sent →
       q.val ∈ x[i][p].st.heard
 
 end Framework.Sts2.Example

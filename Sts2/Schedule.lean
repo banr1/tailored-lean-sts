@@ -12,7 +12,7 @@ papers need time-dependent honesty — Majorum's `A_r`, TOB-SVD's growing `B_t`.
 
 **Indexed by `Int`, not `Round`.** Both papers query the schedule at negative
 times and they use *different* conventions there (Majorum: `H_i := ∅` for
-`i < 0`; TOB-SVD: `H_t := V` and `B_t := ∅` for `t < 0`). Making the index `Int`
+`i < 0`; TOB-SVD: `H_t` is every validator and `B_t := ∅` for `t < 0`). Making the index `Int`
 puts that convention in the schedule, where the model can choose it, instead of
 hardcoding one.
 
@@ -24,20 +24,20 @@ set_option autoImplicit false
 
 namespace Framework.Sts2
 
-variable {V : Type} [Fintype V] [DecidableEq V]
+variable {Node : Type} [Fintype Node] [DecidableEq Node]
 
 /-- The adversary's choices over an execution. -/
-structure Schedule (V : Type) where
+structure Schedule (Node : Type) where
   /-- Adversarial validators at a round (Majorum's `A_r`, TOB-SVD's `B_t`). -/
-  adv : Int → Finset V
+  adv : Int → Finset Node
   /-- Awake honest validators at a round. Adversarial validators are always
       awake in both papers, so they are deliberately *not* included here — this
       is the awake **honest** set. -/
-  awake : Int → Finset V
+  awake : Int → Finset Node
 
 namespace Schedule
 
-variable (S : Schedule V)
+variable (S : Schedule Node)
 
 /-! ### Constraints a model may impose -/
 
@@ -51,7 +51,7 @@ def AwakeHonest : Prop := ∀ r : Int, Disjoint (S.awake r) (S.adv r)
 /-- Mildly adaptive corruption: a validator adversarial at `r + d` was already
     committed to at `r`. TOB-SVD needs this with `d = Δ` for VRF-based leader
     election; state it against a `requested` schedule the adversary fixes. -/
-def CorruptionDelay (d : Round) (requested : Int → Finset V) : Prop :=
+def CorruptionDelay (d : Round) (requested : Int → Finset Node) : Prop :=
   ∀ r : Int, S.adv (r + d) ⊆ requested r
 
 /-- Total corruption budget, as `f = |A_∞|` in Majorum. -/
@@ -59,7 +59,7 @@ def CorruptionBounded (f : Nat) : Prop := ∀ r : Int, (S.adv r).card ≤ f
 
 /-- Global awake time: after `gat`, every honest validator stays awake. Majorum
     assumes one; TOB-SVD does not. -/
-def GlobalAwakeTime (gat : Round) (honest : Finset V) : Prop :=
+def GlobalAwakeTime (gat : Round) (honest : Finset Node) : Prop :=
   ∀ r : Int, (gat : Int) ≤ r → honest \ S.adv r ⊆ S.awake r
 
 /-! ### Interval operators
@@ -68,10 +68,10 @@ The two papers aggregate awakeness over an interval in **opposite** ways, and
 both are needed, so the framework provides both and neither is privileged. -/
 
 /-- Awake at *some point* in `[a, b]` — Majorum's `H_{r,r'} = ⋃ H_i`. -/
-def awakeSomewhere (a b : Int) : Finset V := (Finset.Icc a b).sup S.awake
+def awakeSomewhere (a b : Int) : Finset Node := (Finset.Icc a b).sup S.awake
 
 /-- Awake *throughout* `[a, b]` — TOB-SVD's `H_{t₁,t₂} = ⋂ H_t`. -/
-def awakeThroughout (a b : Int) : Finset V := (Finset.Icc a b).inf S.awake
+def awakeThroughout (a b : Int) : Finset Node := (Finset.Icc a b).inf S.awake
 
 end Schedule
 
