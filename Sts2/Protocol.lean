@@ -21,13 +21,13 @@ actually depends on:
   the earlier design, where advancing the round also ran every awake validator,
   that was impossible. It also makes "time passes while nobody acts" expressible,
   which asynchrony needs.
-* **Each validator reads its own clock**, `Config.clock p`, and that is the round
+* **Each validator reads its own clock**, `c[p].clock`, and that is the round
   handed to `step`. `Config.time` is *real* time, read only by the environment: the
   schedule, the network bound, GST. So clocks being synchronized is an
   **assumption** (`Execution.Synchronized`) rather than a fact of the model, and
   monotonicity is free, since `Step.tick` only increments.
 
-The guard `c.clock p < c.time` on `Step.tick` stops a clock running ahead of real
+The guard `c[p].clock < c.time` on `tick` stops a clock running ahead of real
 time and gives exactly one tick per validator per round, so a `tick` reaction still
 need not be idempotent.
 
@@ -116,20 +116,10 @@ structure Config (V Msg State : Type) where
   /-- Every message ever signed. Monotone. -/
   sent : Set (SignedMsg V Msg)
 
-namespace Config
-
-variable (c : Config V Msg State) (p : V)
-
-/-- `p`'s clock reading. -/
-def clock : Round := (c.nodes p).clock
-
-/-- `p`'s protocol state. -/
-def st : State := (c.nodes p).st
-
-/-- `p`'s view. -/
-def view : View V Msg := (c.nodes p).view
-
-end Config
+/-- `c[p]` is `p`'s local record, so `c[p].clock`, `c[p].view` and `c[p].st` read
+    its parts. Indexing is total, hence the trivial side-condition. -/
+instance : GetElem (Config V Msg State) V (Local V Msg State) (fun _ _ => True) where
+  getElem c p _ := c.nodes p
 
 variable [DecidableEq V] [DecidableEq Msg]
 
@@ -156,7 +146,7 @@ def react (Pr : Protocol V Msg State Ev) (p : V) (e : Event V Msg Ev)
   { c.update p (fun l => { l with st := (Pr.step p l.clock l.view l.st e).state })
       with sent := c.sent ∪
         (SignedMsg.mk p ''
-          ((Pr.step p (c.clock p) (c.view p) (c.st p) e).send : Set Msg)) }
+          ((Pr.step p c[p].clock c[p].view c[p].st e).send : Set Msg)) }
 
 /-- Transition labels. -/
 inductive Action (V Msg Ev : Type) where
@@ -212,7 +202,7 @@ def spec (Pr : Protocol V Msg State Ev) (S : Schedule V) :
   -- An awake validator whose clock is behind advances it by one and reacts. The
   -- guard gives exactly one tick per validator per round.
   | .tick p => {
-      Enabled c := p ∈ S.awake (c.time : Int) ∧ c.clock p < c.time
+      Enabled c := p ∈ S.awake (c.time : Int) ∧ c[p].clock < c.time
       Effect c c' := c' = react Pr p .tick
         (c.update p fun l => { l with clock := l.clock + 1 })
       feasible _ _ := ⟨_, rfl⟩ }
@@ -233,7 +223,7 @@ def spec (Pr : Protocol V Msg State Ev) (S : Schedule V) :
   -- A protocol-specific event, if the protocol allows it at the validator's own
   -- clock reading.
   | .custom p ev => {
-      Enabled c := p ∈ S.awake (c.time : Int) ∧ Pr.enabled (c.clock p) (c.st p) ev
+      Enabled c := p ∈ S.awake (c.time : Int) ∧ Pr.enabled c[p].clock c[p].st ev
       Effect c c' := c' = react Pr p (.custom ev) c
       feasible _ _ := ⟨_, rfl⟩ }
   -- An adversarial validator signs anything.

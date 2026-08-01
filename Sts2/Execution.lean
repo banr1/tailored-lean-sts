@@ -58,7 +58,7 @@ variable {Pr : Protocol V Msg State Ev} {S : Schedule V}
 /-! ### Reading an execution
 
 `x[i]` is the configuration after `i` steps, so `x[i].time` is *real* time there
-and `x[i].clock p` is what `p` believes it to be. `x.Awake i p` and `x.Honest i p`
+and `x[i][p].clock` is what `p` believes it to be. `x.Awake i p` and `x.Honest i p`
 exist only to keep the `Int` coercion on `time` out of every statement.
 
 There is deliberately no `Active`: whether a validator is *participating* — as
@@ -95,7 +95,7 @@ therefore in one of three classes, and should assume no more than it needs.
     wants waking validators to know the time immediately needs a stronger version,
     or a `tick` that jumps rather than increments. -/
 def Synchronized (x : Exec Pr S) : Prop :=
-  ∀ (i : Nat) p, x.Awake i p → x[i].clock p = x[i].time
+  ∀ (i : Nat) p, x.Awake i p → x[i][p].clock = x[i].time
 
 /-! ### Progress -/
 
@@ -177,19 +177,19 @@ extra hypothesis of `Synchrony`. Left out until a model actually restricts it. -
     queue-until-wake. Setting `gst = 0` gives TOB-SVD's synchronous network. -/
 def Synchrony (gst delta : Round) (x : Exec Pr S) : Prop :=
   ∀ (i j : Nat) p m, m ∈ x[i].sent →
-    max x[i].time gst + delta ≤ x[j].time → x.Awake j p → m ∈ x[j].view p
+    max x[i].time gst + delta ≤ x[j].time → x.Awake j p → m ∈ x[j][p].view
 
 /-- Honest relay: whatever an active validator has seen reaches every active
     validator within Δ (after GST). Majorum makes gossip part of the model —
     "once an adversarial message is received by an honest validator, it is also
     gossiped by it" — so this is a model assumption, not protocol behaviour. -/
 def Relay (gst delta : Round) (x : Exec Pr S) : Prop :=
-  ∀ (i j : Nat) p q m, x.Awake i p → m ∈ x[i].view p →
-    max x[i].time gst + delta ≤ x[j].time → x.Awake j q → m ∈ x[j].view q
+  ∀ (i j : Nat) p q m, x.Awake i p → m ∈ x[i][p].view →
+    max x[i].time gst + delta ≤ x[j].time → x.Awake j q → m ∈ x[j][q].view
 
 /-- Nothing appears in a view unless it was signed and sent. -/
 def ViewsSound (x : Exec Pr S) : Prop :=
-  ∀ (i : Nat) p m, m ∈ x[i].view p → m ∈ x[i].sent
+  ∀ (i : Nat) (p : V) m, m ∈ x[i][p].view → m ∈ x[i].sent
 
 /-! ### Security properties
 

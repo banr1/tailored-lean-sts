@@ -148,6 +148,6 @@ def EveryoneHeardEveryone (x : TobExec) : Prop :=
     ∀ (i : Nat) (p q : V), 1 ≤ x[i].time →
       x.Awake i p →
       (⟨q, .announce q.val⟩ : SignedMsg V Msg) ∈ x[i].sent →
-      q.val ∈ (x[i].st p).heard
+      q.val ∈ x[i][p].st.heard
 
 end Framework.Sts2.Example
