@@ -61,7 +61,7 @@ structure St where
 /-- Vote once per view; re-broadcast on `resend`; abandon the view on
     `viewTimeout`. Both timer reactions push their own deadline forward. -/
 def reaction (p : V) (r : Round) (_view : View V Msg) (s : St) :
-    Event V Msg Ev → Effect St Msg :=
+    Event V Msg Ev → NodeStepResult St Msg :=
   fun e =>
     match e with
     | .tick =>

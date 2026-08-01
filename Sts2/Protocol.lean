@@ -77,10 +77,14 @@ inductive Event (V Msg Ev : Type) where
   /-- A protocol-specific event — a timer firing, say. -/
   | custom (ev : Ev)
 
-/-- The result of one reaction: the new state and the messages sent (broadcast;
-    the network decides who receives them and when). -/
-structure Effect (NodeState Msg : Type) where
-  /-- NodeState afterwards. -/
+/-- What one node's step produces: its new state, and the messages it sends
+    (broadcast — the network decides who receives them and when).
+
+    Named for what it is rather than `Effect`, which in this file means an *action's*
+    effect on the whole configuration (`ActionSpec.Effect`). The two live at different
+    levels and sharing a name was confusing. -/
+structure NodeStepResult (NodeState Msg : Type) where
+  /-- The node's state afterwards. -/
   state : NodeState
   /-- Messages sent, each signed by the reacting validator. -/
   send : Finset Msg
@@ -97,7 +101,7 @@ structure Protocol (V Msg NodeState Ev : Type) where
       anything a specification leaves open. A protocol that is in fact deterministic
       lifts its function with `step p r v s e eff := eff = f p r v s e`, which keeps
       it computable — see the examples. -/
-  step : V → Round → View V Msg → NodeState → Event V Msg Ev → Effect NodeState Msg → Prop
+  step : V → Round → View V Msg → NodeState → Event V Msg Ev → NodeStepResult NodeState Msg → Prop
   /-- Some reaction is always available: a protocol may not get stuck. This is what
       discharges each action's `feasible`, so it is the protocol-side counterpart of
       Event-B's FIS. -/
@@ -153,7 +157,7 @@ def receive (p : V) (m : SignedMsg V Msg) (c : Config V Msg NodeState) :
     Sends are *not* filtered here. A just-woken Majorum validator "receives all
     queued messages and resumes execution, but sends nothing until round
     `voting(t)`" — and it achieves that by choosing `send := ∅` in its own `step`. -/
-def install (p : V) (eff : Effect NodeState Msg) (c : Config V Msg NodeState) :
+def install (p : V) (eff : NodeStepResult NodeState Msg) (c : Config V Msg NodeState) :
     Config V Msg NodeState :=
   { c.update p (fun l => { l with st := eff.state })
       with sent := c.sent ∪ (SignedMsg.mk p '' (eff.send : Set Msg)) }
@@ -282,21 +286,21 @@ theorem Step.elim {Pr : Protocol V Msg NodeState Ev} {S : Schedule V}
     {a : Action V Msg Ev} {c c' : Config V Msg NodeState} (h : Step Pr S a c c')
     (advance : ∀ d : Config V Msg NodeState,
       motive .advance d { d with time := d.time + 1 })
-    (tick : ∀ (d : Config V Msg NodeState) (p : V) (eff : Effect NodeState Msg),
+    (tick : ∀ (d : Config V Msg NodeState) (p : V) (eff : NodeStepResult NodeState Msg),
       (spec Pr S (.tick p)).Enabled d →
       Pr.step p (bumped p d)[p].clock (bumped p d)[p].view (bumped p d)[p].st .tick eff →
       motive (.tick p) d (install p eff (bumped p d)))
     (deliver : ∀ (d : Config V Msg NodeState) (p : V) (m : SignedMsg V Msg)
-        (eff : Effect NodeState Msg),
+        (eff : NodeStepResult NodeState Msg),
       (spec Pr S (.deliver p m)).Enabled d →
       Pr.step p (receive p m d)[p].clock (receive p m d)[p].view (receive p m d)[p].st
         (.recv m) eff →
       motive (.deliver p m) d (install p eff (receive p m d)))
-    (wake : ∀ (d : Config V Msg NodeState) (p : V) (eff : Effect NodeState Msg),
+    (wake : ∀ (d : Config V Msg NodeState) (p : V) (eff : NodeStepResult NodeState Msg),
       (spec Pr S (.wake p)).Enabled d →
       Pr.step p d[p].clock d[p].view d[p].st .wake eff →
       motive (.wake p) d (install p eff d))
-    (custom : ∀ (d : Config V Msg NodeState) (p : V) (ev : Ev) (eff : Effect NodeState Msg),
+    (custom : ∀ (d : Config V Msg NodeState) (p : V) (ev : Ev) (eff : NodeStepResult NodeState Msg),
       (spec Pr S (.custom p ev)).Enabled d →
       Pr.step p d[p].clock d[p].view d[p].st (.custom ev) eff →
       motive (.custom p ev) d (install p eff d))
@@ -334,7 +338,7 @@ omit [DecidableEq Msg] in
 
     Stated over `.nodes` rather than `[…]` because `getElem_nodes` is itself a `simp`
     lemma and fires first; a version phrased with `[…]` would never match. -/
-@[simp] theorem install_clock (q : V) (eff : Effect NodeState Msg)
+@[simp] theorem install_clock (q : V) (eff : NodeStepResult NodeState Msg)
     (d : Config V Msg NodeState) (p : V) :
     ((install q eff d).nodes p).clock = (d.nodes p).clock := by
   by_cases hpq : p = q <;> simp [install, Config.update, hpq]
@@ -351,12 +355,12 @@ The API any invariant proof needs: for `install`, `receive` and `bumped`, what h
 each field of each validator. Phrased over `.nodes` for the reason given above. -/
 
 omit [DecidableEq Msg] in
-@[simp] theorem install_view (q : V) (eff : Effect NodeState Msg) (d : Config V Msg NodeState)
+@[simp] theorem install_view (q : V) (eff : NodeStepResult NodeState Msg) (d : Config V Msg NodeState)
     (p : V) : ((install q eff d).nodes p).view = (d.nodes p).view := by
   by_cases hpq : p = q <;> simp [install, Config.update, hpq]
 
 omit [DecidableEq Msg] in
-@[simp] theorem install_sent (q : V) (eff : Effect NodeState Msg) (d : Config V Msg NodeState) :
+@[simp] theorem install_sent (q : V) (eff : NodeStepResult NodeState Msg) (d : Config V Msg NodeState) :
     (install q eff d).sent = d.sent ∪ (SignedMsg.mk q '' (eff.send : Set Msg)) := rfl
 
 @[simp] theorem receive_view_self (q : V) (m : SignedMsg V Msg)

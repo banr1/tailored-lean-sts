@@ -52,7 +52,7 @@ def announced (m : SignedMsg V Msg) : Nat :=
     this one lifts with `eff = reaction …`, which keeps it computable — the `decide`
     checks below run on this function. -/
 def reaction (p : V) (r : Round) (_view : View V Msg) (s : St) :
-    Event V Msg Empty → Effect St Msg
+    Event V Msg Empty → NodeStepResult St Msg
   | .tick =>
       if r = 0 then { state := s, send := {Msg.announce p.val} }
       else { state := s, send := ∅ }
