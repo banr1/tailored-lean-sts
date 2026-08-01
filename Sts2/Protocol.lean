@@ -131,6 +131,9 @@ structure Config (V Msg State : Type) where
 instance : GetElem (Config V Msg State) V (Local V Msg State) (fun _ _ => True) where
   getElem c p _ := c.nodes p
 
+/-- Indexing is just the `nodes` map; `simp` needs telling. -/
+@[simp] theorem getElem_nodes (c : Config V Msg State) (p : V) : c[p] = c.nodes p := rfl
+
 variable [DecidableEq V] [DecidableEq Msg]
 
 /-- Change one validator's local record, leaving everything else alone. Every
@@ -154,6 +157,10 @@ def install (p : V) (eff : Effect State Msg) (c : Config V Msg State) :
     Config V Msg State :=
   { c.update p (fun l => { l with st := eff.state })
       with sent := c.sent ∪ (SignedMsg.mk p '' (eff.send : Set Msg)) }
+
+/-- `p`'s clock advanced by one. -/
+def bumped (p : V) (c : Config V Msg State) : Config V Msg State :=
+  c.update p fun l => { l with clock := l.clock + 1 }
 
 /-- `Reacts Pr p e pre c'` — `c'` is a configuration `p` may reach by reacting to `e`
     in `pre`. Existential over the permitted reactions, which is where honest
@@ -225,8 +232,7 @@ def spec (Pr : Protocol V Msg State Ev) (S : Schedule V) :
   -- guard gives exactly one tick per validator per round.
   | .tick p => {
       Enabled c := p ∈ S.awake (c.time : Int) ∧ c[p].clock < c.time
-      Effect c c' := Reacts Pr p .tick
-        (c.update p fun l => { l with clock := l.clock + 1 }) c'
+      Effect c c' := Reacts Pr p .tick (bumped p c) c'
       feasible _ _ := reacts_total Pr p .tick _ }
   -- Any sent message may be delivered to any awake validator, at any time.
   -- Delivery to a sleeping validator is simply not enabled, which is how messages
@@ -260,6 +266,97 @@ def spec (Pr : Protocol V Msg State Ev) (S : Schedule V) :
 def Step (Pr : Protocol V Msg State Ev) (S : Schedule V) (a : Action V Msg Ev)
     (c c' : Config V Msg State) : Prop :=
   (spec Pr S a).Enabled c ∧ (spec Pr S a).Effect c c'
+
+/-- Case analysis on a step, one case per action, with the successor already computed.
+
+    `Step` is a `def` — a conjunction — so `cases` cannot split it by action; every proof
+    would otherwise open with `obtain ⟨-, eff, -, h⟩; subst h` in each case. This does
+    that once. Each case receives the action's enabling condition, the effect the
+    protocol permitted, and a goal whose successor is the concrete configuration rather
+    than an unknown constrained by an equation.
+
+    It is the non-inductive equivalent of `cases` on an inductive step relation, and it
+    is derived from `spec`, so it cannot drift from the step relation. -/
+theorem Step.elim {Pr : Protocol V Msg State Ev} {S : Schedule V}
+    {motive : Action V Msg Ev → Config V Msg State → Config V Msg State → Prop}
+    {a : Action V Msg Ev} {c c' : Config V Msg State} (h : Step Pr S a c c')
+    (advance : ∀ d : Config V Msg State,
+      motive .advance d { d with time := d.time + 1 })
+    (tick : ∀ (d : Config V Msg State) (p : V) (eff : Effect State Msg),
+      (spec Pr S (.tick p)).Enabled d →
+      Pr.step p (bumped p d)[p].clock (bumped p d)[p].view (bumped p d)[p].st .tick eff →
+      motive (.tick p) d (install p eff (bumped p d)))
+    (deliver : ∀ (d : Config V Msg State) (p : V) (m : SignedMsg V Msg)
+        (eff : Effect State Msg),
+      (spec Pr S (.deliver p m)).Enabled d →
+      Pr.step p (receive p m d)[p].clock (receive p m d)[p].view (receive p m d)[p].st
+        (.recv m) eff →
+      motive (.deliver p m) d (install p eff (receive p m d)))
+    (wake : ∀ (d : Config V Msg State) (p : V) (eff : Effect State Msg),
+      (spec Pr S (.wake p)).Enabled d →
+      Pr.step p d[p].clock d[p].view d[p].st .wake eff →
+      motive (.wake p) d (install p eff d))
+    (custom : ∀ (d : Config V Msg State) (p : V) (ev : Ev) (eff : Effect State Msg),
+      (spec Pr S (.custom p ev)).Enabled d →
+      Pr.step p d[p].clock d[p].view d[p].st (.custom ev) eff →
+      motive (.custom p ev) d (install p eff d))
+    (adversarial : ∀ (d : Config V Msg State) (p : V) (m : Msg),
+      (spec Pr S (.adversarial p m)).Enabled d →
+      motive (.adversarial p m) d { d with sent := insert ⟨p, m⟩ d.sent }) :
+    motive a c c' := by
+  cases a with
+  | advance => obtain ⟨-, rfl⟩ := h; exact advance c
+  | tick p => obtain ⟨he, eff, hp, rfl⟩ := h; exact tick c p eff he hp
+  | deliver p m => obtain ⟨he, eff, hp, rfl⟩ := h; exact deliver c p m eff he hp
+  | wake p => obtain ⟨he, eff, hp, rfl⟩ := h; exact wake c p eff he hp
+  | custom p ev => obtain ⟨he, eff, hp, rfl⟩ := h; exact custom c p ev eff he hp
+  | adversarial p m => obtain ⟨he, rfl⟩ := h; exact adversarial c p m he
+
+/-! ### Two invariants, proved through the eliminator
+
+Not needed by the framework, but they are what the eliminator is for: each case arrives
+with its successor already concrete, so the proof is one line per action with no
+destructuring. -/
+
+/-- The network never forgets. -/
+theorem sent_mono {Pr : Protocol V Msg State Ev} {S : Schedule V} {a : Action V Msg Ev}
+    {c c' : Config V Msg State} (h : Step Pr S a c c') : c.sent ⊆ c'.sent := by
+  refine h.elim (motive := fun _ d d' => d.sent ⊆ d'.sent) ?_ ?_ ?_ ?_ ?_ ?_
+  · exact fun _ _ hx => hx
+  · exact fun _ _ _ _ _ _ hx => Or.inl hx
+  · exact fun _ _ _ _ _ _ _ hx => Or.inl hx
+  · exact fun _ _ _ _ _ _ hx => Or.inl hx
+  · exact fun _ _ _ _ _ _ _ hx => Or.inl hx
+  · exact fun _ _ _ _ _ hx => Or.inr hx
+
+omit [DecidableEq Msg] in
+/-- Installing a reaction leaves every clock alone: only `st` and `sent` change.
+
+    Stated over `.nodes` rather than `[…]` because `getElem_nodes` is itself a `simp`
+    lemma and fires first; a version phrased with `[…]` would never match. -/
+@[simp] theorem install_clock (q : V) (eff : Effect State Msg)
+    (d : Config V Msg State) (p : V) :
+    ((install q eff d).nodes p).clock = (d.nodes p).clock := by
+  by_cases hpq : p = q <;> simp [install, Config.update, hpq]
+
+/-- Filing a delivered message leaves every clock alone. -/
+@[simp] theorem receive_clock (q : V) (m : SignedMsg V Msg)
+    (d : Config V Msg State) (p : V) :
+    ((receive q m d).nodes p).clock = (d.nodes p).clock := by
+  by_cases hpq : p = q <;> simp [receive, Config.update, hpq]
+
+/-- Clocks never go backwards. -/
+theorem clock_mono {Pr : Protocol V Msg State Ev} {S : Schedule V} {a : Action V Msg Ev}
+    {c c' : Config V Msg State} (h : Step Pr S a c c') (p : V) :
+    c[p].clock ≤ c'[p].clock := by
+  refine h.elim (motive := fun _ d d' => d[p].clock ≤ d'[p].clock) ?_ ?_ ?_ ?_ ?_ ?_
+  · exact fun _ => le_refl _
+  · intro d q eff _ _
+    by_cases hpq : p = q <;> simp [bumped, Config.update, hpq]
+  · exact fun _ _ _ _ _ _ => by simp
+  · exact fun _ _ _ _ _ => by simp
+  · exact fun _ _ _ _ _ _ => by simp
+  · exact fun _ _ _ _ => le_refl _
 
 /-- Initial configurations. -/
 def Init (Pr : Protocol V Msg State Ev) (c : Config V Msg State) : Prop :=

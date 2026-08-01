@@ -17,8 +17,13 @@ namespace Framework.Sts2D
 
     Slots are deliberately absent: Majorum's `4Δ`-round slot is a property of
     that model, and it defines its own `proposing`/`voting` rounds over `Round`
-    (see `Models.Majorum`). TOB-SVD has no round-aligned slots at all. -/
-abbrev Round := Nat
+    (see `Models.Majorum`). TOB-SVD has no round-aligned slots at all.
+
+    **Notation, not an `abbrev`.** Measured twice in this repository now: `omega` does
+    not see through a reducible alias, so `abbrev Round := Nat` makes arithmetic on
+    rounds unprovable by it. Notation expands at parse time, leaving nothing to hide
+    the `Nat`. -/
+scoped notation "Round" => Nat
 
 /-- A message together with its signer. Signing is structural: appearing under
     `sender = p` *is* being signed by `p`. -/
