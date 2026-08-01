@@ -1,6 +1,6 @@
 import Mathlib.Data.Set.Image
 import Common.System
-import Framework.Schedule
+import Framework.Sts2.Schedule
 
 /-!
 # Protocols and the system they induce
@@ -31,13 +31,13 @@ Who is awake, who is active, who is corrupted, and when, all come from the
 `Schedule` — those
 are not transitions, because in both papers they are the adversary's fixed
 choices over an execution. Timing assumptions are likewise not step guards but
-predicates on executions (`Framework.Execution`), so that different models
+predicates on executions (`Framework.Sts2.Execution`), so that different models
 can impose different ones over the same step relation.
 -/
 
 set_option autoImplicit false
 
-namespace Framework
+namespace Framework.Sts2
 
 open Common (System)
 
@@ -190,4 +190,4 @@ def system (V Msg State Ev : Type) [DecidableEq V] [DecidableEq Msg]
   Init := Init Pr
   Step := Step V Msg State Ev Pr S
 
-end Framework
+end Framework.Sts2

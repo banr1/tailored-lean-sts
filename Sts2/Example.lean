@@ -1,5 +1,5 @@
 import Mathlib.Tactic.NormNum
-import Framework.Models
+import Framework.Sts2.Models
 
 /-!
 # A worked example
@@ -19,7 +19,7 @@ Read it as the answer to "how do I use this?":
 
 set_option autoImplicit false
 
-namespace Framework.Example
+namespace Framework.Sts2.Example
 
 /-! ## 1. A protocol -/
 
@@ -150,4 +150,4 @@ def EveryoneHeardEveryone (x : TobExec) : Prop :=
       (⟨q, .announce q.val⟩ : SignedMsg V Msg) ∈ x[i].sent →
       q.val ∈ (x[i].st p).heard
 
-end Framework.Example
+end Framework.Sts2.Example

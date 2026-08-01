@@ -1,4 +1,4 @@
-import Framework.Protocol
+import Framework.Sts2.Protocol
 
 /-!
 # Executions, network assumptions, security properties
@@ -10,12 +10,12 @@ framework is a **predicate on executions** rather than a guard on `Step`: the
 two models we care about impose different ones over the same step relation.
 
 Each predicate here is à la carte. A "model" is whichever conjunction of them a
-paper assumes — see `Framework.Models`.
+paper assumes — see `Framework.Sts2.Models`.
 -/
 
 set_option autoImplicit false
 
-namespace Framework
+namespace Framework.Sts2
 
 open Common (System)
 
@@ -151,4 +151,4 @@ def Secure {Tx : Type} (out : V → Config V Msg State → Out)
     (tafter tconf : Round) (x : Exec Pr S) : Prop :=
   Safe out Pre tafter x ∧ Live out mem pool tafter tconf x
 
-end Framework
+end Framework.Sts2

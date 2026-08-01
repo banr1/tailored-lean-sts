@@ -1,9 +1,9 @@
-import Framework.Protocol
+import Framework.Sts2.Protocol
 
 /-!
 # Custom events: two timers
 
-`Framework.Example` uses `Ev := Empty`, so it never exercises `custom` or
+`Framework.Sts2.Example` uses `Ev := Empty`, so it never exercises `custom` or
 `enabled`. This is the counterpart: a toy protocol with **two** protocol-specific
 events, which is where the interesting behaviour lives, since the two need
 different enabling conditions and reschedule themselves differently.
@@ -23,7 +23,7 @@ The three things worth seeing:
 
 set_option autoImplicit false
 
-namespace Framework.CustomEvents
+namespace Framework.Sts2.CustomEvents
 
 /-- Four validators. -/
 abbrev V := Fin 4
@@ -131,4 +131,4 @@ example : (proto.step 1 5 ∅ voted1 (.custom .resend)).send = {Msg.vote 0 1} :=
 example : (proto.step 1 5 ∅ voted1 (.custom .resend)).state.resendAt = 7 := by
   decide
 
-end Framework.CustomEvents
+end Framework.Sts2.CustomEvents

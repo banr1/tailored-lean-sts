@@ -1,4 +1,4 @@
-import Framework.Message
+import Framework.Sts2.Message
 
 /-!
 # The adversary's schedule
@@ -22,7 +22,7 @@ constraints — each is a separate predicate a model opts into.
 
 set_option autoImplicit false
 
-namespace Framework
+namespace Framework.Sts2
 
 variable {V : Type} [Fintype V] [DecidableEq V]
 
@@ -75,4 +75,4 @@ def awakeThroughout (a b : Int) : Finset V := (Finset.Icc a b).inf S.awake
 
 end Schedule
 
-end Framework
+end Framework.Sts2

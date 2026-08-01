@@ -10,7 +10,7 @@ adversary, or a protocol.
 
 set_option autoImplicit false
 
-namespace Framework
+namespace Framework.Sts2
 
 /-- Discrete rounds, as in Majorum §Model ("time is divided into discrete
     rounds") and TOB-SVD's time steps.
@@ -34,4 +34,4 @@ structure SignedMsg (V Msg : Type) where
     protocol can neither forget nor fabricate a delivery. -/
 abbrev View (V Msg : Type) := Finset (SignedMsg V Msg)
 
-end Framework
+end Framework.Sts2

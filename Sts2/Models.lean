@@ -1,5 +1,5 @@
 import Mathlib.Data.Rat.Defs
-import Framework.Execution
+import Framework.Sts2.Execution
 
 /-!
 # Two models, expressed
@@ -25,7 +25,7 @@ in terms of continuous wakefulness instead.
 
 set_option autoImplicit false
 
-namespace Framework.Models
+namespace Framework.Sts2.Models
 
 variable {V Msg State Ev : Type} [Fintype V] [DecidableEq V] [DecidableEq Msg]
 
@@ -147,4 +147,4 @@ end Params
 
 end TobSvd
 
-end Framework.Models
+end Framework.Sts2.Models
