@@ -45,33 +45,40 @@ def announced (m : SignedMsg V Msg) : Nat :=
   match m.msg with
   | .announce k => k
 
-/-- Announce your own index at round 0, and record each announcement as it
-    arrives. `Ev := Empty` because this protocol has no events of its own — a
-    protocol with timers would put them there and constrain them via `enabled`. -/
+/-- Announce your own index at round 0, and record each announcement as it arrives.
+
+    Written as a **function**, then lifted into `Protocol.step`, which is a relation
+    so that honest behaviour *may* be nondeterministic. A deterministic protocol like
+    this one lifts with `eff = reaction …`, which keeps it computable — the `decide`
+    checks below run on this function. -/
+def reaction (p : V) (r : Round) (_view : View V Msg) (s : St) :
+    Event V Msg Empty → Effect St Msg
+  | .tick =>
+      if r = 0 then { state := s, send := {Msg.announce p.val} }
+      else { state := s, send := ∅ }
+  | .recv m => { state := { s with heard := insert (announced m) s.heard }, send := ∅ }
+  | .wake => { state := s, send := ∅ }
+  | .custom ev => ev.elim
+
+/-- `Ev := Empty` because this protocol has no events of its own — a protocol with
+    timers would put them there and constrain them via `enabled`. -/
 def proto : Protocol V Msg St Empty where
-  init := fun _ => { heard := ∅ }
-  step := fun p r _view s e =>
-    match e with
-    | .tick =>
-        if r = 0 then { state := s, send := {Msg.announce p.val} }
-        else { state := s, send := ∅ }
-    | .recv m =>
-        { state := { s with heard := insert (announced m) s.heard }, send := ∅ }
-    | .wake => { state := s, send := ∅ }
-    | .custom ev => ev.elim
-  enabled := fun _ _ ev => ev.elim
+  init _ := { heard := ∅ }
+  step p r view s e eff := eff = reaction p r view s e
+  total _ _ _ _ _ := ⟨_, rfl⟩
+  enabled _ _ ev := ev.elim
 
 /-- It really runs: validator 2 announces itself when ticked at round 0. -/
-example : (proto.step 2 0 ∅ (proto.init 2) .tick).send = {Msg.announce 2} := by
+example : (reaction 2 0 ∅ (proto.init 2) .tick).send = {Msg.announce 2} := by
   decide
 
 /-- And stays quiet at later rounds. -/
-example : (proto.step 2 1 ∅ (proto.init 2) .tick).send = ∅ := by decide
+example : (reaction 2 1 ∅ (proto.init 2) .tick).send = ∅ := by decide
 
 /-- And it reacts to an *arrival*, which is what `recv` carrying the message
     buys: the reaction needs no scan of the view. -/
 example :
-    (proto.step 2 1 ∅ (proto.init 2) (.recv ⟨1, .announce 1⟩)).state.heard
+    (reaction 2 1 ∅ (proto.init 2) (.recv ⟨1, .announce 1⟩)).state.heard
       = {1} := by decide
 
 /-! ## 2. Schedules — what the adversary does

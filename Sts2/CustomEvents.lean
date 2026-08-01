@@ -60,9 +60,9 @@ structure St where
 
 /-- Vote once per view; re-broadcast on `resend`; abandon the view on
     `viewTimeout`. Both timer reactions push their own deadline forward. -/
-def proto : Protocol V Msg St Ev where
-  init := fun _ => { view := 0, voted := none, heard := ∅, timeoutAt := 4, resendAt := 2 }
-  step := fun p r _view s e =>
+def reaction (p : V) (r : Round) (_view : View V Msg) (s : St) :
+    Event V Msg Ev → Effect St Msg :=
+  fun e =>
     match e with
     | .tick =>
         if s.voted = none then
@@ -85,7 +85,13 @@ def proto : Protocol V Msg St Ev where
         match s.voted with
         | some k => { state := { s with resendAt := r + 2 }, send := {Msg.vote s.view k} }
         | none => { state := s, send := ∅ }
-  enabled := fun r s ev =>
+/-- The protocol, lifting the deterministic `reaction` into the relational
+    `Protocol.step`. -/
+def proto : Protocol V Msg St Ev where
+  init _ := { view := 0, voted := none, heard := ∅, timeoutAt := 4, resendAt := 2 }
+  step p r view s e eff := eff = reaction p r view s e
+  total _ _ _ _ _ := ⟨_, rfl⟩
+  enabled r s ev :=
     match ev with
     | .viewTimeout => s.timeoutAt ≤ r
     | .resend => s.resendAt ≤ r ∧ s.voted ≠ none
@@ -112,23 +118,23 @@ example : ¬ proto.enabled 5 { voted1 with voted := none } .resend := by
 
 /-- `viewTimeout` abandons the view and complains about the one it left. -/
 example :
-    (proto.step 1 4 ∅ (proto.init 1) (.custom .viewTimeout)).send
+    (reaction 1 4 ∅ (proto.init 1) (.custom .viewTimeout)).send
       = {Msg.complain 0} := by decide
 
 /-- …moving to the next view and pushing its own deadline out, so it is no longer
     enabled at the round it just fired in. -/
 example :
-    ((proto.step 1 4 ∅ (proto.init 1) (.custom .viewTimeout)).state.view,
-      (proto.step 1 4 ∅ (proto.init 1) (.custom .viewTimeout)).state.timeoutAt)
+    ((reaction 1 4 ∅ (proto.init 1) (.custom .viewTimeout)).state.view,
+      (reaction 1 4 ∅ (proto.init 1) (.custom .viewTimeout)).state.timeoutAt)
       = (1, 8) := by decide
 
 /-- `resend` re-broadcasts the existing vote rather than casting a new one. -/
-example : (proto.step 1 5 ∅ voted1 (.custom .resend)).send = {Msg.vote 0 1} := by
+example : (reaction 1 5 ∅ voted1 (.custom .resend)).send = {Msg.vote 0 1} := by
   decide
 
 /-- And it too pushes its deadline forward; had it not, it would remain enabled
     and could fire again in the same round. -/
-example : (proto.step 1 5 ∅ voted1 (.custom .resend)).state.resendAt = 7 := by
+example : (reaction 1 5 ∅ voted1 (.custom .resend)).state.resendAt = 7 := by
   decide
 
 end Framework.Sts2.CustomEvents

@@ -89,9 +89,19 @@ structure Effect (State Msg : Type) where
 structure Protocol (V Msg State Ev : Type) where
   /-- Initial state of each validator. -/
   init : V → State
-  /-- `step p r view s e` — how `p` reacts to `e`, where `r` is **`p`'s own clock
-      reading**, not real time. -/
-  step : V → Round → View V Msg → State → Event V Msg Ev → Effect State Msg
+  /-- `step p r view s e eff` — `eff` is *a* reaction `p` may have to `e`, where `r`
+      is **`p`'s own clock reading**, not real time.
+
+      A relation, not a function, so honest behaviour may be underspecified: which
+      payload a leader proposes, which of several equally valid chains it follows,
+      anything a specification leaves open. A protocol that is in fact deterministic
+      lifts its function with `step p r v s e eff := eff = f p r v s e`, which keeps
+      it computable — see the examples. -/
+  step : V → Round → View V Msg → State → Event V Msg Ev → Effect State Msg → Prop
+  /-- Some reaction is always available: a protocol may not get stuck. This is what
+      discharges each action's `feasible`, so it is the protocol-side counterpart of
+      Event-B's FIS. -/
+  total : ∀ p r view s e, ∃ eff, step p r view s e eff
   /-- When a protocol-specific event may fire, also against the local clock. -/
   enabled : Round → State → Ev → Prop
 
@@ -134,19 +144,31 @@ def receive (p : V) (m : SignedMsg V Msg) (c : Config V Msg State) :
     Config V Msg State :=
   c.update p fun l => { l with view := insert m l.view }
 
-/-- Run `p`'s reaction to `e` against its own clock: install the new state, and add
-    what it sent to the network signed by `p`.
+/-- Apply a reaction: install `p`'s new state and add what it sent to the network,
+    signed by `p`.
 
     Sends are *not* filtered here. A just-woken Majorum validator "receives all
     queued messages and resumes execution, but sends nothing until round
-    `voting(t)`" — and it achieves that by returning `send := ∅` from its own
-    `step`. -/
-def react (Pr : Protocol V Msg State Ev) (p : V) (e : Event V Msg Ev)
-    (c : Config V Msg State) : Config V Msg State :=
-  { c.update p (fun l => { l with st := (Pr.step p l.clock l.view l.st e).state })
-      with sent := c.sent ∪
-        (SignedMsg.mk p ''
-          ((Pr.step p c[p].clock c[p].view c[p].st e).send : Set Msg)) }
+    `voting(t)`" — and it achieves that by choosing `send := ∅` in its own `step`. -/
+def install (p : V) (eff : Effect State Msg) (c : Config V Msg State) :
+    Config V Msg State :=
+  { c.update p (fun l => { l with st := eff.state })
+      with sent := c.sent ∪ (SignedMsg.mk p '' (eff.send : Set Msg)) }
+
+/-- `Reacts Pr p e pre c'` — `c'` is a configuration `p` may reach by reacting to `e`
+    in `pre`. Existential over the permitted reactions, which is where honest
+    nondeterminism lives. -/
+def Reacts (Pr : Protocol V Msg State Ev) (p : V) (e : Event V Msg Ev)
+    (pre c' : Config V Msg State) : Prop :=
+  ∃ eff, Pr.step p pre[p].clock pre[p].view pre[p].st e eff ∧ c' = install p eff pre
+
+omit [DecidableEq Msg] in
+/-- Reacting is always possible, from `Protocol.total`. Every action whose effect is
+    a reaction discharges its `feasible` with this. -/
+theorem reacts_total (Pr : Protocol V Msg State Ev) (p : V) (e : Event V Msg Ev)
+    (pre : Config V Msg State) : ∃ c', Reacts Pr p e pre c' := by
+  obtain ⟨eff, he⟩ := Pr.total p pre[p].clock pre[p].view pre[p].st e
+  exact ⟨_, eff, he, rfl⟩
 
 /-- Transition labels. -/
 inductive Action (V Msg Ev : Type) where
@@ -203,29 +225,29 @@ def spec (Pr : Protocol V Msg State Ev) (S : Schedule V) :
   -- guard gives exactly one tick per validator per round.
   | .tick p => {
       Enabled c := p ∈ S.awake (c.time : Int) ∧ c[p].clock < c.time
-      Effect c c' := c' = react Pr p .tick
-        (c.update p fun l => { l with clock := l.clock + 1 })
-      feasible _ _ := ⟨_, rfl⟩ }
+      Effect c c' := Reacts Pr p .tick
+        (c.update p fun l => { l with clock := l.clock + 1 }) c'
+      feasible _ _ := reacts_total Pr p .tick _ }
   -- Any sent message may be delivered to any awake validator, at any time.
   -- Delivery to a sleeping validator is simply not enabled, which is how messages
   -- get queued: they stay in `sent` until it wakes. The message is filed before the
   -- reaction runs, so `step` sees it in the view too.
   | .deliver p m => {
       Enabled c := m ∈ c.sent ∧ p ∈ S.awake (c.time : Int)
-      Effect c c' := c' = react Pr p (.recv m) (receive p m c)
-      feasible _ _ := ⟨_, rfl⟩ }
+      Effect c c' := Reacts Pr p (.recv m) (receive p m c) c'
+      feasible _ _ := reacts_total Pr p (.recv m) _ }
   -- Awake now, asleep in the previous round. Reported because a protocol cannot
   -- start a joining procedure it is not told about.
   | .wake p => {
       Enabled c := p ∈ S.awake (c.time : Int) ∧ p ∉ S.awake ((c.time : Int) - 1)
-      Effect c c' := c' = react Pr p .wake c
-      feasible _ _ := ⟨_, rfl⟩ }
+      Effect c c' := Reacts Pr p .wake c c'
+      feasible _ _ := reacts_total Pr p .wake _ }
   -- A protocol-specific event, if the protocol allows it at the validator's own
   -- clock reading.
   | .custom p ev => {
       Enabled c := p ∈ S.awake (c.time : Int) ∧ Pr.enabled c[p].clock c[p].st ev
-      Effect c c' := c' = react Pr p (.custom ev) c
-      feasible _ _ := ⟨_, rfl⟩ }
+      Effect c c' := Reacts Pr p (.custom ev) c c'
+      feasible _ _ := reacts_total Pr p (.custom ev) _ }
   -- An adversarial validator signs anything.
   | .adversarial p m => {
       Enabled c := p ∈ S.adv (c.time : Int)
