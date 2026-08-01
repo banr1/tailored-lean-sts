@@ -93,19 +93,19 @@ structure NodeStepResult (NodeState Msg : Type) where
 structure Protocol (Node Msg NodeState Ev : Type) where
   /-- Initial state of each validator. -/
   init : Node → NodeState
-  /-- `step p r view s e eff` — `eff` is *a* reaction `p` may have to `e`, where `r`
+  /-- `step p r view s e res` — `res` is *a* reaction `p` may have to `e`, where `r`
       is **`p`'s own clock reading**, not real time.
 
       A relation, not a function, so honest behaviour may be underspecified: which
       payload a leader proposes, which of several equally valid chains it follows,
       anything a specification leaves open. A protocol that is in fact deterministic
-      lifts its function with `step p r v s e eff := eff = f p r v s e`, which keeps
+      lifts its function with `step p r v s e res := res = f p r v s e`, which keeps
       it computable — see the examples. -/
   step : Node → Time → View Node Msg → NodeState → Event Node Msg Ev → NodeStepResult NodeState Msg → Prop
   /-- Some reaction is always available: a protocol may not get stuck. This is what
       discharges each action's `feasible`, so it is the protocol-side counterpart of
       Event-B's FIS. -/
-  total : ∀ p r view s e, ∃ eff, step p r view s e eff
+  total : ∀ p r view s e, ∃ res, step p r view s e res
   /-- When a protocol-specific event may fire, also against the local clock. -/
   enabled : Time → NodeState → Ev → Prop
 
@@ -148,7 +148,7 @@ variable [DecidableEq Node] [DecidableEq Msg]
 /-- Replace `p`'s protocol state, leaving its clock and view alone.
 
     One setter per field rather than one that replaces the whole `Local` record: the name
-    then says exactly what changes, which matters because `install`, `receive` and
+    then says exactly what changes, which matters because `applyNodeStepResult`, `receive` and
     `setClock` each touch a different field. The cost is that the `if` appears in each of
     the three, where a record-level setter factored it out once. -/
 def Config.setNodeState (c : Config Node Msg NodeState) (p : Node) (s : NodeState) :
@@ -167,16 +167,16 @@ def receive (p : Node) (m : SignedMsg Node Msg) (c : Config Node Msg NodeState) 
   { c with nodes := fun q =>
       if p = q then { c[q] with view := insert m c[q].view } else c[q] }
 
-/-- Apply a reaction: install `p`'s new state and add what it sent to the network,
+/-- Apply a reaction: applyNodeStepResult `p`'s new state and add what it sent to the network,
     signed by `p`.
 
     Sends are *not* filtered here. A just-woken Majorum validator "receives all
     queued messages and resumes execution, but sends nothing until round
     `voting(t)`" — and it achieves that by choosing `send := ∅` in its own `step`. -/
-def install (p : Node) (eff : NodeStepResult NodeState Msg) (c : Config Node Msg NodeState) :
+def applyNodeStepResult (p : Node) (res : NodeStepResult NodeState Msg) (c : Config Node Msg NodeState) :
     Config Node Msg NodeState :=
-  { c.setNodeState p eff.state
-      with sent := c.sent ∪ (SignedMsg.mk p '' (eff.send : Set Msg)) }
+  { c.setNodeState p res.state
+      with sent := c.sent ∪ (SignedMsg.mk p '' (res.send : Set Msg)) }
 
 /-- `p`'s clock now reads `t`. The framework says nothing about which `t` — see
     `Framework.Sts2.Execution` for the assumptions that pin it down. -/
@@ -190,15 +190,15 @@ def setClock (p : Node) (t : Time) (c : Config Node Msg NodeState) :
     nondeterminism lives. -/
 def Reacts (Pr : Protocol Node Msg NodeState Ev) (p : Node) (e : Event Node Msg Ev)
     (pre c' : Config Node Msg NodeState) : Prop :=
-  ∃ eff, Pr.step p pre[p].clock pre[p].view pre[p].st e eff ∧ c' = install p eff pre
+  ∃ res, Pr.step p pre[p].clock pre[p].view pre[p].st e res ∧ c' = applyNodeStepResult p res pre
 
 omit [DecidableEq Msg] in
 /-- Reacting is always possible, from `Protocol.total`. Every action whose effect is
     a reaction discharges its `feasible` with this. -/
 theorem reacts_total (Pr : Protocol Node Msg NodeState Ev) (p : Node) (e : Event Node Msg Ev)
     (pre : Config Node Msg NodeState) : ∃ c', Reacts Pr p e pre c' := by
-  obtain ⟨eff, he⟩ := Pr.total p pre[p].clock pre[p].view pre[p].st e
-  exact ⟨_, eff, he, rfl⟩
+  obtain ⟨res, he⟩ := Pr.total p pre[p].clock pre[p].view pre[p].st e
+  exact ⟨_, res, he, rfl⟩
 
 /-- Transition labels. -/
 inductive Action (Node Msg Ev : Type) where
@@ -297,7 +297,7 @@ def Step (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) (a : Action N
 /-- Case analysis on a step, one case per action, with the successor already computed.
 
     `Step` is a `def` — a conjunction — so `cases` cannot split it by action; every proof
-    would otherwise open with `obtain ⟨-, eff, -, h⟩; subst h` in each case. This does
+    would otherwise open with `obtain ⟨-, res, -, h⟩; subst h` in each case. This does
     that once. Each case receives the action's enabling condition, the effect the
     protocol permitted, and a goal whose successor is the concrete configuration rather
     than an unknown constrained by an equation.
@@ -310,35 +310,35 @@ theorem Step.elim {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
     (advance : ∀ (d : Config Node Msg NodeState) (t : Time),
       motive (.advance t) d { d with time := t })
     (tick : ∀ (d : Config Node Msg NodeState) (p : Node) (t : Time)
-        (eff : NodeStepResult NodeState Msg),
+        (res : NodeStepResult NodeState Msg),
       (spec Pr S (.tick p t)).Enabled d →
       Pr.step p (setClock p t d)[p].clock (setClock p t d)[p].view (setClock p t d)[p].st
-        .tick eff →
-      motive (.tick p t) d (install p eff (setClock p t d)))
+        .tick res →
+      motive (.tick p t) d (applyNodeStepResult p res (setClock p t d)))
     (deliver : ∀ (d : Config Node Msg NodeState) (p : Node) (m : SignedMsg Node Msg)
-        (eff : NodeStepResult NodeState Msg),
+        (res : NodeStepResult NodeState Msg),
       (spec Pr S (.deliver p m)).Enabled d →
       Pr.step p (receive p m d)[p].clock (receive p m d)[p].view (receive p m d)[p].st
-        (.recv m) eff →
-      motive (.deliver p m) d (install p eff (receive p m d)))
-    (wake : ∀ (d : Config Node Msg NodeState) (p : Node) (eff : NodeStepResult NodeState Msg),
+        (.recv m) res →
+      motive (.deliver p m) d (applyNodeStepResult p res (receive p m d)))
+    (wake : ∀ (d : Config Node Msg NodeState) (p : Node) (res : NodeStepResult NodeState Msg),
       (spec Pr S (.wake p)).Enabled d →
-      Pr.step p d[p].clock d[p].view d[p].st .wake eff →
-      motive (.wake p) d (install p eff d))
-    (custom : ∀ (d : Config Node Msg NodeState) (p : Node) (ev : Ev) (eff : NodeStepResult NodeState Msg),
+      Pr.step p d[p].clock d[p].view d[p].st .wake res →
+      motive (.wake p) d (applyNodeStepResult p res d))
+    (custom : ∀ (d : Config Node Msg NodeState) (p : Node) (ev : Ev) (res : NodeStepResult NodeState Msg),
       (spec Pr S (.custom p ev)).Enabled d →
-      Pr.step p d[p].clock d[p].view d[p].st (.custom ev) eff →
-      motive (.custom p ev) d (install p eff d))
+      Pr.step p d[p].clock d[p].view d[p].st (.custom ev) res →
+      motive (.custom p ev) d (applyNodeStepResult p res d))
     (adversarial : ∀ (d : Config Node Msg NodeState) (p : Node) (m : Msg),
       (spec Pr S (.adversarial p m)).Enabled d →
       motive (.adversarial p m) d { d with sent := insert ⟨p, m⟩ d.sent }) :
     motive a c c' := by
   cases a with
   | advance t => obtain ⟨-, rfl⟩ := h; exact advance c t
-  | tick p t => obtain ⟨he, eff, hp, rfl⟩ := h; exact tick c p t eff he hp
-  | deliver p m => obtain ⟨he, eff, hp, rfl⟩ := h; exact deliver c p m eff he hp
-  | wake p => obtain ⟨he, eff, hp, rfl⟩ := h; exact wake c p eff he hp
-  | custom p ev => obtain ⟨he, eff, hp, rfl⟩ := h; exact custom c p ev eff he hp
+  | tick p t => obtain ⟨he, res, hp, rfl⟩ := h; exact tick c p t res he hp
+  | deliver p m => obtain ⟨he, res, hp, rfl⟩ := h; exact deliver c p m res he hp
+  | wake p => obtain ⟨he, res, hp, rfl⟩ := h; exact wake c p res he hp
+  | custom p ev => obtain ⟨he, res, hp, rfl⟩ := h; exact custom c p ev res he hp
   | adversarial p m => obtain ⟨he, rfl⟩ := h; exact adversarial c p m he
 
 /-! ### Two invariants, proved through the eliminator
@@ -367,13 +367,13 @@ invariant proofs actually cite.
 
 Only the second layer is `@[simp]`. The read-back lemmas are cited explicitly, because as
 `simp` lemmas they fire first and expand a bracket into nested `if`s, after which the field
-lemmas no longer match — the same shadowing that once made `install_clock` unusable, in the
+lemmas no longer match — the same shadowing that once made `applyNodeStepResult_clock` unusable, in the
 opposite direction. -/
 
 omit [DecidableEq Msg] in
-theorem install_getElem (q : Node) (eff : NodeStepResult NodeState Msg)
+theorem applyNodeStepResult_getElem (q : Node) (res : NodeStepResult NodeState Msg)
     (d : Config Node Msg NodeState) (p : Node) :
-    (install q eff d)[p] = (d.setNodeState q eff.state)[p] := rfl
+    (applyNodeStepResult q res d)[p] = (d.setNodeState q res.state)[p] := rfl
 
 theorem receive_getElem (q : Node) (m : SignedMsg Node Msg)
     (d : Config Node Msg NodeState) (p : Node) :
@@ -385,21 +385,21 @@ theorem setClock_getElem (q : Node) (t : Time) (d : Config Node Msg NodeState)
     (p : Node) : (setClock q t d)[p] = if q = p then { d[p] with clock := t } else d[p] := rfl
 
 omit [DecidableEq Msg] in
-@[simp] theorem install_clock (q : Node) (eff : NodeStepResult NodeState Msg)
+@[simp] theorem applyNodeStepResult_clock (q : Node) (res : NodeStepResult NodeState Msg)
     (d : Config Node Msg NodeState) (p : Node) :
-    (install q eff d)[p].clock = d[p].clock := by
-  by_cases hpq : q = p <;> simp [install_getElem, hpq]
+    (applyNodeStepResult q res d)[p].clock = d[p].clock := by
+  by_cases hpq : q = p <;> simp [applyNodeStepResult_getElem, hpq]
 
 omit [DecidableEq Msg] in
-@[simp] theorem install_view (q : Node) (eff : NodeStepResult NodeState Msg)
+@[simp] theorem applyNodeStepResult_view (q : Node) (res : NodeStepResult NodeState Msg)
     (d : Config Node Msg NodeState) (p : Node) :
-    (install q eff d)[p].view = d[p].view := by
-  by_cases hpq : q = p <;> simp [install_getElem, hpq]
+    (applyNodeStepResult q res d)[p].view = d[p].view := by
+  by_cases hpq : q = p <;> simp [applyNodeStepResult_getElem, hpq]
 
 omit [DecidableEq Msg] in
-@[simp] theorem install_sent (q : Node) (eff : NodeStepResult NodeState Msg)
+@[simp] theorem applyNodeStepResult_sent (q : Node) (res : NodeStepResult NodeState Msg)
     (d : Config Node Msg NodeState) :
-    (install q eff d).sent = d.sent ∪ (SignedMsg.mk q '' (eff.send : Set Msg)) := rfl
+    (applyNodeStepResult q res d).sent = d.sent ∪ (SignedMsg.mk q '' (res.send : Set Msg)) := rfl
 
 @[simp] theorem receive_clock (q : Node) (m : SignedMsg Node Msg)
     (d : Config Node Msg NodeState) (p : Node) :

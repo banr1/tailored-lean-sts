@@ -49,7 +49,7 @@ def announced (m : SignedMsg Node Msg) : Nat :=
 
     Written as a **function**, then lifted into `Protocol.step`, which is a relation
     so that honest behaviour *may* be nondeterministic. A deterministic protocol like
-    this one lifts with `eff = reaction …`, which keeps it computable — the `decide`
+    this one lifts with `res = reaction …`, which keeps it computable — the `decide`
     checks below run on this function. -/
 def reaction (p : Node) (r : Time) (_view : View Node Msg) (s : St) :
     Event Node Msg Empty → NodeStepResult St Msg
@@ -64,7 +64,7 @@ def reaction (p : Node) (r : Time) (_view : View Node Msg) (s : St) :
     timers would put them there and constrain them via `enabled`. -/
 def proto : Protocol Node Msg St Empty where
   init _ := { heard := ∅ }
-  step p r view s e eff := eff = reaction p r view s e
+  step p r view s e res := res = reaction p r view s e
   total _ _ _ _ _ := ⟨_, rfl⟩
   enabled _ _ ev := ev.elim
 

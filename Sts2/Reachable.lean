@@ -49,11 +49,11 @@ theorem viewsSound {c : Config Node Msg NodeState} (h : Reachable Pr S c) : View
       · intro d t hv p m hm
         exact hv p m hm
       -- tick: the view is untouched, the network only grows
-      · intro d q t eff _ _ hv p m hm
+      · intro d q t res _ _ hv p m hm
         simp at hm
         exact Or.inl (hv p m hm)
       -- deliver: the one new message was in `sent` by the action's own guard
-      · intro d q msg eff hen _ hv p m hm
+      · intro d q msg res hen _ hv p m hm
         by_cases hpq : p = q
         · subst hpq
           simp at hm
@@ -63,10 +63,10 @@ theorem viewsSound {c : Config Node Msg NodeState} (h : Reachable Pr S c) : View
         · simp [hpq] at hm
           exact Or.inl (hv p m hm)
       -- wake and custom: as tick
-      · intro d q eff _ _ hv p m hm
+      · intro d q res _ _ hv p m hm
         simp at hm
         exact Or.inl (hv p m hm)
-      · intro d q ev eff _ _ hv p m hm
+      · intro d q ev res _ _ hv p m hm
         simp at hm
         exact Or.inl (hv p m hm)
       -- adversarial: the view is untouched, one message is added

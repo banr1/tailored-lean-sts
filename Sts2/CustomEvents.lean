@@ -89,7 +89,7 @@ def reaction (p : Node) (r : Time) (_view : View Node Msg) (s : St) :
     `Protocol.step`. -/
 def proto : Protocol Node Msg St Ev where
   init _ := { view := 0, voted := none, heard := ∅, timeoutAt := 4, resendAt := 2 }
-  step p r view s e eff := eff = reaction p r view s e
+  step p r view s e res := res = reaction p r view s e
   total _ _ _ _ _ := ⟨_, rfl⟩
   enabled r s ev :=
     match ev with
