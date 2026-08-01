@@ -189,54 +189,10 @@ inductive Action (V Msg Ev : Type) where
 def bumped (p : V) (c : Config V Msg State) : Config V Msg State :=
   c.update p fun l => { l with clock := l.clock + 1 }
 
-/-- The step relation, as an inductive family.
-
-    Each reacting constructor **binds** the chosen effect, so honest nondeterminism
-    needs no existential: `cases` on a `Step` hands you `eff` and the premises in one
-    move, and the successor is the constructor's index, so it is substituted for you.
-    That is this variant's whole advantage over `Sts2` — see `Framework.Sts2D` for the
-    measured comparison.
-
-    What it costs: enabling conditions live here *and* in `guard` below, kept in
-    agreement by `enabled_iff_guard` rather than by construction. Adding an action
-    means editing three places. -/
-inductive Step (Pr : Protocol V Msg State Ev) (S : Schedule V) :
-    Action V Msg Ev → Config V Msg State → Config V Msg State → Prop where
-  /-- Real time advances, on its own. Always enabled, so no configuration is stuck. -/
-  | advance {c : Config V Msg State} :
-      Step Pr S .advance c { c with time := c.time + 1 }
-  /-- An awake validator whose clock is behind advances it by one and reacts. -/
-  | tick {c : Config V Msg State} {p : V} (eff : Effect State Msg) :
-      p ∈ S.awake (c.time : Int) → c[p].clock < c.time →
-      Pr.step p (bumped p c)[p].clock (bumped p c)[p].view (bumped p c)[p].st .tick eff →
-      Step Pr S (.tick p) c (install p eff (bumped p c))
-  /-- Any sent message may be delivered to any awake validator, at any time. Delivery
-      to a sleeping validator is simply not a step, which is how messages get queued:
-      they stay in `sent` until it wakes. -/
-  | deliver {c : Config V Msg State} {p : V} {m : SignedMsg V Msg}
-      (eff : Effect State Msg) :
-      m ∈ c.sent → p ∈ S.awake (c.time : Int) →
-      Pr.step p (receive p m c)[p].clock (receive p m c)[p].view (receive p m c)[p].st
-        (.recv m) eff →
-      Step Pr S (.deliver p m) c (install p eff (receive p m c))
-  /-- Awake now, asleep in the previous round. -/
-  | wake {c : Config V Msg State} {p : V} (eff : Effect State Msg) :
-      p ∈ S.awake (c.time : Int) → p ∉ S.awake ((c.time : Int) - 1) →
-      Pr.step p c[p].clock c[p].view c[p].st .wake eff →
-      Step Pr S (.wake p) c (install p eff c)
-  /-- A protocol-specific event, if the protocol allows it at the validator's own
-      clock reading. -/
-  | custom {c : Config V Msg State} {p : V} {ev : Ev} (eff : Effect State Msg) :
-      p ∈ S.awake (c.time : Int) → Pr.enabled c[p].clock c[p].st ev →
-      Pr.step p c[p].clock c[p].view c[p].st (.custom ev) eff →
-      Step Pr S (.custom p ev) c (install p eff c)
-  /-- An adversarial validator signs anything. -/
-  | adversarial {c : Config V Msg State} {p : V} {m : Msg} :
-      p ∈ S.adv (c.time : Int) →
-      Step Pr S (.adversarial p m) c { c with sent := insert ⟨p, m⟩ c.sent }
-
-/-- When each action may occur, written out explicitly so that fairness assumptions
-    can name a condition rather than an existential over successors. -/
+/-- When each action may occur — the framework-level condition, written **once** and
+    then cited by the step relation below, so the two cannot disagree. What is *not*
+    here is the protocol's own permission to react, which the constructors carry
+    separately: `guard` is about the environment, `Protocol.step` about the program. -/
 def guard (Pr : Protocol V Msg State Ev) (S : Schedule V) :
     Action V Msg Ev → Config V Msg State → Prop
   | .advance, _ => True
@@ -246,43 +202,79 @@ def guard (Pr : Protocol V Msg State Ev) (S : Schedule V) :
   | .custom p ev, c => p ∈ S.awake (c.time : Int) ∧ Pr.enabled c[p].clock c[p].st ev
   | .adversarial p _, c => p ∈ S.adv (c.time : Int)
 
+/-- The step relation, as an inductive family whose constructors **cite `guard`**.
+
+    Two things this buys over inlining the conditions. Each reacting constructor binds
+    the chosen effect, so honest nondeterminism needs no existential — `cases` hands
+    you `eff` and substitutes the successor, since it is the constructor's index. And
+    the enabling conditions exist in exactly one place, so adding an action means
+    editing `guard` and adding a constructor, with the correspondence below following
+    uniformly. -/
+inductive Step (Pr : Protocol V Msg State Ev) (S : Schedule V) :
+    Action V Msg Ev → Config V Msg State → Config V Msg State → Prop where
+  /-- Real time advances, on its own. Its guard is `True`, hence the `trivial`. -/
+  | advance {c : Config V Msg State} :
+      guard Pr S .advance c →
+      Step Pr S .advance c { c with time := c.time + 1 }
+  /-- An awake validator whose clock is behind advances it by one and reacts. -/
+  | tick {c : Config V Msg State} {p : V} (eff : Effect State Msg) :
+      guard Pr S (.tick p) c →
+      Pr.step p (bumped p c)[p].clock (bumped p c)[p].view (bumped p c)[p].st .tick eff →
+      Step Pr S (.tick p) c (install p eff (bumped p c))
+  /-- Any sent message may be delivered to any awake validator, at any time. Delivery
+      to a sleeping validator is simply not a step, which is how messages get queued:
+      they stay in `sent` until it wakes. -/
+  | deliver {c : Config V Msg State} {p : V} {m : SignedMsg V Msg}
+      (eff : Effect State Msg) :
+      guard Pr S (.deliver p m) c →
+      Pr.step p (receive p m c)[p].clock (receive p m c)[p].view (receive p m c)[p].st
+        (.recv m) eff →
+      Step Pr S (.deliver p m) c (install p eff (receive p m c))
+  /-- Awake now, asleep in the previous round. -/
+  | wake {c : Config V Msg State} {p : V} (eff : Effect State Msg) :
+      guard Pr S (.wake p) c →
+      Pr.step p c[p].clock c[p].view c[p].st .wake eff →
+      Step Pr S (.wake p) c (install p eff c)
+  /-- A protocol-specific event, if the protocol allows it at the validator's own
+      clock reading — that permission is part of this action's `guard`. -/
+  | custom {c : Config V Msg State} {p : V} {ev : Ev} (eff : Effect State Msg) :
+      guard Pr S (.custom p ev) c →
+      Pr.step p c[p].clock c[p].view c[p].st (.custom ev) eff →
+      Step Pr S (.custom p ev) c (install p eff c)
+  /-- An adversarial validator signs anything. -/
+  | adversarial {c : Config V Msg State} {p : V} {m : Msg} :
+      guard Pr S (.adversarial p m) c →
+      Step Pr S (.adversarial p m) c { c with sent := insert ⟨p, m⟩ c.sent }
+
 /-- `guard` says exactly when a step is possible.
 
-    This is what keeps the two copies of each enabling condition in agreement, and it
-    is what `Sts2` gets for free from `ActionSpec` — there, guard and effect are one
-    record per action, so they cannot disagree. Here it is a theorem instead, which
-    is Event-B's feasibility obligation discharged after the fact rather than at the
-    definition site. -/
+    The forward direction is now uniform — every constructor carries its guard, so
+    `cases` then `assumption` closes it — which is the payoff of citing `guard` rather
+    than inlining the conditions. Only the backward direction needs a case per action,
+    to supply a reaction from `Protocol.total`. -/
 theorem enabled_iff_guard (Pr : Protocol V Msg State Ev) (S : Schedule V)
     (a : Action V Msg Ev) (c : Config V Msg State) :
     (∃ c', Step Pr S a c c') ↔ guard Pr S a c := by
-  cases a with
-  | advance => exact ⟨fun _ => trivial, fun _ => ⟨_, .advance⟩⟩
-  | tick p =>
-      refine ⟨fun ⟨_, h⟩ => ?_, fun h => ?_⟩
-      · cases h with | tick eff h1 h2 _ => exact ⟨h1, h2⟩
-      · obtain ⟨eff, he⟩ := Pr.total p (bumped p c)[p].clock (bumped p c)[p].view
+  constructor
+  · intro ⟨_, h⟩; cases h <;> assumption
+  · intro hg
+    cases a with
+    | advance => exact ⟨_, .advance hg⟩
+    | tick p =>
+        obtain ⟨eff, he⟩ := Pr.total p (bumped p c)[p].clock (bumped p c)[p].view
           (bumped p c)[p].st .tick
-        exact ⟨_, .tick eff h.1 h.2 he⟩
-  | deliver p m =>
-      refine ⟨fun ⟨_, h⟩ => ?_, fun h => ?_⟩
-      · cases h with | deliver eff h1 h2 _ => exact ⟨h1, h2⟩
-      · obtain ⟨eff, he⟩ := Pr.total p (receive p m c)[p].clock (receive p m c)[p].view
+        exact ⟨_, .tick eff hg he⟩
+    | deliver p m =>
+        obtain ⟨eff, he⟩ := Pr.total p (receive p m c)[p].clock (receive p m c)[p].view
           (receive p m c)[p].st (.recv m)
-        exact ⟨_, .deliver eff h.1 h.2 he⟩
-  | wake p =>
-      refine ⟨fun ⟨_, h⟩ => ?_, fun h => ?_⟩
-      · cases h with | wake eff h1 h2 _ => exact ⟨h1, h2⟩
-      · obtain ⟨eff, he⟩ := Pr.total p c[p].clock c[p].view c[p].st .wake
-        exact ⟨_, .wake eff h.1 h.2 he⟩
-  | custom p ev =>
-      refine ⟨fun ⟨_, h⟩ => ?_, fun h => ?_⟩
-      · cases h with | custom eff h1 h2 _ => exact ⟨h1, h2⟩
-      · obtain ⟨eff, he⟩ := Pr.total p c[p].clock c[p].view c[p].st (.custom ev)
-        exact ⟨_, .custom eff h.1 h.2 he⟩
-  | adversarial p m =>
-      exact ⟨fun ⟨_, h⟩ => by cases h with | adversarial h1 => exact h1,
-             fun h => ⟨_, .adversarial h⟩⟩
+        exact ⟨_, .deliver eff hg he⟩
+    | wake p =>
+        obtain ⟨eff, he⟩ := Pr.total p c[p].clock c[p].view c[p].st .wake
+        exact ⟨_, .wake eff hg he⟩
+    | custom p ev =>
+        obtain ⟨eff, he⟩ := Pr.total p c[p].clock c[p].view c[p].st (.custom ev)
+        exact ⟨_, .custom eff hg he⟩
+    | adversarial p m => exact ⟨_, .adversarial hg⟩
 
 /-- Initial configurations. -/
 def Init (Pr : Protocol V Msg State Ev) (c : Config V Msg State) : Prop :=
