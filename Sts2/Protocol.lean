@@ -101,20 +101,20 @@ structure Protocol (Node Msg NodeState Ev : Type) where
       anything a specification leaves open. A protocol that is in fact deterministic
       lifts its function with `step p r v s e eff := eff = f p r v s e`, which keeps
       it computable — see the examples. -/
-  step : Node → Round → View Node Msg → NodeState → Event Node Msg Ev → NodeStepResult NodeState Msg → Prop
+  step : Node → Time → View Node Msg → NodeState → Event Node Msg Ev → NodeStepResult NodeState Msg → Prop
   /-- Some reaction is always available: a protocol may not get stuck. This is what
       discharges each action's `feasible`, so it is the protocol-side counterpart of
       Event-B's FIS. -/
   total : ∀ p r view s e, ∃ eff, step p r view s e eff
   /-- When a protocol-specific event may fire, also against the local clock. -/
-  enabled : Round → NodeState → Ev → Prop
+  enabled : Time → NodeState → Ev → Prop
 
 /-- Everything tracked per validator: one record rather than several parallel
     maps, so an action names the one field it changes and adding per-validator
     state touches one place. -/
 structure Local (Node Msg NodeState : Type) where
   /-- This validator's own clock reading. Advanced only by a `tick`. -/
-  clock : Round
+  clock : Time
   /-- Its protocol state. -/
   st : NodeState
   /-- Its view: everything delivered to it so far. -/
@@ -124,7 +124,7 @@ structure Local (Node Msg NodeState : Type) where
 structure Config (Node Msg NodeState : Type) where
   /-- Real time. Read by the environment — schedule, network bound, GST — and
       never handed to a protocol. -/
-  time : Round
+  time : Time
   /-- Each validator's local record. -/
   nodes : Node → Local Node Msg NodeState
   /-- Every message ever signed. Monotone. -/

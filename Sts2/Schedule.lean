@@ -10,7 +10,7 @@ validator's *program* does (Majorum's joining protocol), so it belongs to that
 protocol, not here. Both are functions of the round, because both
 papers need time-dependent honesty — Majorum's `A_r`, TOB-SVD's growing `B_t`.
 
-**Indexed by `Int`, not `Round`.** Both papers query the schedule at negative
+**Indexed by `Int`, not `Time`.** Both papers query the schedule at negative
 times and they use *different* conventions there (Majorum: `H_i := ∅` for
 `i < 0`; TOB-SVD: `H_t` is every validator and `B_t := ∅` for `t < 0`). Making the index `Int`
 puts that convention in the schedule, where the model can choose it, instead of
@@ -51,7 +51,7 @@ def AwakeHonest : Prop := ∀ r : Int, Disjoint (S.awake r) (S.adv r)
 /-- Mildly adaptive corruption: a validator adversarial at `r + d` was already
     committed to at `r`. TOB-SVD needs this with `d = Δ` for VRF-based leader
     election; state it against a `requested` schedule the adversary fixes. -/
-def CorruptionDelay (d : Round) (requested : Int → Finset Node) : Prop :=
+def CorruptionDelay (d : Time) (requested : Int → Finset Node) : Prop :=
   ∀ r : Int, S.adv (r + d) ⊆ requested r
 
 /-- Total corruption budget, as `f = |A_∞|` in Majorum. -/
@@ -59,7 +59,7 @@ def CorruptionBounded (f : Nat) : Prop := ∀ r : Int, (S.adv r).card ≤ f
 
 /-- Global awake time: after `gat`, every honest validator stays awake. Majorum
     assumes one; TOB-SVD does not. -/
-def GlobalAwakeTime (gat : Round) (honest : Finset Node) : Prop :=
+def GlobalAwakeTime (gat : Time) (honest : Finset Node) : Prop :=
   ∀ r : Int, (gat : Int) ≤ r → honest \ S.adv r ⊆ S.awake r
 
 /-! ### Interval operators

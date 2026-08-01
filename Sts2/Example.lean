@@ -51,7 +51,7 @@ def announced (m : SignedMsg Node Msg) : Nat :=
     so that honest behaviour *may* be nondeterministic. A deterministic protocol like
     this one lifts with `eff = reaction …`, which keeps it computable — the `decide`
     checks below run on this function. -/
-def reaction (p : Node) (r : Round) (_view : View Node Msg) (s : St) :
+def reaction (p : Node) (r : Time) (_view : View Node Msg) (s : St) :
     Event Node Msg Empty → NodeStepResult St Msg
   | .tick =>
       if r = 0 then { state := s, send := {Msg.announce p.val} }

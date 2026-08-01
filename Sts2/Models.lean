@@ -40,11 +40,11 @@ structure Params where
   /-- Corruption budget, `f = |A_∞|`. -/
   f : Nat
   /-- Message delay bound after GST. -/
-  delta : Round
+  delta : Time
   /-- Global stabilization time. -/
-  gst : Round
+  gst : Time
   /-- Global awake time. -/
-  gat : Round
+  gat : Time
   /-- `f < n/3`. -/
   fBound : 3 * f < n
   /-- Slots are `4Δ` rounds, so Δ must be positive. -/
@@ -58,10 +58,10 @@ variable (Q : Params)
 def slotLength : Nat := 4 * Q.delta
 
 /-- First round of slot `t`, where proposals happen. -/
-def proposing (t : Nat) : Round := Q.slotLength * t
+def proposing (t : Nat) : Time := Q.slotLength * t
 
 /-- The voting round of slot `t`: `4Δt + Δ`. -/
-def voting (t : Nat) : Round := Q.slotLength * t + Q.delta
+def voting (t : Nat) : Time := Q.slotLength * t + Q.delta
 
 /-- Constraint (1): for every slot after GST,
     `|H_{voting(t−1)} \ A_{voting(t)}| > |A_{voting(t)}|`.
@@ -106,11 +106,11 @@ namespace TobSvd
 /-- Parameters of the `(Tb, Ts, ρ)`-sleepy model. -/
 structure Params where
   /-- Synchronous delay bound. -/
-  delta : Round
+  delta : Time
   /-- Backward-simulation window: Byzantine validators are counted `Tb` ahead. -/
-  Tb : Round
+  Tb : Time
   /-- Stabilization period: honest validators must be awake throughout `Ts`. -/
-  Ts : Round
+  Ts : Time
   /-- Failure ratio of Byzantine to active validators. -/
   rho : ℚ
   /-- `ρ ≤ 1/2`. -/

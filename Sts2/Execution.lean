@@ -106,7 +106,7 @@ def Synchronized (x : Exec Pr S) : Prop :=
     model bundles assume `AdvanceFair`, but a property that should not depend on
     *which* action moved the clock can assume only this. -/
 def TimeDiverges (x : Exec Pr S) : Prop :=
-  ∀ r : Round, ∃ i : Nat, r ≤ x[i].time
+  ∀ r : Time, ∃ i : Nat, r ≤ x[i].time
 
 /-! ### Fairness
 
@@ -163,7 +163,7 @@ def CustomFair (x : Exec Pr S) : Prop :=
 Every sent message is covered by the guarantee below. Majorum will eventually
 want that qualified — "a proposal for slot `t` is gossiped only during the first
 Δ rounds of slot `t`", so a proposal sent outside its window is owed nothing —
-which means adding a `gossiped : SignedMsg Node Msg → Round → Prop` filter as an
+which means adding a `gossiped : SignedMsg Node Msg → Time → Prop` filter as an
 extra hypothesis of `Synchrony`. Left out until a model actually restricts it. -/
 
 /-- Δ-synchrony after GST.
@@ -175,7 +175,7 @@ extra hypothesis of `Synchrony`. Left out until a model actually restricts it. -
     the bound already applies to everything sent Δ ago — TOB-SVD's "upon waking up, validators immediately
     receive all messages they should have received while asleep", and Majorum's
     queue-until-wake. Setting `gst = 0` gives TOB-SVD's synchronous network. -/
-def Synchrony (gst delta : Round) (x : Exec Pr S) : Prop :=
+def Synchrony (gst delta : Time) (x : Exec Pr S) : Prop :=
   ∀ (i j : Nat) p m, m ∈ x[i].sent →
     max x[i].time gst + delta ≤ x[j].time → x.Awake j p → m ∈ x[j][p].view
 
@@ -183,7 +183,7 @@ def Synchrony (gst delta : Round) (x : Exec Pr S) : Prop :=
     validator within Δ (after GST). Majorum makes gossip part of the model —
     "once an adversarial message is received by an honest validator, it is also
     gossiped by it" — so this is a model assumption, not protocol behaviour. -/
-def Relay (gst delta : Round) (x : Exec Pr S) : Prop :=
+def Relay (gst delta : Time) (x : Exec Pr S) : Prop :=
   ∀ (i j : Nat) p q m, x.Awake i p → m ∈ x[i][p].view →
     max x[i].time gst + delta ≤ x[j].time → x.Awake j q → m ∈ x[j][q].view
 
@@ -213,7 +213,7 @@ variable {Out : Type}
 /-- Majorum Def. 1 (Safe protocol), after `tafter`: the outputs of validators
     that are honest at the time are always prefix-comparable. -/
 def Safe (out : Node → Config Node Msg NodeState → Out) (Pre : Out → Out → Prop)
-    (tafter : Round) (x : Exec Pr S) : Prop :=
+    (tafter : Time) (x : Exec Pr S) : Prop :=
   ∀ (i j : Nat) p q, tafter ≤ x[i].time → tafter ≤ x[j].time →
     x.Honest i p → x.Honest j q →
     Pre (out p x[i]) (out q x[j]) ∨ Pre (out q x[j]) (out p x[i])
@@ -227,14 +227,14 @@ def Safe (out : Node → Config Node Msg NodeState → Out) (Pre : Out → Out �
     protocol whose joining delay matters will want to weaken this with its own
     participation predicate. -/
 def Live {Tx : Type} (out : Node → Config Node Msg NodeState → Out) (mem : Tx → Out → Prop)
-    (pool : Round → Set Tx) (tafter tconf : Round) (x : Exec Pr S) : Prop :=
+    (pool : Time → Set Tx) (tafter tconf : Time) (x : Exec Pr S) : Prop :=
   ∀ (i j : Nat) p tx, tafter ≤ x[i].time → tx ∈ pool x[i].time →
     x[i].time + tconf ≤ x[j].time → x.Awake j p → mem tx (out p x[j])
 
 /-- Majorum Def. 3 (Secure protocol). -/
 def Secure {Tx : Type} (out : Node → Config Node Msg NodeState → Out)
-    (Pre : Out → Out → Prop) (mem : Tx → Out → Prop) (pool : Round → Set Tx)
-    (tafter tconf : Round) (x : Exec Pr S) : Prop :=
+    (Pre : Out → Out → Prop) (mem : Tx → Out → Prop) (pool : Time → Set Tx)
+    (tafter tconf : Time) (x : Exec Pr S) : Prop :=
   Safe out Pre tafter x ∧ Live out mem pool tafter tconf x
 
 end Framework.Sts2

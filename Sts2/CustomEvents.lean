@@ -52,15 +52,15 @@ structure St where
   voted : Option Nat
   /-- Votes heard, as `(view, value)` pairs. -/
   heard : Finset (Nat × Nat)
-  /-- Round at which `viewTimeout` becomes enabled. -/
-  timeoutAt : Round
-  /-- Round at which `resend` becomes enabled. -/
-  resendAt : Round
+  /-- Time at which `viewTimeout` becomes enabled. -/
+  timeoutAt : Time
+  /-- Time at which `resend` becomes enabled. -/
+  resendAt : Time
   deriving DecidableEq
 
 /-- Vote once per view; re-broadcast on `resend`; abandon the view on
     `viewTimeout`. Both timer reactions push their own deadline forward. -/
-def reaction (p : Node) (r : Round) (_view : View Node Msg) (s : St) :
+def reaction (p : Node) (r : Time) (_view : View Node Msg) (s : St) :
     Event Node Msg Ev → NodeStepResult St Msg :=
   fun e =>
     match e with
