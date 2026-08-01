@@ -145,7 +145,7 @@ def MajCompliant (x : MajExec) : Prop := maj.Model x
     proofs while its structure is still moving. -/
 def EveryoneHeardEveryone (x : TobExec) : Prop :=
   TobCompliant x →
-    ∀ (i : Nat) (p q : V), 1 ≤ x[i].now →
+    ∀ (i : Nat) (p q : V), 1 ≤ x[i].time →
       x.Awake i p →
       (⟨q, .announce q.val⟩ : SignedMsg V Msg) ∈ x[i].sent →
       q.val ∈ (x[i].st p).heard

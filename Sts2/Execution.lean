@@ -54,9 +54,9 @@ variable {Pr : Protocol V Msg State Ev} {S : Schedule V}
 
 /-! ### Reading an execution
 
-`x[i]` is the configuration after `i` steps, so `x[i].now` is its round.
-`x.Awake i p` and `x.Honest i p` exist only to keep the `Int` coercion on `now`
-out of every statement.
+`x[i]` is the configuration after `i` steps, so `x[i].time` is *real* time there
+and `x[i].clock p` is what `p` believes it to be. `x.Awake i p` and `x.Honest i p`
+exist only to keep the `Int` coercion on `time` out of every statement.
 
 There is deliberately no `Active`: whether a validator is *participating* — as
 opposed to merely awake — is decided by its own program, so no framework-level
@@ -64,18 +64,43 @@ predicate can express it. Statements that need it take it as a parameter. -/
 
 /-- Is `p` awake after `i` steps? -/
 def Execution.Awake (x : Exec Pr S) (i : Nat) (p : V) : Prop :=
-  p ∈ S.awake (x[i].now : Int)
+  p ∈ S.awake (x[i].time : Int)
 
 /-- Is `p` still honest after `i` steps? Corruption is time-dependent, so this is
     relative to the round. -/
 def Execution.Honest (x : Exec Pr S) (i : Nat) (p : V) : Prop :=
-  p ∉ S.adv (x[i].now : Int)
+  p ∉ S.adv (x[i].time : Int)
+
+/-! ### Clocks
+
+Nothing about clocks is assumed by the step relation beyond monotonicity, which is
+free: `Step.tick` only increments, and never past real time. A property is
+therefore in one of three classes, and should assume no more than it needs.
+
+* **Timeless** — mentions neither `time` nor `clock`, so it holds under arbitrary
+  asynchrony and arbitrary clock behaviour. Accountable safety belongs here: it is
+  a statement about the signed message history alone.
+* **Monotone-clock** — uses only that each validator's clock never goes backwards.
+  Free from the step relation; no assumption to add.
+* **Synchronized** — assumes `Synchronized` below, as both Majorum and TOB-SVD do
+  ("validators have synchronized clocks"). Liveness needs this. -/
+
+/-- Every awake validator's clock reads real time.
+
+    Restricted to the awake, because a validator asleep across several rounds wakes
+    with a stale clock and can only catch up one `tick` at a time. A model that
+    wants waking validators to know the time immediately needs a stronger version,
+    or a `tick` that jumps rather than increments. -/
+def Synchronized (x : Exec Pr S) : Prop :=
+  ∀ (i : Nat) p, x.Awake i p → x[i].clock p = x[i].time
 
 /-! ### Progress -/
 
-/-- Rounds do not stop advancing. The mild fairness assumption liveness needs. -/
+/-- Real time does not stop advancing. The mild fairness assumption liveness
+    needs; `Step.advance` is always enabled, so this rules out only executions that
+    stop using it. -/
 def TimeDiverges (x : Exec Pr S) : Prop :=
-  ∀ r : Round, ∃ i : Nat, r ≤ x[i].now
+  ∀ r : Round, ∃ i : Nat, r ≤ x[i].time
 
 /-! `Diligent` used to live here — "every active validator is ticked in every
 round". It is gone: `Step.clock` now ticks every active validator as part of
@@ -102,7 +127,7 @@ extra hypothesis of `Synchrony`. Left out until a model actually restricts it. -
     queue-until-wake. Setting `gst = 0` gives TOB-SVD's synchronous network. -/
 def Synchrony (gst delta : Round) (x : Exec Pr S) : Prop :=
   ∀ (i j : Nat) p m, m ∈ x[i].sent →
-    max x[i].now gst + delta ≤ x[j].now → x.Awake j p → m ∈ x[j].view p
+    max x[i].time gst + delta ≤ x[j].time → x.Awake j p → m ∈ x[j].view p
 
 /-- Honest relay: whatever an active validator has seen reaches every active
     validator within Δ (after GST). Majorum makes gossip part of the model —
@@ -110,7 +135,7 @@ def Synchrony (gst delta : Round) (x : Exec Pr S) : Prop :=
     gossiped by it" — so this is a model assumption, not protocol behaviour. -/
 def Relay (gst delta : Round) (x : Exec Pr S) : Prop :=
   ∀ (i j : Nat) p q m, x.Awake i p → m ∈ x[i].view p →
-    max x[i].now gst + delta ≤ x[j].now → x.Awake j q → m ∈ x[j].view q
+    max x[i].time gst + delta ≤ x[j].time → x.Awake j q → m ∈ x[j].view q
 
 /-- Nothing appears in a view unless it was signed and sent. -/
 def ViewsSound (x : Exec Pr S) : Prop :=
@@ -128,7 +153,7 @@ variable {Out : Type}
     that are honest at the time are always prefix-comparable. -/
 def Safe (out : V → Config V Msg State → Out) (Pre : Out → Out → Prop)
     (tafter : Round) (x : Exec Pr S) : Prop :=
-  ∀ (i j : Nat) p q, tafter ≤ x[i].now → tafter ≤ x[j].now →
+  ∀ (i j : Nat) p q, tafter ≤ x[i].time → tafter ≤ x[j].time →
     x.Honest i p → x.Honest j q →
     Pre (out p x[i]) (out q x[j]) ∨ Pre (out q x[j]) (out p x[i])
 
@@ -142,8 +167,8 @@ def Safe (out : V → Config V Msg State → Out) (Pre : Out → Out → Prop)
     participation predicate. -/
 def Live {Tx : Type} (out : V → Config V Msg State → Out) (mem : Tx → Out → Prop)
     (pool : Round → Set Tx) (tafter tconf : Round) (x : Exec Pr S) : Prop :=
-  ∀ (i j : Nat) p tx, tafter ≤ x[i].now → tx ∈ pool x[i].now →
-    x[i].now + tconf ≤ x[j].now → x.Awake j p → mem tx (out p x[j])
+  ∀ (i j : Nat) p tx, tafter ≤ x[i].time → tx ∈ pool x[i].time →
+    x[i].time + tconf ≤ x[j].time → x.Awake j p → mem tx (out p x[j])
 
 /-- Majorum Def. 3 (Secure protocol). -/
 def Secure {Tx : Type} (out : V → Config V Msg State → Out)

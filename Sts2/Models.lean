@@ -92,7 +92,7 @@ def Model {Pr : Protocol V Msg State Ev} {S : Schedule V}
     (x : Exec Pr S) : Prop :=
   S.MonotoneCorruption ∧ S.AwakeHonest ∧ S.CorruptionBounded Q.f ∧
     S.GlobalAwakeTime Q.gat Finset.univ ∧ Q.Compliant S ∧
-    ViewsSound x ∧ Synchrony Q.gst Q.delta x ∧
+    ViewsSound x ∧ Synchronized x ∧ Synchrony Q.gst Q.delta x ∧
     Relay Q.gst Q.delta x ∧ TimeDiverges x
 
 end Params
@@ -140,7 +140,7 @@ def Compliant (S : Schedule V) : Prop :=
 def Model {Pr : Protocol V Msg State Ev} {S : Schedule V}
     (x : Exec Pr S) : Prop :=
   S.MonotoneCorruption ∧ S.AwakeHonest ∧ Q.Compliant S ∧
-    ViewsSound x ∧ Synchrony 0 Q.delta x ∧
+    ViewsSound x ∧ Synchronized x ∧ Synchrony 0 Q.delta x ∧
     Relay 0 Q.delta x ∧ TimeDiverges x
 
 end Params
