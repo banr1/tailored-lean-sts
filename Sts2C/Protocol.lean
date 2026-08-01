@@ -191,39 +191,33 @@ def setClock (p : Node) (t : Time) (c : Config Node Msg NodeState) :
     Config Node Msg NodeState :=
   c.setNode p { c[p] with clock := t }
 
-/-- What the *scheduler* chooses: which transition happens, to whom, and when.
-
-    This is the primary alphabet of the transition system, and it is exactly `Sts2`'s
-    `Action` — the label type that does not mention `NodeState`. Every statement about *what
-    happened* is phrased here: `Execution.lbl`'s kind, the fairness assumptions, `Diligent`.
-
-    An earlier version of this attempt had the reaction-carrying `Action` as the primary
-    type and derived kinds from it with a hand-written `Action.kind`. That map's correctness
-    was not forced by anything: `enabledKind_iff` turns out to catch a wrong one, because its
-    forward direction demands a label of *every* kind, but only by luck of these six
-    signatures — surjectivity is not the same as being the intended map. Making `Kind`
-    primary and the reaction a payload over it removes the map, and with it the question. -/
-inductive Kind (Node Msg Ev : Type) where
+/-- Transition labels. -/
+inductive Action (Node Msg Ev : Type) where
   /-- Real time becomes `t`; no validator acts. -/
   | advance (t : Time)
   /-- `p`'s clock comes to read `t`, and `p` reacts at that reading. -/
   | tick (p : Node) (t : Time)
   /-- `m` is delivered to `p`, which reacts to it. -/
   | deliver (p : Node) (m : SignedMsg Node Msg)
-  /-- `p` wakes up and reacts. -/
+  /-- `p` wakes up. -/
   | wake (p : Node)
-  /-- A protocol-specific event fires at `p`, which reacts. -/
+  /-- A protocol-specific event fires at `p`. -/
   | custom (p : Node) (ev : Ev)
   /-- An adversarial validator signs an arbitrary message. -/
   | adversarial (p : Node) (m : Msg)
 
-/-- What the *node's program* contributes to a transition of each shape.
+/-- What the *node's program* contributes to a transition with a given label.
 
-    `Unit` for exactly the two shapes that run no reaction — advancing real time is the
+    `Unit` for exactly the two transitions that run no reaction — advancing real time is the
     environment's doing, and an adversarial validator's message is named by the label
-    itself. That split is information the previous version left implicit in which
-    constructors happened to take an argument. -/
-def Reaction (NodeState Msg : Type) : Kind Node Msg Ev → Type
+    itself.
+
+    This is the `Kind` technique from `Sts2C`, brought to `Sts2`'s presentation. The payoff is
+    much larger here, because `Sts2`'s `Action` is *already* the reaction-free alphabet: there
+    is no erasure map to write and no second label type to introduce, so the fairness layer
+    below carries over verbatim. `Sts2C` had to invent `Kind` and discover that it was this
+    very type. -/
+def Reaction (NodeState Msg : Type) : Action Node Msg Ev → Type
   | .advance _ => Unit
   | .tick _ _ => NodeStepResult NodeState Msg
   | .deliver _ _ => NodeStepResult NodeState Msg
@@ -231,168 +225,151 @@ def Reaction (NodeState Msg : Type) : Kind Node Msg Ev → Type
   | .custom _ _ => NodeStepResult NodeState Msg
   | .adversarial _ _ => Unit
 
-/-- A label: what the scheduler chose, together with how the node reacted.
+/-- A transition: an action, together with how the node reacted to it.
 
-    This is the defining choice of this attempt — the reaction is *in the label*, so a label
-    and a configuration determine the successor and `act` below is a function. Splitting it
-    as a dependent pair rather than fattening the constructors means the erasure back to
-    `Kind` is `Sigma.fst`, correct by definition rather than by a lemma. -/
-abbrev Action (Node Msg NodeState Ev : Type) :=
-  (k : Kind Node Msg Ev) × Reaction NodeState Msg k
+    `Execution.lbl` records this, while every statement about *what happened* stays at the
+    `Action` level and reads `(x.lbl i).action`. The erasure is `Sigma.fst`, so it is right by
+    definition — there is no map that could disagree with the labels. -/
+abbrev Move (Node Msg NodeState Ev : Type) :=
+  (a : Action Node Msg Ev) × Reaction NodeState Msg a
 
-/-- The shape of a label, forgetting the reaction. A projection, so there is nothing here
-    to get wrong. -/
-abbrev Action.kind (a : Action Node Msg NodeState Ev) : Kind Node Msg Ev := a.1
+/-- Which action a transition was. A projection. -/
+abbrev Move.action (l : Move Node Msg NodeState Ev) : Action Node Msg Ev := l.1
 
-/-- When a label may be taken.
+/-- What one action does: when it may occur, which reactions the protocol permits, and the
+    configuration each of those produces.
 
-    Syntactic, like `Sts2`'s `ActionSpec.Enabled`, but here it can afford to be: since the
-    reaction is part of the label, `Pr.step … res` is just one more conjunct of the guard
-    rather than something an existential has to find. That is the whole trick — the
-    nondeterminism moved from the relation into the alphabet. -/
-def enabled (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) :
-    Action Node Msg NodeState Ev → Config Node Msg NodeState → Prop
-  -- Unconstrained: the framework does not say whether time moves forwards, by how much,
-  -- or at all. `Execution.TimeMonotone` and friends decide that.
-  | ⟨.advance _, _⟩, _ => True
-  -- Nothing here relates `t` to real time either; see `Execution.ClocksSound`.
-  | ⟨.tick p t, res⟩, c => p ∈ S.awake (c.time : Int) ∧
-      Pr.step p (setClock p t c)[p].clock (setClock p t c)[p].view (setClock p t c)[p].st
-        .tick res
-  -- Delivery to a sleeping validator is not enabled, which is how messages get queued.
-  -- The message is filed before the reaction runs, so `step` sees it in the view too.
-  | ⟨.deliver p m, res⟩, c => m ∈ c.sent ∧ p ∈ S.awake (c.time : Int) ∧
-      Pr.step p (receive p m c)[p].clock (receive p m c)[p].view (receive p m c)[p].st
-        (.recv m) res
-  -- Awake now, asleep in the previous round.
-  | ⟨.wake p, res⟩, c => p ∈ S.awake (c.time : Int) ∧ p ∉ S.awake ((c.time : Int) - 1) ∧
-      Pr.step p c[p].clock c[p].view c[p].st .wake res
-  -- A protocol-specific event, if the protocol allows it at the validator's own clock.
-  | ⟨.custom p ev, res⟩, c => p ∈ S.awake (c.time : Int) ∧ Pr.enabled c[p].clock c[p].st ev ∧
-      Pr.step p c[p].clock c[p].view c[p].st (.custom ev) res
+    Three fields rather than `Sts2`'s two, and the split is the point:
+
+    * `Enabled` is about the **schedule** — who is awake, who is corrupt, what has been sent.
+      Identical to `Sts2`'s field of the same name, and it never mentions a reaction, which is
+      what lets fairness be stated at an `Action`.
+    * `Permits` is about the **protocol** — which reactions `Pr.step` allows. `Sts2` has this
+      too, buried inside `Reacts`.
+    * `Apply` is a **function**, because the reaction it needs is supplied by the label. This
+      is what `Sts2C` set out to buy, and it is why there is no `feasible` field: a total
+      function cannot fail to produce a successor. What remains of that obligation is
+      `permits_total` below, one lemma about the protocol rather than six about actions.
+
+    Indexed by the action, so `Permits` and `Apply` receive exactly that action's reaction
+    type — `Unit` where no reaction is run, which is how the two environment transitions
+    avoid carrying a meaningless payload. -/
+structure ActionSpec (NodeState : Type) (a : Action Node Msg Ev) where
+  /-- When the action may occur. Schedule only; no reaction. -/
+  Enabled : Config Node Msg NodeState → Prop
+  /-- Which reactions the protocol permits here. -/
+  Permits : Reaction NodeState Msg a → Config Node Msg NodeState → Prop
+  /-- The configuration that reaction produces. Total, hence no feasibility obligation. -/
+  Apply : Reaction NodeState Msg a → Config Node Msg NodeState → Config Node Msg NodeState
+
+/-- Each action's enabling condition, permitted reactions and effect. -/
+def spec (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) :
+    (a : Action Node Msg Ev) → ActionSpec NodeState a
+  -- Time becomes `t`. Unconstrained: the framework does not say whether time moves
+  -- forwards, by how much, or at all. `Execution.TimeMonotone` and friends are where
+  -- that gets decided, so a property assumes only the discipline it needs.
+  | .advance t => {
+      Enabled _ := True
+      Permits _ _ := True
+      Apply _ c := { c with time := t } }
+  -- `p`'s clock comes to read `t`, and `p` reacts at that reading. Also unconstrained:
+  -- nothing here relates `t` to real time. `Execution.ClocksSound` forbids reading the
+  -- future, `Synchronized` pins the clock to real time, `ClocksMonotone` forbids going
+  -- backwards — each an assumption, none a fact of the model.
+  | .tick p t => {
+      Enabled c := p ∈ S.awake (c.time : Int)
+      Permits res c := Pr.step p (setClock p t c)[p].clock (setClock p t c)[p].view
+        (setClock p t c)[p].st .tick res
+      Apply res c := applyNodeStepResult p res (setClock p t c) }
+  -- Any sent message may be delivered to any awake validator, at any time.
+  -- Delivery to a sleeping validator is simply not enabled, which is how messages
+  -- get queued: they stay in `sent` until it wakes. The message is filed before the
+  -- reaction runs, so `step` sees it in the view too.
+  | .deliver p m => {
+      Enabled c := m ∈ c.sent ∧ p ∈ S.awake (c.time : Int)
+      Permits res c := Pr.step p (receive p m c)[p].clock (receive p m c)[p].view
+        (receive p m c)[p].st (.recv m) res
+      Apply res c := applyNodeStepResult p res (receive p m c) }
+  -- Awake now, asleep in the previous round. Reported because a protocol cannot
+  -- start a joining procedure it is not told about.
+  | .wake p => {
+      Enabled c := p ∈ S.awake (c.time : Int) ∧ p ∉ S.awake ((c.time : Int) - 1)
+      Permits res c := Pr.step p c[p].clock c[p].view c[p].st .wake res
+      Apply res c := applyNodeStepResult p res c }
+  -- A protocol-specific event, if the protocol allows it at the validator's own
+  -- clock reading.
+  | .custom p ev => {
+      Enabled c := p ∈ S.awake (c.time : Int) ∧ Pr.enabled c[p].clock c[p].st ev
+      Permits res c := Pr.step p c[p].clock c[p].view c[p].st (.custom ev) res
+      Apply res c := applyNodeStepResult p res c }
   -- An adversarial validator signs anything.
-  | ⟨.adversarial p _, _⟩, c => p ∈ S.adv (c.time : Int)
+  | .adversarial p m => {
+      Enabled c := p ∈ S.adv (c.time : Int)
+      Permits _ _ := True
+      Apply _ c := { c with sent := insert ⟨p, m⟩ c.sent } }
 
-/-- When a *kind* is available — the guard with the reaction's conjunct dropped.
+/-- The step relation: enabled by the schedule, the reaction permitted by the protocol, and
+    then the one configuration that reaction produces.
 
-    The point of this is that it mentions no reaction, so the fairness statements in
-    `Execution.lean` need no existential at all: "`p` may tick to `r`" is a condition on the
-    configuration, full stop. Reading it off `enabled` instead would force
-    `∃ res, enabled Pr S ⟨.tick p r, res⟩ c`, which is the existential this attempt was
-    supposed to have removed.
-
-    Note what has happened: this is `Sts2`'s `ActionSpec.Enabled`, back verbatim. Avoiding
-    the reaction's existential means writing the non-reaction guards a second time, and
-    owing a proof that the two agree — `enabledKind_iff`, whose forward direction is exactly
-    what `Protocol.total` exists for. So C's ∃-free spelling reconstructs both halves of B:
-    a syntactic guard, plus a feasibility argument tying it to the relation. -/
-def enabledKind (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) :
-    Kind Node Msg Ev → Config Node Msg NodeState → Prop
-  | .advance _, _ => True
-  -- `t` is absent on purpose: which reading `p` ticks to constrains the reaction, not
-  -- whether the tick may occur.
-  | .tick p _, c => p ∈ S.awake (c.time : Int)
-  | .deliver p m, c => m ∈ c.sent ∧ p ∈ S.awake (c.time : Int)
-  | .wake p, c => p ∈ S.awake (c.time : Int) ∧ p ∉ S.awake ((c.time : Int) - 1)
-  | .custom p ev, c => p ∈ S.awake (c.time : Int) ∧ Pr.enabled c[p].clock c[p].st ev
-  | .adversarial p _, c => p ∈ S.adv (c.time : Int)
-
-/-- The configuration after taking `a`. A **function**, not a relation: this is what
-    carrying the reaction in the label buys. -/
-def act : Action Node Msg NodeState Ev → Config Node Msg NodeState → Config Node Msg NodeState
-  | ⟨.advance t, _⟩, c => { c with time := t }
-  | ⟨.tick p t, res⟩, c => applyNodeStepResult p res (setClock p t c)
-  | ⟨.deliver p m, res⟩, c => applyNodeStepResult p res (receive p m c)
-  | ⟨.wake p, res⟩, c => applyNodeStepResult p res c
-  | ⟨.custom p _, res⟩, c => applyNodeStepResult p res c
-  | ⟨.adversarial p m, _⟩, c => { c with sent := insert ⟨p, m⟩ c.sent }
-
-/-- The step relation: enabled, and then the one configuration the label produces.
-
-    Compare the other two attempts. `Sts2` needs `ActionSpec.feasible` per action to keep a
-    declared `Enabled` honest, and `Step.elim` to recover case analysis. `Sts2A` derives
-    `Enabled` from the relation and pays six `iff` lemmas to get the conditions back
-    syntactically. Here both problems dissolve: `Enabled` *is* syntactic, and feasibility is
-    the one-line `step_act` below, because `act` is total. Case analysis is `obtain
-    ⟨-, rfl⟩ := h` followed by `obtain ⟨k, res⟩ := a; cases k` — one destructuring for the
-    whole proof rather than one per case, since every successor is the single term `act a c`.
-
-    The bill arrives in `Execution.lean`: a label is not something the scheduler alone
-    chooses, and fairness cannot be stated at a label at all — it is stated at a `Kind`. -/
+    No existential: the reaction comes from the label. Compare `Sts2`, where `Effect` is
+    `Reacts`, an `∃ res` with an equation constraining the successor, and every case analysis
+    pays `obtain ⟨-, res, -, rfl⟩`. -/
 def Step (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node)
-    (a : Action Node Msg NodeState Ev) (c c' : Config Node Msg NodeState) : Prop :=
-  enabled Pr S a c ∧ c' = act a c
+    (l : Move Node Msg NodeState Ev) (c c' : Config Node Msg NodeState) : Prop :=
+  (spec Pr S l.action).Enabled c ∧ (spec Pr S l.action).Permits l.2 c ∧
+    c' = (spec Pr S l.action).Apply l.2 c
 
 variable {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
-    {a : Action Node Msg NodeState Ev} {c : Config Node Msg NodeState}
+    {a : Action Node Msg Ev} {c : Config Node Msg NodeState}
 
-/-- Being enabled permits a step — Event-B's FIS, which here needs no per-action proof
-    because `act` is a total function. This is `Sts2`'s six `feasible` fields and `Sts2A`'s
-    six backward directions, in one line. -/
-theorem step_act (h : enabled Pr S a c) : Step Pr S a c (act a c) := ⟨h, rfl⟩
+/-- Some reaction is always permitted: `Protocol.total`, per action.
 
-/-- …and it is exactly enabledness, so nothing can promise more than the relation
-    delivers. `Sts2A` gets this shape only action by action. -/
-theorem enabled_iff : (∃ c', Step Pr S a c c') ↔ enabled Pr S a c :=
-  ⟨fun ⟨_, he, _⟩ => he, fun h => ⟨_, step_act h⟩⟩
-
-/-- A kind is available exactly when some reaction makes a label of that kind takeable.
-
-    No equation between kinds appears, because a label *is* a kind with a payload — the
-    version of this lemma that spoke about a hand-written erasure had to say
-    `∃ a, a.kind = k ∧ …`, and its truth depended on that map being right.
-
-    The forward direction needs `Protocol.total`, and it is the only place `total` is used in
-    this attempt: it is where the reaction that the guard does not mention gets produced. -/
-theorem enabledKind_iff (k : Kind Node Msg Ev) (c : Config Node Msg NodeState) :
-    enabledKind Pr S k c ↔ ∃ r : Reaction NodeState Msg k, enabled Pr S ⟨k, r⟩ c := by
-  cases k with
-  | advance t => exact ⟨fun _ => ⟨(), trivial⟩, fun _ => trivial⟩
-  | adversarial p m => exact ⟨fun h => ⟨(), h⟩, fun ⟨_, h⟩ => h⟩
+    This is all that survives of `Sts2`'s `feasible` and of `Sts2A`'s six backward
+    directions, and note what it does *not* mention — the schedule. "The protocol never gets
+    stuck" is a fact about the protocol, and here it is stated as one. -/
+theorem permits_total (a : Action Node Msg Ev) (c : Config Node Msg NodeState) :
+    ∃ r : Reaction NodeState Msg a, (spec Pr S a).Permits r c := by
+  cases a with
+  | advance t => exact ⟨(), trivial⟩
+  | adversarial p m => exact ⟨(), trivial⟩
   | tick p t =>
-      refine ⟨fun h => ?_, fun ⟨_, h⟩ => h.1⟩
       obtain ⟨res, hr⟩ := Pr.total p (setClock p t c)[p].clock (setClock p t c)[p].view
         (setClock p t c)[p].st .tick
-      exact ⟨res, h, hr⟩
+      exact ⟨res, hr⟩
   | deliver p m =>
-      refine ⟨fun h => ?_, fun ⟨_, h⟩ => ⟨h.1, h.2.1⟩⟩
       obtain ⟨res, hr⟩ := Pr.total p (receive p m c)[p].clock (receive p m c)[p].view
         (receive p m c)[p].st (.recv m)
-      exact ⟨res, h.1, h.2, hr⟩
+      exact ⟨res, hr⟩
   | wake p =>
-      refine ⟨fun h => ?_, fun ⟨_, h⟩ => ⟨h.1, h.2.1⟩⟩
       obtain ⟨res, hr⟩ := Pr.total p c[p].clock c[p].view c[p].st .wake
-      exact ⟨res, h.1, h.2, hr⟩
+      exact ⟨res, hr⟩
   | custom p ev =>
-      refine ⟨fun h => ?_, fun ⟨_, h⟩ => ⟨h.1, h.2.1⟩⟩
       obtain ⟨res, hr⟩ := Pr.total p c[p].clock c[p].view c[p].st (.custom ev)
-      exact ⟨res, h.1, h.2, hr⟩
+      exact ⟨res, hr⟩
 
-/-- "Some label of kind `k`" is "some payload over `k`" — the dependent pair has no other
-    inhabitants. Used to reconcile the kind-indexed fairness definitions with the
-    set-indexed ones in `Execution.lean`. -/
-theorem exists_kind_iff (k : Kind Node Msg Ev) (c : Config Node Msg NodeState) :
-    (∃ a : Action Node Msg NodeState Ev, a.kind = k ∧ enabled Pr S a c) ↔
-      ∃ r : Reaction NodeState Msg k, enabled Pr S ⟨k, r⟩ c := by
-  constructor
-  · rintro ⟨⟨k', r⟩, hk, h⟩
-    subst hk
-    exact ⟨r, h⟩
-  · rintro ⟨r, h⟩
-    exact ⟨⟨k, r⟩, rfl, h⟩
+/-- Enabledness is exactly the possibility of a step of that action — the property `Sts2`
+    needs `feasible` to guarantee and `Sts2A` proves action by action.
+
+    No equation between labels appears, because a transition *is* an action with a payload. -/
+theorem enabled_iff :
+    (spec Pr S a).Enabled c ↔ ∃ (r : Reaction NodeState Msg a) (c' : Config Node Msg NodeState),
+      Step Pr S ⟨a, r⟩ c c' := by
+  refine ⟨fun h => ?_, fun ⟨_, _, h, _⟩ => h⟩
+  obtain ⟨r, hr⟩ := permits_total (Pr := Pr) (S := S) a c
+  exact ⟨r, _, h, hr, rfl⟩
 
 /-! ### One invariant, by one destructuring and `cases`
 
-The same lemma the other two attempts prove. Here `Step` is again a conjunction, so it
-opens with `obtain`, but **once** rather than once per case: the successor is `act a c` for
-every label, so there is a single equation to substitute before the case split. -/
+`Step` is still a conjunction, so this opens with `obtain` — but **once**, not once per case,
+because there is no existential to unpack and the successor is a single term. Then the
+transition splits into its action and its reaction, and the case analysis is on the action. -/
 
 /-- The network never forgets. -/
-theorem sent_mono {a : Action Node Msg NodeState Ev} {c c' : Config Node Msg NodeState}
-    (h : Step Pr S a c c') : c.sent ⊆ c'.sent := by
-  obtain ⟨-, rfl⟩ := h
-  obtain ⟨k, res⟩ := a
-  cases k with
+theorem sent_mono {l : Move Node Msg NodeState Ev} {c c' : Config Node Msg NodeState}
+    (h : Step Pr S l c c') : c.sent ⊆ c'.sent := by
+  obtain ⟨-, -, rfl⟩ := h
+  obtain ⟨a, res⟩ := l
+  cases a with
   | advance t => exact fun _ hx => hx
   | tick p t => exact fun _ hx => Or.inl hx
   | deliver p m => exact fun _ hx => Or.inl hx
@@ -501,7 +478,7 @@ structure System (Carrier : Type u) (Label : Type v) where
 /-- The protocol as a transition system. -/
 def system (Node Msg NodeState Ev : Type) [DecidableEq Node] [DecidableEq Msg]
     (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) :
-    System (Config Node Msg NodeState) (Action Node Msg NodeState Ev) where
+    System (Config Node Msg NodeState) (Move Node Msg NodeState Ev) where
   Init := Init Pr
   Step := Step Pr S
 

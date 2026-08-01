@@ -124,141 +124,59 @@ ticks, leaving its clock behind for good, and no liveness argument survives that
 Hence weak fairness, stated in the textbook shape — *continuously enabled implies
 eventually taken* — which is what the step labels are for.
 
-Enabledness is not a parameter: it is read off `enabled`, so a fairness assumption cannot
-describe the wrong condition.
+Enabledness is not a parameter: it comes from the action's own `ActionSpec`, so a
+fairness assumption cannot describe the wrong condition.
 
-**Fairness cannot be per label here.** Because a label carries the reaction, `x.lbl j = a`
-says not "this action occurred" but "this *reaction* occurred", and `WeakFair x
-(.tick p t res)` would say that one permitted reaction is eventually taken — which, under a
-`Pr.step` that permits several, forces a validator to eventually make every legal choice.
+**This layer is `Sts2`'s, unchanged except for one projection.** Carrying the reaction in the
+label could have wrecked it: `x.lbl j = a` would then say "this *reaction* occurred", and
+weak fairness at a reaction-carrying label forces a validator to eventually make every choice
+its protocol permits. What saves it is that the reaction sits in a *payload* over the action
+rather than inside it, so `(x.lbl j).action = a` still says "this action occurred, whatever
+the node did" — and it says it with no existential, because the payload is projected away
+rather than quantified. That projection is `Sigma.fst`, so there is nothing here that could
+disagree with the labels. -/
 
-So fairness is stated at a **`Kind`**: the label with the reaction erased and everything else
-pinned. Availability comes from `enabledKind`, which mentions no reaction either, so **no
-existential over reactions appears in these definitions at all** — the reaction is gone from
-the fairness layer rather than merely quantified in one place. `weakFairKind_iff_set` proves
-this agrees with the set-indexed version, and that proof is where `Protocol.total` enters.
+/-- Action `a` may be taken at step `i`.
 
-Underneath, sets are the general notion and `weakFair_singleton` shows they generalize the
-per-label form the other attempts use. But **do not state a fairness assumption at an
-arbitrary set.** Widening a set is monotone in neither direction: it makes the antecedent
-hold more often *and* the conclusion easier to satisfy, the familiar fact that `WF (A ∨ B)`
-neither implies nor follows from `WF A ∧ WF B`. Concretely, "`p` ticks to reading `r` if it
-can" is the useful assumption; widen it to "`p` ticks to *some* reading if it can" and a
-validator satisfies it by ticking to reading `0` forever, with nothing in the statement
-looking wrong. `Kind` exists to make that mistake unavailable — kinds cannot be unioned.
+    Read off the action's own `ActionSpec` — the same field as in `Sts2`, mentioning no
+    reaction. `enabled_iff` guarantees it does not promise more than the step relation
+    delivers; unlike `Sts2` that is a theorem rather than a field, because `ActionSpec.Apply`
+    is a total function. An earlier version passed the enabling condition to `WeakFair`
+    as a separate argument, with nothing tying the two together: a wrong one made the
+    assumption either vacuous or unsatisfiable, and an unsatisfiable assumption makes
+    every theorem under it vacuously true. -/
+def Execution.Enabled (x : Exec Pr S) (i : Nat) (a : Action Node Msg Ev) : Prop :=
+  (spec Pr S a).Enabled x[i]
 
-`diligent_iff_res` records that erasing the reaction loses nothing: `Diligent` at a kind is
-the hand-written `∃ res` spelling, which is what the assumption would otherwise have to
-say. -/
+/-- Weak fairness for one action: continuously enabled implies eventually taken. -/
+def WeakFair (x : Exec Pr S) (a : Action Node Msg Ev) : Prop :=
+  ∀ i : Nat, (∀ j, i ≤ j → x.Enabled j a) → ∃ j, i ≤ j ∧ (x.lbl j).action = a
 
-/-- Label `a` may be taken at step `i`. Syntactic, straight from `enabled`. -/
-def Execution.Enabled (x : Exec Pr S) (i : Nat) (a : Action Node Msg NodeState Ev) : Prop :=
-  enabled Pr S a x[i]
-
-/-- Some label in `P` may be taken at step `i`. -/
-def Execution.EnabledSome (x : Exec Pr S) (i : Nat)
-    (P : Action Node Msg NodeState Ev → Prop) : Prop :=
-  ∃ a, P a ∧ x.Enabled i a
-
-/-- Weak fairness for a set of labels: if some label of `P` stays available, some label of
-    `P` is eventually taken. -/
-def WeakFair (x : Exec Pr S) (P : Action Node Msg NodeState Ev → Prop) : Prop :=
-  ∀ i : Nat, (∀ j, i ≤ j → x.EnabledSome j P) → ∃ j, i ≤ j ∧ P (x.lbl j)
-
-/-- Strong fairness: available infinitely often implies eventually taken. Needed for a
+/-- Strong fairness: enabled infinitely often implies eventually taken. Needed for a
     validator that only flickers awake, rather than staying awake. -/
-def StrongFair (x : Exec Pr S) (P : Action Node Msg NodeState Ev → Prop) : Prop :=
-  (∀ i : Nat, ∃ j, i ≤ j ∧ x.EnabledSome j P) → ∀ i : Nat, ∃ j, i ≤ j ∧ P (x.lbl j)
-
-/-- At a singleton the set version is the textbook per-label statement, so this really is
-    a generalization of what the other attempts assume and not a different assumption.
-    Checked here because the claim is load-bearing: it is the reason a model may keep
-    reasoning per action wherever the reaction is irrelevant. -/
-theorem weakFair_singleton (x : Exec Pr S) (a : Action Node Msg NodeState Ev) :
-    WeakFair x (· = a) ↔
-      ∀ i : Nat, (∀ j, i ≤ j → x.Enabled j a) → ∃ j, i ≤ j ∧ x.lbl j = a := by
-  unfold WeakFair Execution.EnabledSome
-  constructor
-  · intro h i hen
-    exact h i fun j hj => ⟨a, rfl, hen j hj⟩
-  · intro h i hen
-    exact h i fun j hj => by obtain ⟨b, rfl, hb⟩ := hen j hj; exact hb
-
-/-- Weak fairness at a kind: if that shape stays available, a label of that shape is
-    eventually taken.
-
-    **No existential over reactions, on either side.** Availability is `enabledKind`, a
-    condition on the configuration alone; occurrence is an equation between kinds. The only
-    quantifiers left are fairness's own `∀ i` and `∃ j`, which every attempt has. This is
-    the definition to compare against `Sts2`'s, and it is the same shape. -/
-def WeakFairKind (x : Exec Pr S) (k : Kind Node Msg Ev) : Prop :=
-  ∀ i : Nat, (∀ j, i ≤ j → enabledKind Pr S k x[j]) → ∃ j, i ≤ j ∧ (x.lbl j).kind = k
-
-/-- Strong fairness at a kind: available infinitely often implies eventually taken. -/
-def StrongFairKind (x : Exec Pr S) (k : Kind Node Msg Ev) : Prop :=
-  (∀ i : Nat, ∃ j, i ≤ j ∧ enabledKind Pr S k x[j]) →
-    ∀ i : Nat, ∃ j, i ≤ j ∧ (x.lbl j).kind = k
-
-/-- …and it agrees with the set-indexed version at the corresponding set, so the general
-    theory of sets still applies and nothing was quietly strengthened. Unlike the earlier
-    version of this lemma it is no longer `Iff.rfl`: `enabledKind_iff` is doing the work,
-    which is precisely where `Protocol.total` enters the fairness story. -/
-theorem weakFairKind_iff_set (x : Exec Pr S) (k : Kind Node Msg Ev) :
-    WeakFairKind x k ↔ WeakFair x (fun a => a.kind = k) := by
-  unfold WeakFairKind WeakFair Execution.EnabledSome Execution.Enabled
-  constructor
-  · intro h i hen
-    exact h i fun j hj => (enabledKind_iff k x[j]).2 ((exists_kind_iff k x[j]).1 (hen j hj))
-  · intro h i hen
-    exact h i fun j hj => (exists_kind_iff k x[j]).2 ((enabledKind_iff k x[j]).1 (hen j hj))
+def StrongFair (x : Exec Pr S) (a : Action Node Msg Ev) : Prop :=
+  (∀ i : Nat, ∃ j, i ≤ j ∧ x.Enabled j a) → ∀ i : Nat, ∃ j, i ≤ j ∧ (x.lbl j).action = a
 
 /-- Every awake node is ticked at every value of time, at that value.
 
     This is what makes an awake node act at each round, and it is a *fairness* property
     rather than a consequence of how clocks work — the earlier design hid it inside
     `tick` incrementing by one. Without it, a node's clock may jump and skip the rounds
-    at which its protocol would have acted.
-
-    Stated at a kind, so it reads as it does in the other attempts — the reaction is not
-    mentioned. Note what is *not* erased: `p` and the target reading `r`. Erasing `r` would
-    let a validator tick to reading `0` forever and satisfy this. -/
+    at which its protocol would have acted. -/
 def Diligent (x : Exec Pr S) : Prop :=
   ∀ (r : Time) (p : Node), (∃ i : Nat, x[i].time = r ∧ x.Awake i p) →
-    ∃ i : Nat, x[i].time = r ∧ (x.lbl i).kind = .tick p r
-
-/-- Erasing the reaction loses nothing: `Diligent` is the hand-written `∃ res` spelling.
-    Checked because it is the claim that makes `Kind` worth having — if the two differed, the
-    kind version would be a *different* assumption rather than a tidier one. -/
-theorem diligent_iff_res (x : Exec Pr S) :
-    Diligent x ↔ ∀ (r : Time) (p : Node), (∃ i : Nat, x[i].time = r ∧ x.Awake i p) →
-      ∃ i : Nat, x[i].time = r ∧
-        ∃ res : NodeStepResult NodeState Msg, x.lbl i = ⟨.tick p r, res⟩ := by
-  unfold Diligent
-  constructor
-  · intro h r p hp
-    obtain ⟨i, ht, hk⟩ := h r p hp
-    refine ⟨i, ht, ?_⟩
-    -- `cases hl : x.lbl i` rewrites the goal as well, so the payload is in scope by name
-    cases hl : x.lbl i with
-    | mk k res =>
-        rw [hl] at hk
-        simp only [Action.kind] at hk
-        subst hk
-        exact ⟨res, rfl⟩
-  · intro h r p hp
-    obtain ⟨i, ht, res, hl⟩ := h r p hp
-    exact ⟨i, ht, by rw [hl]⟩
+    ∃ i : Nat, x[i].time = r ∧ (x.lbl i).action = .tick p r
 
 /-- Eventual delivery, for use where `Synchrony` does not reach — before GST there
     is no bound, but one may still want messages to arrive at all. -/
 def DeliverFair (x : Exec Pr S) : Prop :=
-  ∀ (p : Node) (m : SignedMsg Node Msg), WeakFairKind x (.deliver p m)
+  ∀ (p : Node) (m : SignedMsg Node Msg), WeakFair x (.deliver p m)
 
 /-- A protocol-specific event that stays enabled eventually fires. This is the case
     state-based fairness could not express at all: what a `custom` reaction changes
     is up to the protocol, so there is no canonical state witness for it. -/
 def CustomFair (x : Exec Pr S) : Prop :=
-  ∀ (p : Node) (ev : Ev), WeakFairKind x (.custom p ev)
+  ∀ (p : Node) (ev : Ev), WeakFair x (.custom p ev)
 
 /-! ### Network
 

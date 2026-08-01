@@ -10,37 +10,24 @@ import Framework.Sts2C.CustomEvents
 /-!
 # A framework for message-passing distributed protocols — presentation C
 
-`Framework.Sts2` with the **reaction carried in the label**: `Action.tick p t res` rather
-than `Action.tick p t`. A label plus a configuration then determine the successor, so `act`
-is a function, `Step` is `enabled ∧ c' = act a c`, and no existential appears in the step
-relation at all. Enabledness is syntactic *and* needs no feasibility obligation.
+`Framework.Sts2` with **the reaction carried in the label**, and nothing else changed. Two
+existentials disappear as a result:
 
-It is the cheapest of the three presentations to write down, and the one to be most careful
-with. The saving is real; the cost does not show up in a line count. Fairness can no longer
-be stated per label — `x.lbl j = a` would name a *reaction* — so it is stated at a `Kind`,
-the label with the reaction erased and everything else pinned. That confines the reaction's
-existential to one definition (`WeakFairKind`) and makes the dangerous mistake unavailable:
-sets of labels can be widened, and widening is monotone in neither direction, whereas kinds
-cannot be unioned. `weakFairKind_iff` and `diligent_iff_res` keep both claims honest.
+* `Sts2`'s `Reacts` is `∃ res, Pr.step … res ∧ c' = applyNodeStepResult …`. Here the reaction
+  is supplied by the label, so `ActionSpec.Apply` is a *function*, `Step` is three conjuncts
+  with no quantifier, and `ActionSpec.feasible` is unnecessary — a total function cannot fail
+  to produce a successor. What is left of that obligation is `permits_total`, one lemma about
+  the protocol.
+* Weak fairness would normally break under such a label, since `x.lbl j = a` would name a
+  *reaction* rather than an action, and "eventually taken" would force a validator to make
+  every choice its protocol permits. It survives because the reaction is a **payload over**
+  the action rather than an argument inside it: `Move = (a : Action) × Reaction a`, and
+  `(x.lbl j).action = a` still says "this action occurred, whatever the node did" — with the
+  payload projected away rather than existentially quantified.
 
-The upshot is that this presentation needs **two** alphabets: `Kind`, which says what
-happened, and `Action = (k : Kind) × Reaction k`, which determines the successor.
-`Kind Node Msg Ev` is precisely `Sts2`'s `Action` — so C converges on B's alphabet for talking
-about occurrences while keeping a richer one for the step relation.
-
-`Kind` is the *primary* type and the reaction is a payload over it, rather than `Action` being
-an inductive with a hand-written erasure to `Kind`. That was a deliberate second pass: a
-hand-written erasure is a place to be wrong, and while `enabledKind_iff` happens to catch the
-obvious errors — its forward direction demands a label of every kind — surjectivity is not the
-same as being the intended map, and the protection depended on the luck of these six
-signatures. As a dependent pair the erasure is `Sigma.fst`, right by definition, and
-`enabledKind_iff` loses its `a.kind = k` equation entirely.
-
-There is also a modelling objection worth weighing: a label is what the *scheduler* picks —
-who acts, when, which message — whereas a `NodeStepResult` is picked by the node's own
-program. Carrying it in the label says the schedule chooses an honest node's internal
-decision. Two alphabets and an erasure map is arguably the honest response to that, rather
-than a workaround for it.
+That is the `Kind` technique, and it costs nothing here because `Sts2`'s `Action` *is* the
+reaction-free alphabet: there is no second label type to invent and no erasure map to write,
+since the erasure is `Sigma.fst`. The whole fairness layer is `Sts2`'s, one projection aside.
 
 Generic scaffolding: nothing here is about any particular protocol. A
 specialization supplies three types (validators, messages, protocol state) and
@@ -59,12 +46,12 @@ claim is checked by the compiler rather than asserted.
   (awake *somewhere* vs awake *throughout*) and the constraints a model may
   impose on them.
 * `Protocol` — `System` (the framework's own, so `Framework/` depends on nothing
-  outside itself), `Protocol`, `Config`, and the step relation: `Kind` and `Reaction` with
-  `Action` their dependent pair, the syntactic guards `enabled` and `enabledKind`, the
-  successor *function* `act`, and `Step := enabled ∧ c' = act a c`.
-  A protocol reacts to **events**: `tick` and `recv m`, which the framework generates, plus
+  outside itself), `Protocol`, `Config`, `Action` and its `Reaction` payload, `Move` their
+  dependent pair, and the step relation: one `ActionSpec` per action with `Enabled` (the
+  schedule), `Permits` (which reactions the protocol allows) and `Apply` (a function). A
+  protocol reacts to **events**: `tick` and `recv m`, which the framework generates, plus
   `custom` events of the protocol's own type `Ev`, gated by `Protocol.enabled`.
-* `Reachable` — reachability and `viewsSound`, by case analysis on the label.
+* `Reachable` — reachability and `viewsSound`, by case analysis on the action.
 * `Execution` — executions (recording the action taken at each step), the clock,
   network and fairness assumptions as predicates over them, and the security
   property definitions.
@@ -77,11 +64,10 @@ claim is checked by the compiler rather than asserted.
 
 ## Deliberate omissions
 
-* **Almost no proofs.** `sent_mono` and `viewsSound`, to make the comparison concrete;
-  `step_act`/`enabled_iff`, which are this presentation's whole feasibility story; and
-  `weakFair_singleton`, which checks that set-indexed fairness generalizes the per-label
-  form. What the framework *will* own once it settles: a reusable "everything a correct
-  validator signed is justified by its state" schema.
+* **Almost no proofs.** `sent_mono` and `viewsSound`, which make the comparison with `Sts2`
+  concrete; `permits_total` and `enabled_iff`, which are this presentation's whole
+  feasibility story. What the framework *will* own once it settles: a reusable "everything a
+  correct validator signed is justified by its state" schema.
 * **No blocks, chains or transaction pool.** They are reusable but they commit
   to chain-based protocols; the security definitions instead abstract over an
   output type and a prefix relation.

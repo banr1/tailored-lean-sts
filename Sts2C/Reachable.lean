@@ -1,10 +1,11 @@
 import Framework.Sts2C.Protocol
 
 /-!
-# Reachability, and one invariant by case analysis on the label
+# Reachability, and one invariant by case analysis
 
-The same inductive-invariant proof the other attempts do. Here the case split is on the
-*label*, after substituting the single successor equation `c' = act a c`.
+The same inductive-invariant proof `Sts2` does through `Step.elim`. Here the transition is
+destructured once — there is no existential and the successor is a single term — and the case
+analysis is on the action.
 
 The property chosen is one `Execution.lean` currently *assumes* — `ViewsSound`, that
 everything in a validator's view was really signed and sent. It should not need to be
@@ -23,8 +24,8 @@ variable {Node Msg NodeState Ev : Type} [DecidableEq Node] [DecidableEq Msg]
 inductive Reachable (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) :
     Config Node Msg NodeState → Prop where
   | init {c : Config Node Msg NodeState} : Init Pr c → Reachable Pr S c
-  | step {a : Action Node Msg NodeState Ev} {c c' : Config Node Msg NodeState} :
-      Reachable Pr S c → Step Pr S a c c' → Reachable Pr S c'
+  | step {l : Move Node Msg NodeState Ev} {c c' : Config Node Msg NodeState} :
+      Reachable Pr S c → Step Pr S l c c' → Reachable Pr S c'
 
 /-- Everything in a validator's view was signed and sent. -/
 def ViewsSound (c : Config Node Msg NodeState) : Prop :=
@@ -33,46 +34,46 @@ def ViewsSound (c : Config Node Msg NodeState) : Prop :=
 /-- `ViewsSound` holds everywhere reachable — so `Execution.ViewsSound` need not be
     assumed.
 
-    The `obtain ⟨hen, rfl⟩` is paid once, not per case, because every label produces
-    `act a c`. The label is then split into its kind and its reaction, and the case analysis
-    is on the kind. What each case needs from the guard it reads out of `hen`, whose shape
-    `enabled` fixes per kind — `hen.1` for `deliver` is `m ∈ c.sent`. -/
+    Against `Sts2`'s version: no motive to supply, no eliminator to have written, and the
+    `obtain` is paid once rather than per case. What each case needs from the guard it reads
+    out of `hen` — for `deliver`, `hen.1` is `m ∈ c.sent`, exactly as in `Sts2`, because
+    `ActionSpec.Enabled` is unchanged from it. -/
 theorem viewsSound {c : Config Node Msg NodeState} (h : Reachable Pr S c) : ViewsSound c := by
   induction h with
   | init hi =>
       obtain ⟨-, hnodes, -⟩ := hi
       intro p m hm
       simp [hnodes p] at hm
-  | @step a d d' _ hstep ih =>
-      obtain ⟨hen, rfl⟩ := hstep
-      obtain ⟨k, res⟩ := a
-      cases k with
+  | @step l d d' _ hstep ih =>
+      obtain ⟨hen, -, rfl⟩ := hstep
+      obtain ⟨a, res⟩ := l
+      cases a with
       -- advance: only `time` moves
       | advance t => exact ih
       -- tick: the view is untouched, the network only grows
       | tick q t =>
           intro p m hm
-          simp [act] at hm
+          simp [spec] at hm
           exact Or.inl (ih p m hm)
-      -- deliver: the one new message was in `sent` by the label's own guard
+      -- deliver: the one new message was in `sent` by the action's own guard
       | deliver q msg =>
           intro p m hm
           by_cases hpq : p = q
           · subst hpq
-            simp [act] at hm
+            simp [spec] at hm
             rcases hm with rfl | hm
             · exact Or.inl hen.1
             · exact Or.inl (ih p m hm)
-          · simp [act, hpq] at hm
+          · simp [spec, hpq] at hm
             exact Or.inl (ih p m hm)
       -- wake and custom: as tick
       | wake q =>
           intro p m hm
-          simp [act] at hm
+          simp [spec] at hm
           exact Or.inl (ih p m hm)
       | custom q ev =>
           intro p m hm
-          simp [act] at hm
+          simp [spec] at hm
           exact Or.inl (ih p m hm)
       -- adversarial: the view is untouched, one message is added
       | adversarial q msg =>
