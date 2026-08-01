@@ -163,20 +163,11 @@ omit [DecidableEq Msg] in
     (r : Local Node Msg NodeState) (q : Node) :
     (c.setNode p r)[q] = if p = q then r else c[q] := rfl
 
-/-- Replace `p`'s protocol state, leaving its clock and view alone.
-
-    One setter per field rather than one that replaces the whole `Local` record: the name
-    then says exactly what changes, which matters because `applyNodeStepResult`, `receive`
-    and `setClock` each touch a different field. -/
-def Config.setNodeState (c : Config Node Msg NodeState) (p : Node) (s : NodeState) :
-    Config Node Msg NodeState :=
-  c.setNode p { c[p] with st := s }
-
-omit [DecidableEq Msg] in
-/-- How a `setNodeState` reads back. -/
-@[simp] theorem Config.setNodeState_apply (c : Config Node Msg NodeState) (p : Node)
-    (s : NodeState) (q : Node) :
-    (c.setNodeState p s)[q] = if p = q then { c[p] with st := s } else c[q] := rfl
+/-! The three writes below each name the one field they change, and each is a single
+`setNode` with that field replaced — none of them is layered on another, so they read the
+same way and each has the same shape of read-back lemma. An earlier version had
+`applyNodeStepResult` go through a `Config.setNodeState`, which cost an extra hop in every
+proof about it and made it the odd one out. -/
 
 /-- File a delivered message into `p`'s view, without reacting to it. -/
 def receive (p : Node) (m : SignedMsg Node Msg) (c : Config Node Msg NodeState) :
@@ -191,7 +182,7 @@ def receive (p : Node) (m : SignedMsg Node Msg) (c : Config Node Msg NodeState) 
     `voting(t)`" — and it achieves that by choosing `send := ∅` in its own `step`. -/
 def applyNodeStepResult (p : Node) (res : NodeStepResult NodeState Msg) (c : Config Node Msg NodeState) :
     Config Node Msg NodeState :=
-  { c.setNodeState p res.state
+  { c.setNode p { c[p] with st := res.state }
       with sent := c.sent ∪ (SignedMsg.mk p '' (res.send : Set Msg)) }
 
 /-- `p`'s clock now reads `t`. The framework says nothing about which `t` — see
@@ -392,7 +383,8 @@ opposite direction. -/
 omit [DecidableEq Msg] in
 theorem applyNodeStepResult_getElem (q : Node) (res : NodeStepResult NodeState Msg)
     (d : Config Node Msg NodeState) (p : Node) :
-    (applyNodeStepResult q res d)[p] = (d.setNodeState q res.state)[p] := rfl
+    (applyNodeStepResult q res d)[p] = if q = p then { d[q] with st := res.state } else d[p] :=
+  rfl
 
 theorem receive_getElem (q : Node) (m : SignedMsg Node Msg)
     (d : Config Node Msg NodeState) (p : Node) :
