@@ -298,20 +298,24 @@ inductive Step (Pr : Protocol V Msg State Ev) (S : Schedule V) :
       (spec Pr S (.adversarial p m)).Enabled c →
       Step Pr S (.adversarial p m) c ((spec Pr S (.adversarial p m)).Apply () c)
 
-/-! ### The predecessor of the tabulated form, kept for comparison
+/-! ### The two earlier presentations, kept for comparison
 
-What this file looked like before `ActionSpec`: a `guard` table holding just the
-enabling conditions, constructors citing it, and each effect written inline in the
-constructor's index. `step_iff_guard` proves it is the same relation, so this is a
-comparison and not a second definition to maintain — `Execution` uses `spec`.
+This file went through three forms. All define the *same relation* — `step_iff_guard`
+and `step_iff_inline` below prove it — so these are comparisons, not definitions to
+maintain. `Execution` uses `spec`.
 
-The difference is narrow. Both tabulate the enabling conditions in one place; the
-question is whether the *effect* is tabulated too. Tabulating it (`Choice`, `Permits`,
-`Apply`) makes the four reacting actions share a shape, lets `feasible` be discharged
-where the action is defined, and gives `Execution.Enabled` something to read for an
-arbitrary `a`. Not tabulating it keeps each constructor readable without lookups, at
-the cost of `bumped p c` and `receive p m c` appearing twice per action — once in the
-`Pr.step` premise and once in the successor — with nothing checking they agree. -/
+1. `StepInline` — nothing tabulated. Every enabling condition and every effect written
+   in the constructor. Most legible read in isolation; but a condition cannot be named,
+   so `Execution.Enabled` for an arbitrary `a` has no choice but `∃ c', Step … c c'`.
+2. `StepGuard` — enabling conditions tabulated in `guard`, effects still inline. Fixes
+   the naming problem for a fraction of the cost of (3).
+3. `Step` with `ActionSpec` — conditions *and* effect tabulated. Buys a shared shape for
+   the four reacting actions and `feasible` discharged where the action is defined;
+   costs indirection, and roughly 44 lines over (2).
+
+Note what (1) and (2) both leave unchecked: `bumped p c` and `receive p m c` each appear
+twice per action — once in the `Pr.step` premise, once in the successor — and nothing
+forces them to agree. That is the coupling `ActionSpec` removes by construction. -/
 
 /-- Enabling conditions only, as they were before `ActionSpec` absorbed them. -/
 def guard (Pr : Protocol V Msg State Ev) (S : Schedule V) :
@@ -374,6 +378,57 @@ theorem step_iff_guard (Pr : Protocol V Msg State Ev) (S : Schedule V)
     | wake eff hg hp => exact .wake eff hg hp
     | custom eff hg hp => exact .custom eff hg hp
     | adversarial hg => exact .adversarial hg
+
+/-- The step relation with nothing tabulated: the original form, before `guard`. -/
+inductive StepInline (Pr : Protocol V Msg State Ev) (S : Schedule V) :
+    Action V Msg Ev → Config V Msg State → Config V Msg State → Prop where
+  | advance {c : Config V Msg State} :
+      StepInline Pr S .advance c { c with time := c.time + 1 }
+  | tick {c : Config V Msg State} {p : V} (eff : Effect State Msg) :
+      p ∈ S.awake (c.time : Int) → c[p].clock < c.time →
+      Pr.step p (bumped p c)[p].clock (bumped p c)[p].view (bumped p c)[p].st .tick eff →
+      StepInline Pr S (.tick p) c (install p eff (bumped p c))
+  | deliver {c : Config V Msg State} {p : V} {m : SignedMsg V Msg}
+      (eff : Effect State Msg) :
+      m ∈ c.sent → p ∈ S.awake (c.time : Int) →
+      Pr.step p (receive p m c)[p].clock (receive p m c)[p].view (receive p m c)[p].st
+        (.recv m) eff →
+      StepInline Pr S (.deliver p m) c (install p eff (receive p m c))
+  | wake {c : Config V Msg State} {p : V} (eff : Effect State Msg) :
+      p ∈ S.awake (c.time : Int) → p ∉ S.awake ((c.time : Int) - 1) →
+      Pr.step p c[p].clock c[p].view c[p].st .wake eff →
+      StepInline Pr S (.wake p) c (install p eff c)
+  | custom {c : Config V Msg State} {p : V} {ev : Ev} (eff : Effect State Msg) :
+      p ∈ S.awake (c.time : Int) → Pr.enabled c[p].clock c[p].st ev →
+      Pr.step p c[p].clock c[p].view c[p].st (.custom ev) eff →
+      StepInline Pr S (.custom p ev) c (install p eff c)
+  | adversarial {c : Config V Msg State} {p : V} {m : Msg} :
+      p ∈ S.adv (c.time : Int) →
+      StepInline Pr S (.adversarial p m) c { c with sent := insert ⟨p, m⟩ c.sent }
+
+/-- Tabulating the guards changes nothing but the presentation: the tabulated form pairs
+    the two environment conditions into one `guard`, the inline form keeps them apart, so
+    each case translates by `⟨h1, h2⟩` one way and `.1`/`.2` the other. -/
+theorem stepGuard_iff_inline (Pr : Protocol V Msg State Ev) (S : Schedule V)
+    (a : Action V Msg Ev) (c c' : Config V Msg State) :
+    StepGuard Pr S a c c' ↔ StepInline Pr S a c c' := by
+  constructor
+  · intro h
+    cases h with
+    | advance _ => exact .advance
+    | tick eff hg hp => exact .tick eff hg.1 hg.2 hp
+    | deliver eff hg hp => exact .deliver eff hg.1 hg.2 hp
+    | wake eff hg hp => exact .wake eff hg.1 hg.2 hp
+    | custom eff hg hp => exact .custom eff hg.1 hg.2 hp
+    | adversarial hg => exact .adversarial hg
+  · intro h
+    cases h with
+    | advance => exact .advance trivial
+    | tick eff h1 h2 hp => exact .tick eff ⟨h1, h2⟩ hp
+    | deliver eff h1 h2 hp => exact .deliver eff ⟨h1, h2⟩ hp
+    | wake eff h1 h2 hp => exact .wake eff ⟨h1, h2⟩ hp
+    | custom eff h1 h2 hp => exact .custom eff ⟨h1, h2⟩ hp
+    | adversarial h => exact .adversarial h
 
 /-- A step is possible exactly when the action is enabled.
 
