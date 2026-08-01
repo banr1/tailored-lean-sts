@@ -1,4 +1,4 @@
-import Framework.Sts2.Protocol
+import Framework.Sts2.Reachable
 
 /-!
 # Executions, network assumptions, security properties
@@ -187,9 +187,20 @@ def Relay (gst delta : Round) (x : Exec Pr S) : Prop :=
   ∀ (i j : Nat) p q m, x.Awake i p → m ∈ x[i][p].view →
     max x[i].time gst + delta ≤ x[j].time → x.Awake j q → m ∈ x[j][q].view
 
-/-- Nothing appears in a view unless it was signed and sent. -/
-def ViewsSound (x : Exec Pr S) : Prop :=
-  ∀ (i : Nat) (p : V) m, m ∈ x[i][p].view → m ∈ x[i].sent
+/-- Every configuration in an execution is reachable. -/
+theorem Execution.reachable (x : Exec Pr S) (i : Nat) : Reachable Pr S x[i] := by
+  induction i with
+  | zero => exact .init x.init
+  | succ i ih => exact .step ih (x.step i)
+
+/-- Nothing appears in a view unless it was signed and sent.
+
+    This used to be an **assumption** in both models. It is a theorem: a message enters a
+    view only through `deliver`, whose enabling condition requires it to be in `sent`
+    already, and `sent` never shrinks. See `Framework.Sts2.viewsSound`. -/
+theorem views_sound (x : Exec Pr S) (i : Nat) (p : V) (m : SignedMsg V Msg)
+    (hm : m ∈ x[i][p].view) : m ∈ x[i].sent :=
+  viewsSound (x.reachable i) p m hm
 
 /-! ### Security properties
 

@@ -1,0 +1,76 @@
+import Framework.Sts2.Protocol
+
+/-!
+# Reachability, and one invariant proved through the eliminator
+
+The framework's first inductive-invariant proof, added to test whether `Step.elim`
+really recovers the ergonomics of case analysis on an inductive step relation.
+
+The property chosen is one `Execution.lean` currently *assumes* — `ViewsSound`, that
+everything in a validator's view was really signed and sent. It should not need to be
+an assumption: a message enters a view only via `deliver`, whose enabling condition
+requires it to be in `sent` already, and `sent` never shrinks.
+-/
+
+set_option autoImplicit false
+
+namespace Framework.Sts2
+
+variable {V Msg State Ev : Type} [DecidableEq V] [DecidableEq Msg]
+  {Pr : Protocol V Msg State Ev} {S : Schedule V}
+
+/-- Configurations reachable from an initial one. -/
+inductive Reachable (Pr : Protocol V Msg State Ev) (S : Schedule V) :
+    Config V Msg State → Prop where
+  | init {c : Config V Msg State} : Init Pr c → Reachable Pr S c
+  | step {a : Action V Msg Ev} {c c' : Config V Msg State} :
+      Reachable Pr S c → Step Pr S a c c' → Reachable Pr S c'
+
+/-- Everything in a validator's view was signed and sent. -/
+def ViewsSound (c : Config V Msg State) : Prop :=
+  ∀ (p : V) (m : SignedMsg V Msg), m ∈ c[p].view → m ∈ c.sent
+
+/-- `ViewsSound` holds everywhere reachable — so `Execution.ViewsSound` need not be
+    assumed.
+
+    Note how the induction hypothesis reaches the cases: the motive is an *implication*,
+    `ViewsSound d → ViewsSound d'`, and the eliminator's result is applied to `ih`. That
+    is the one idiom `Step.elim` needs that `cases` on an inductive would not. -/
+theorem viewsSound {c : Config V Msg State} (h : Reachable Pr S c) : ViewsSound c := by
+  induction h with
+  | init hi =>
+      obtain ⟨-, hnodes, -⟩ := hi
+      intro p m hm
+      simp [hnodes p] at hm
+  | step _ hstep ih =>
+      refine hstep.elim (motive := fun _ d d' => ViewsSound d → ViewsSound d')
+        ?_ ?_ ?_ ?_ ?_ ?_ ih
+      -- advance: nothing moves
+      · intro d hv p m hm
+        exact hv p m hm
+      -- tick: the view is untouched, the network only grows
+      · intro d q eff _ _ hv p m hm
+        simp at hm
+        exact Or.inl (hv p m hm)
+      -- deliver: the one new message was in `sent` by the action's own guard
+      · intro d q msg eff hen _ hv p m hm
+        by_cases hpq : p = q
+        · subst hpq
+          simp at hm
+          rcases hm with rfl | hm
+          · exact Or.inl hen.1
+          · exact Or.inl (hv p m hm)
+        · simp [hpq] at hm
+          exact Or.inl (hv p m hm)
+      -- wake and custom: as tick
+      · intro d q eff _ _ hv p m hm
+        simp at hm
+        exact Or.inl (hv p m hm)
+      · intro d q ev eff _ _ hv p m hm
+        simp at hm
+        exact Or.inl (hv p m hm)
+      -- adversarial: the view is untouched, one message is added
+      · intro d q msg _ hv p m hm
+        exact Or.inr (hv p m hm)
+
+end Framework.Sts2

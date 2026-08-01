@@ -1,6 +1,7 @@
 import Framework.Sts2.Message
 import Framework.Sts2.Schedule
 import Framework.Sts2.Protocol
+import Framework.Sts2.Reachable
 import Framework.Sts2.Execution
 import Framework.Sts2.Models
 import Framework.Sts2.Example

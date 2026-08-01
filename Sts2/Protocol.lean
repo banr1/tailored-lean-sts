@@ -345,6 +345,42 @@ omit [DecidableEq Msg] in
     ((receive q m d).nodes p).clock = (d.nodes p).clock := by
   by_cases hpq : p = q <;> simp [receive, Config.update, hpq]
 
+/-! ### What the helpers do to each field
+
+The API any invariant proof needs: for `install`, `receive` and `bumped`, what happens to
+each field of each validator. Phrased over `.nodes` for the reason given above. -/
+
+omit [DecidableEq Msg] in
+@[simp] theorem install_view (q : V) (eff : Effect State Msg) (d : Config V Msg State)
+    (p : V) : ((install q eff d).nodes p).view = (d.nodes p).view := by
+  by_cases hpq : p = q <;> simp [install, Config.update, hpq]
+
+omit [DecidableEq Msg] in
+@[simp] theorem install_sent (q : V) (eff : Effect State Msg) (d : Config V Msg State) :
+    (install q eff d).sent = d.sent ∪ (SignedMsg.mk q '' (eff.send : Set Msg)) := rfl
+
+@[simp] theorem receive_view_self (q : V) (m : SignedMsg V Msg)
+    (d : Config V Msg State) :
+    ((receive q m d).nodes q).view = insert m ((d.nodes q).view) := by
+  simp [receive, Config.update]
+
+@[simp] theorem receive_view_other (q : V) (m : SignedMsg V Msg)
+    (d : Config V Msg State) (p : V) (h : p ≠ q) :
+    ((receive q m d).nodes p).view = (d.nodes p).view := by
+  simp [receive, Config.update, h]
+
+@[simp] theorem receive_sent (q : V) (m : SignedMsg V Msg) (d : Config V Msg State) :
+    (receive q m d).sent = d.sent := rfl
+
+omit [DecidableEq Msg] in
+@[simp] theorem bumped_view (q : V) (d : Config V Msg State) (p : V) :
+    ((bumped q d).nodes p).view = (d.nodes p).view := by
+  by_cases hpq : p = q <;> simp [bumped, Config.update, hpq]
+
+omit [DecidableEq Msg] in
+@[simp] theorem bumped_sent (q : V) (d : Config V Msg State) :
+    (bumped q d).sent = d.sent := rfl
+
 /-- Clocks never go backwards. -/
 theorem clock_mono {Pr : Protocol V Msg State Ev} {S : Schedule V} {a : Action V Msg Ev}
     {c c' : Config V Msg State} (h : Step Pr S a c c') (p : V) :
