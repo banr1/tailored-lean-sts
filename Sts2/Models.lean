@@ -27,7 +27,7 @@ set_option autoImplicit false
 
 namespace Framework.Sts2.Models
 
-variable {V Msg State Ev : Type} [Fintype V] [DecidableEq V] [DecidableEq Msg]
+variable {V Msg NodeState Ev : Type} [Fintype V] [DecidableEq V] [DecidableEq Msg]
 
 /-! ## Majorum -/
 
@@ -88,7 +88,7 @@ def Compliant (S : Schedule V) : Prop :=
           ((Q.voting (t - 1) : Int))) \ S.adv ((Q.voting t : Int))).card
 
 /-- The model: everything Majorum assumes of an execution. -/
-def Model {Pr : Protocol V Msg State Ev} {S : Schedule V}
+def Model {Pr : Protocol V Msg NodeState Ev} {S : Schedule V}
     (x : Exec Pr S) : Prop :=
   S.MonotoneCorruption ∧ S.AwakeHonest ∧ S.CorruptionBounded Q.f ∧
     S.GlobalAwakeTime Q.gat Finset.univ ∧ Q.Compliant S ∧
@@ -137,7 +137,7 @@ def Compliant (S : Schedule V) : Prop :=
 
 /-- The model. `Synchrony 0` is the synchronous network: TOB-SVD assumes a delay
     bound Δ from the start, with no GST. -/
-def Model {Pr : Protocol V Msg State Ev} {S : Schedule V}
+def Model {Pr : Protocol V Msg NodeState Ev} {S : Schedule V}
     (x : Exec Pr S) : Prop :=
   S.MonotoneCorruption ∧ S.AwakeHonest ∧ Q.Compliant S ∧
     Synchronized x ∧ Synchrony 0 Q.delta x ∧

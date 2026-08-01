@@ -11,7 +11,7 @@ compiles, that the parameterisation actually fits together.
 
 Read it as the answer to "how do I use this?":
 
-1. pick `V`, `Msg`, `State` and write a `Protocol` (`init` and `step`);
+1. pick `V`, `Msg`, `NodeState` and write a `Protocol` (`init` and `step`);
 2. pick a `Schedule` — who is corrupted, who is awake, at each time;
 3. `system`/`Exec` then give you the transition system and its executions;
 4. state which model's assumptions you are working under.

@@ -47,13 +47,13 @@ instance {St Lbl : Type} {Sys : System St Lbl} :
     GetElem (Execution Sys) Nat St (fun _ _ => True) where
   getElem x i _ := x.cfg i
 
-variable {V Msg State Ev : Type} [DecidableEq V] [DecidableEq Msg]
+variable {V Msg NodeState Ev : Type} [DecidableEq V] [DecidableEq Msg]
 
 /-- Executions of a protocol under a participation rule and a schedule. -/
-abbrev Exec (Pr : Protocol V Msg State Ev) (S : Schedule V) :=
-  Execution (system V Msg State Ev Pr S)
+abbrev Exec (Pr : Protocol V Msg NodeState Ev) (S : Schedule V) :=
+  Execution (system V Msg NodeState Ev Pr S)
 
-variable {Pr : Protocol V Msg State Ev} {S : Schedule V}
+variable {Pr : Protocol V Msg NodeState Ev} {S : Schedule V}
 
 /-! ### Reading an execution
 
@@ -212,7 +212,7 @@ variable {Out : Type}
 
 /-- Majorum Def. 1 (Safe protocol), after `tafter`: the outputs of validators
     that are honest at the time are always prefix-comparable. -/
-def Safe (out : V → Config V Msg State → Out) (Pre : Out → Out → Prop)
+def Safe (out : V → Config V Msg NodeState → Out) (Pre : Out → Out → Prop)
     (tafter : Round) (x : Exec Pr S) : Prop :=
   ∀ (i j : Nat) p q, tafter ≤ x[i].time → tafter ≤ x[j].time →
     x.Honest i p → x.Honest j q →
@@ -226,13 +226,13 @@ def Safe (out : V → Config V Msg State → Out) (Pre : Out → Out → Prop)
     protocol-specific notion; stating it over the awake ones is stronger, so a
     protocol whose joining delay matters will want to weaken this with its own
     participation predicate. -/
-def Live {Tx : Type} (out : V → Config V Msg State → Out) (mem : Tx → Out → Prop)
+def Live {Tx : Type} (out : V → Config V Msg NodeState → Out) (mem : Tx → Out → Prop)
     (pool : Round → Set Tx) (tafter tconf : Round) (x : Exec Pr S) : Prop :=
   ∀ (i j : Nat) p tx, tafter ≤ x[i].time → tx ∈ pool x[i].time →
     x[i].time + tconf ≤ x[j].time → x.Awake j p → mem tx (out p x[j])
 
 /-- Majorum Def. 3 (Secure protocol). -/
-def Secure {Tx : Type} (out : V → Config V Msg State → Out)
+def Secure {Tx : Type} (out : V → Config V Msg NodeState → Out)
     (Pre : Out → Out → Prop) (mem : Tx → Out → Prop) (pool : Round → Set Tx)
     (tafter tconf : Round) (x : Exec Pr S) : Prop :=
   Safe out Pre tafter x ∧ Live out mem pool tafter tconf x
