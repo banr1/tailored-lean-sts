@@ -133,8 +133,10 @@ says not "this action occurred" but "this *reaction* occurred", and `WeakFair x
 `Pr.step` that permits several, forces a validator to eventually make every legal choice.
 
 So fairness is stated at a **`Kind`**: the label with the reaction erased and everything else
-pinned. `WeakFairKind` is defined through the set-indexed `WeakFair`, so there is one notion
-underneath, and `weakFairKind_iff` proves the two agree.
+pinned. Availability comes from `enabledKind`, which mentions no reaction either, so **no
+existential over reactions appears in these definitions at all** — the reaction is gone from
+the fairness layer rather than merely quantified in one place. `weakFairKind_iff_set` proves
+this agrees with the set-indexed version, and that proof is where `Protocol.total` enters.
 
 Underneath, sets are the general notion and `weakFair_singleton` shows they generalize the
 per-label form the other attempts use. But **do not state a fairness assumption at an
@@ -145,9 +147,9 @@ can" is the useful assumption; widen it to "`p` ticks to *some* reading if it ca
 validator satisfies it by ticking to reading `0` forever, with nothing in the statement
 looking wrong. `Kind` exists to make that mistake unavailable — kinds cannot be unioned.
 
-Stating fairness at kinds also confines the reaction's existential to *one* place, the
-definition of `WeakFairKind`, rather than to every statement that names an occurrence.
-`diligent_iff_res` records that the erasure loses nothing. -/
+`diligent_iff_res` records that erasing the reaction loses nothing: `Diligent` at a kind is
+the hand-written `∃ res` spelling, which is what the assumption would otherwise have to
+say. -/
 
 /-- Label `a` may be taken at step `i`. Syntactic, straight from `enabled`. -/
 def Execution.Enabled (x : Exec Pr S) (i : Nat) (a : Action Node Msg NodeState Ev) : Prop :=
@@ -182,21 +184,33 @@ theorem weakFair_singleton (x : Exec Pr S) (a : Action Node Msg NodeState Ev) :
   · intro h i hen
     exact h i fun j hj => by obtain ⟨b, rfl, hb⟩ := hen j hj; exact hb
 
-/-- Weak fairness at a kind: if some label of that shape stays available, some label of
-    that shape is eventually taken. The `∃ res` is here, once. -/
+/-- Weak fairness at a kind: if that shape stays available, a label of that shape is
+    eventually taken.
+
+    **No existential over reactions, on either side.** Availability is `enabledKind`, a
+    condition on the configuration alone; occurrence is an equation between kinds. The only
+    quantifiers left are fairness's own `∀ i` and `∃ j`, which every attempt has. This is
+    the definition to compare against `Sts2`'s, and it is the same shape. -/
 def WeakFairKind (x : Exec Pr S) (k : Kind Node Msg Ev) : Prop :=
-  WeakFair x (fun a => a.kind = k)
+  ∀ i : Nat, (∀ j, i ≤ j → enabledKind Pr S k x[j]) → ∃ j, i ≤ j ∧ (x.lbl j).kind = k
 
 /-- Strong fairness at a kind: available infinitely often implies eventually taken. -/
 def StrongFairKind (x : Exec Pr S) (k : Kind Node Msg Ev) : Prop :=
-  StrongFair x (fun a => a.kind = k)
+  (∀ i : Nat, ∃ j, i ≤ j ∧ enabledKind Pr S k x[j]) →
+    ∀ i : Nat, ∃ j, i ≤ j ∧ (x.lbl j).kind = k
 
-/-- Unfolded, so the shape of the assumption is on the record: a kind is a particular
-    family of label sets, not a rival notion. -/
-theorem weakFairKind_iff (x : Exec Pr S) (k : Kind Node Msg Ev) :
-    WeakFairKind x k ↔
-      ∀ i : Nat, (∀ j, i ≤ j → ∃ a, a.kind = k ∧ x.Enabled j a) →
-        ∃ j, i ≤ j ∧ (x.lbl j).kind = k := Iff.rfl
+/-- …and it agrees with the set-indexed version at the corresponding set, so the general
+    theory of sets still applies and nothing was quietly strengthened. Unlike the earlier
+    version of this lemma it is no longer `Iff.rfl`: `enabledKind_iff` is doing the work,
+    which is precisely where `Protocol.total` enters the fairness story. -/
+theorem weakFairKind_iff_set (x : Exec Pr S) (k : Kind Node Msg Ev) :
+    WeakFairKind x k ↔ WeakFair x (fun a => a.kind = k) := by
+  unfold WeakFairKind WeakFair Execution.EnabledSome Execution.Enabled
+  constructor
+  · intro h i hen
+    exact h i fun j hj => (enabledKind_iff k x[j]).2 (hen j hj)
+  · intro h i hen
+    exact h i fun j hj => (enabledKind_iff k x[j]).1 (hen j hj)
 
 /-- Every awake node is ticked at every value of time, at that value.
 

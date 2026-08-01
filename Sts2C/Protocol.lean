@@ -279,6 +279,30 @@ def enabled (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) :
   -- An adversarial validator signs anything.
   | .adversarial p m, c => p ∈ S.adv (c.time : Int)
 
+/-- When a *kind* is available — the guard with the reaction's conjunct dropped.
+
+    The point of this is that it mentions no reaction, so the fairness statements in
+    `Execution.lean` need no existential at all: "`p` may tick to `r`" is a condition on the
+    configuration, full stop. Reading it off `enabled` instead would force
+    `∃ res, enabled Pr S (.tick p r res) c`, which is the existential this attempt was
+    supposed to have removed.
+
+    Note what has happened: this is `Sts2`'s `ActionSpec.Enabled`, back verbatim. Avoiding
+    the reaction's existential means writing the non-reaction guards a second time, and
+    owing a proof that the two agree — `enabledKind_iff`, whose forward direction is exactly
+    what `Protocol.total` exists for. So C's ∃-free spelling reconstructs both halves of B:
+    a syntactic guard, plus a feasibility argument tying it to the relation. -/
+def enabledKind (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) :
+    Kind Node Msg Ev → Config Node Msg NodeState → Prop
+  | .advance _, _ => True
+  -- `t` is absent on purpose: which reading `p` ticks to constrains the reaction, not
+  -- whether the tick may occur.
+  | .tick p _, c => p ∈ S.awake (c.time : Int)
+  | .deliver p m, c => m ∈ c.sent ∧ p ∈ S.awake (c.time : Int)
+  | .wake p, c => p ∈ S.awake (c.time : Int) ∧ p ∉ S.awake ((c.time : Int) - 1)
+  | .custom p ev, c => p ∈ S.awake (c.time : Int) ∧ Pr.enabled c[p].clock c[p].st ev
+  | .adversarial p _, c => p ∈ S.adv (c.time : Int)
+
 /-- The configuration after taking `a`. A **function**, not a relation: this is what
     carrying the reaction in the label buys. -/
 def act : Action Node Msg NodeState Ev → Config Node Msg NodeState → Config Node Msg NodeState
@@ -318,6 +342,39 @@ theorem step_act (h : enabled Pr S a c) : Step Pr S a c (act a c) := ⟨h, rfl�
     delivers. `Sts2A` gets this shape only action by action. -/
 theorem enabled_iff : (∃ c', Step Pr S a c c') ↔ enabled Pr S a c :=
   ⟨fun ⟨_, he, _⟩ => he, fun h => ⟨_, step_act h⟩⟩
+
+/-- A kind is available exactly when some label of that shape may be taken. The forward
+    direction needs `Protocol.total` — a reaction has to be produced — and it is the only
+    place `total` is used in this attempt. -/
+theorem enabledKind_iff (k : Kind Node Msg Ev) (c : Config Node Msg NodeState) :
+    enabledKind Pr S k c ↔ ∃ a, a.kind = k ∧ enabled Pr S a c := by
+  constructor
+  · intro h
+    cases k with
+    | advance t => exact ⟨.advance t, rfl, trivial⟩
+    | tick p t =>
+        obtain ⟨res, hr⟩ := Pr.total p (setClock p t c)[p].clock (setClock p t c)[p].view
+          (setClock p t c)[p].st .tick
+        exact ⟨.tick p t res, rfl, h, hr⟩
+    | deliver p m =>
+        obtain ⟨res, hr⟩ := Pr.total p (receive p m c)[p].clock (receive p m c)[p].view
+          (receive p m c)[p].st (.recv m)
+        exact ⟨.deliver p m res, rfl, h.1, h.2, hr⟩
+    | wake p =>
+        obtain ⟨res, hr⟩ := Pr.total p c[p].clock c[p].view c[p].st .wake
+        exact ⟨.wake p res, rfl, h.1, h.2, hr⟩
+    | custom p ev =>
+        obtain ⟨res, hr⟩ := Pr.total p c[p].clock c[p].view c[p].st (.custom ev)
+        exact ⟨.custom p ev res, rfl, h.1, h.2, hr⟩
+    | adversarial p m => exact ⟨.adversarial p m, rfl, h⟩
+  · rintro ⟨a, hk, h⟩
+    cases a with
+    | advance t => simp only [Action.kind] at hk; subst hk; trivial
+    | tick p t res => simp only [Action.kind] at hk; subst hk; exact h.1
+    | deliver p m res => simp only [Action.kind] at hk; subst hk; exact ⟨h.1, h.2.1⟩
+    | wake p res => simp only [Action.kind] at hk; subst hk; exact ⟨h.1, h.2.1⟩
+    | custom p ev res => simp only [Action.kind] at hk; subst hk; exact ⟨h.1, h.2.1⟩
+    | adversarial p m => simp only [Action.kind] at hk; subst hk; exact h
 
 /-! ### One invariant, by one destructuring and `cases`
 
