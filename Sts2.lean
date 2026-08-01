@@ -29,8 +29,9 @@ claim is checked by the compiler rather than asserted.
   outside itself), `Protocol`, `Config`, and the step relation. A protocol reacts to
   **events**: `tick` and `recv m`, which the framework generates, plus `custom`
   events of the protocol's own type `Ev`, gated by `Protocol.enabled`.
-* `Execution` — executions, and every network/participation assumption as a
-  predicate over them, plus the security property definitions.
+* `Execution` — executions (recording the action taken at each step), the clock,
+  network and fairness assumptions as predicates over them, and the security
+  property definitions.
 * `Models` — Majorum's and TOB-SVD's models, expressed.
 * `Example` — a toy protocol placed under *both* models. Start here to see what
   a specialization has to supply.

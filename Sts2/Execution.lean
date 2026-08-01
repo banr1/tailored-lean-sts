@@ -17,24 +17,29 @@ set_option autoImplicit false
 
 namespace Framework.Sts2
 
-/-- An infinite execution.
+/-- An infinite execution, recording which action was taken at each step.
 
-    Labels are *not* recorded: every assumption in this framework is phrased over
-    observable state rather than over which transition was taken — `Synchrony`
-    says "the message is in that validator's view", not "a delivery step
-    occurred". That composes better with state invariants, and it makes exhibiting
-    an execution cheaper, since only the existence of a suitable step is needed.
+    The labels were dropped for a while, on the grounds that every assumption here
+    is phrased over observable state — `Synchrony` says "the message is in that
+    validator's view", not "a delivery step occurred". That was right while
+    advancing the round *was* ticking every awake validator, because then ticking
+    was structural and nothing needed to talk about it. Splitting `advance` from
+    `tick` made **fairness** necessary, and fairness is a statement about which
+    transitions occur.
 
-    Re-add a `lbl : Nat → Lbl` field if a genuinely scheduler-level statement
-    turns up: "this message is delivered at most once", or a bound on how many
-    adversarial steps an execution contains. -/
+    An alternative was to define occurrence from the relation itself
+    (`Sys.Step a (cfg i) (cfg (i+1))`), which needs no field, but it only says an
+    `a`-step *explains* the transition, not that it is the one taken — two actions
+    with the same effect are then indistinguishable, and nothing can be counted. -/
 structure Execution {St Lbl : Type} (Sys : System St Lbl) where
   /-- The configuration after `i` steps. -/
   cfg : Nat → St
+  /-- The action taken at step `i`. -/
+  lbl : Nat → Lbl
   /-- It starts initial. -/
   init : Sys.Init (cfg 0)
-  /-- Consecutive configurations are related by some step. -/
-  step : ∀ i, ∃ l, Sys.Step l (cfg i) (cfg (i + 1))
+  /-- Consecutive configurations are related by that action. -/
+  step : ∀ i, Sys.Step (lbl i) (cfg i) (cfg (i + 1))
 
 /-- `x[i]` is the configuration after `i` steps. Indexing is total, so the
     validity side-condition is trivial. -/
@@ -94,17 +99,60 @@ def Synchronized (x : Exec Pr S) : Prop :=
 
 /-! ### Progress -/
 
-/-- Real time does not stop advancing. The mild fairness assumption liveness
-    needs; `Step.advance` is always enabled, so this rules out only executions that
-    stop using it. -/
+/-- Real time does not stop advancing, stated over observable state rather than
+    over labels.
+
+    Weaker than `AdvanceFair` and implied by it. Both are kept deliberately: the
+    model bundles assume `AdvanceFair`, but a property that should not depend on
+    *which* action moved the clock can assume only this. -/
 def TimeDiverges (x : Exec Pr S) : Prop :=
   ∀ r : Round, ∃ i : Nat, r ≤ x[i].time
 
-/-! `Diligent` used to live here — "every active validator is ticked in every
-round". It is gone: `Step.clock` now ticks every active validator as part of
-advancing the round, so the property holds by construction and `TimeDiverges` is
-the only progress assumption left. It was also the sole consumer of the
-execution's step labels, which is why `Execution` no longer records them. -/
+/-! ### Fairness
+
+`Step.advance` and `Step.tick` being separate transitions means nothing forces
+either to happen: an execution may advance time forever while some validator never
+ticks, leaving its clock behind for good, and no liveness argument survives that.
+Hence weak fairness, stated in the textbook shape — *continuously enabled implies
+eventually taken* — which is what the step labels are for.
+
+Strong fairness ("enabled infinitely often implies eventually taken") is the same
+shape with `∀ j ≥ i, enabled j` weakened to `∀ i, ∃ j ≥ i, enabled j`; add it if a
+protocol needs it for a validator that only flickers awake. -/
+
+/-- Weak fairness for one action: if it is enabled at every step from some point
+    on, it is eventually taken. -/
+def WeakFair (x : Exec Pr S) (enabled : Nat → Prop) (a : Action V Msg Ev) : Prop :=
+  ∀ i : Nat, (∀ j, i ≤ j → enabled j) → ∃ j, i ≤ j ∧ x.lbl j = a
+
+/-- When `Step.tick p` is enabled: `p` is awake and its clock is behind. -/
+def TickEnabled (x : Exec Pr S) (p : V) (i : Nat) : Prop :=
+  x.Awake i p ∧ x[i].clock p < x[i].time
+
+/-- Validators do not stop ticking. Without this a validator can stay awake with a
+    lagging clock forever, so it never runs its protocol again. -/
+def TickFair (x : Exec Pr S) : Prop :=
+  ∀ p : V, WeakFair x (TickEnabled x p) (.tick p)
+
+/-- Time does not stop advancing. `Step.advance` has no premises, so it is always
+    enabled and weak fairness reduces to "taken infinitely often". Implies
+    `TimeDiverges`. -/
+def AdvanceFair (x : Exec Pr S) : Prop :=
+  ∀ i : Nat, ∃ j, i ≤ j ∧ x.lbl j = .advance
+
+/-- Eventual delivery, for use where `Synchrony` does not reach — before GST there
+    is no bound, but one may still want messages to arrive at all. -/
+def DeliverFair (x : Exec Pr S) : Prop :=
+  ∀ (i : Nat) (p : V) (m : SignedMsg V Msg), m ∈ x[i].sent →
+    (∀ j, i ≤ j → x.Awake j p) → ∃ j, i ≤ j ∧ x.lbl j = .deliver p m
+
+/-- A protocol-specific event that stays enabled eventually fires. This is the case
+    that state-based fairness could not express: what a `custom` reaction changes is
+    up to the protocol, so there is no canonical state witness for it. -/
+def CustomFair (x : Exec Pr S) : Prop :=
+  ∀ (p : V) (ev : Ev),
+    WeakFair x (fun i => x.Awake i p ∧ Pr.enabled (x[i].clock p) (x[i].st p) ev)
+      (.custom p ev)
 
 /-! ### Network
 
