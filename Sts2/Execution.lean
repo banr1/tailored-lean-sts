@@ -3,11 +3,11 @@ import Framework.Sts2.Protocol
 /-!
 # Executions, network assumptions, security properties
 
-Liveness is a property of executions, not of reachable states, so
-`Common.System`'s state-based `Invariant` machinery cannot express it. Hence
-`Execution`, and hence why every network and participation assumption in this
-framework is a **predicate on executions** rather than a guard on `Step`: the
-two models we care about impose different ones over the same step relation.
+Liveness is a property of executions, not of reachable states, so a state-based
+`Invariant` over a `System` cannot express it. Hence `Execution`, and hence why
+every network and participation assumption in this framework is a **predicate on
+executions** rather than a guard on `Step`: the two models we care about impose
+different ones over the same step relation.
 
 Each predicate here is à la carte. A "model" is whichever conjunction of them a
 paper assumes — see `Framework.Sts2.Models`.
@@ -16,8 +16,6 @@ paper assumes — see `Framework.Sts2.Models`.
 set_option autoImplicit false
 
 namespace Framework.Sts2
-
-open Common (System)
 
 /-- An infinite execution.
 

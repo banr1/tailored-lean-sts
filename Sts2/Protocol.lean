@@ -1,5 +1,5 @@
 import Mathlib.Data.Set.Image
-import Common.System
+import Framework.Sts2.System
 import Framework.Sts2.Schedule
 
 /-!
@@ -59,8 +59,6 @@ different ones over the same step relation.
 set_option autoImplicit false
 
 namespace Framework.Sts2
-
-open Common (System)
 
 variable {V Msg State Ev : Type}
 
