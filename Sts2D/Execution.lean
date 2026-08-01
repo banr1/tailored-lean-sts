@@ -121,15 +121,14 @@ fairness assumption cannot describe the wrong condition. -/
 
 /-- Action `a` may be taken at step `i`.
 
-    Read off `guard`, which `enabled_iff_guard` proves equivalent to "a step is
-    possible" — so it cannot promise more than the step relation delivers. `Sts2` gets
-    that for free from `ActionSpec`, where the condition and the effect are one record
-    per action; here it is a theorem. An earlier version passed the enabling condition to `WeakFair`
-    as a separate argument, with nothing tying the two together: a wrong one made the
-    assumption either vacuous or unsatisfiable, and an unsatisfiable assumption makes
-    every theorem under it vacuously true. -/
+    Read off the action's own `ActionSpec`, and `enabled_iff` proves it equivalent to
+    "a step is possible", so it cannot promise more than the step relation delivers.
+    An earlier version passed the enabling condition to `WeakFair` as a separate
+    argument, with nothing tying the two together: a wrong one made the assumption
+    either vacuous or unsatisfiable, and an unsatisfiable assumption makes every
+    theorem under it vacuously true. -/
 def Execution.Enabled (x : Exec Pr S) (i : Nat) (a : Action V Msg Ev) : Prop :=
-  guard Pr S a x[i]
+  (spec Pr S a).Enabled x[i]
 
 /-- Weak fairness for one action: continuously enabled implies eventually taken. -/
 def WeakFair (x : Exec Pr S) (a : Action V Msg Ev) : Prop :=
