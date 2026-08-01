@@ -74,37 +74,45 @@ def Execution.Awake (x : Exec Pr S) (i : Nat) (p : Node) : Prop :=
 def Execution.Honest (x : Exec Pr S) (i : Nat) (p : Node) : Prop :=
   p ∉ S.adv (x[i].time : Int)
 
-/-! ### Clocks
+/-! ### Time and clocks
 
-Nothing about clocks is assumed by the step relation beyond monotonicity, which is
-free: `Step.tick` only increments, and never past real time. A property is
-therefore in one of three classes, and should assume no more than it needs.
+The step relation says **nothing** about how time progresses: `advance t` may set time to
+any value, and `tick p t` may set `p`'s clock to any reading. Everything one might want to
+believe about time is an assumption here, so a property carries only the discipline it
+actually needs.
 
-* **Timeless** — mentions neither `time` nor `clock`, so it holds under arbitrary
-  asynchrony and arbitrary clock behaviour. Accountable safety belongs here: it is
-  a statement about the signed message history alone.
-* **Monotone-clock** — uses only that each validator's clock never goes backwards.
-  Free from the step relation; no assumption to add.
-* **Synchronized** — assumes `Synchronized` below, as both Majorum and TOB-SVD do
-  ("validators have synchronized clocks"). Liveness needs this. -/
+A property is then in one of these classes, weakest first:
 
-/-- Every awake validator's clock reads real time.
+* **Timeless** — mentions neither `time` nor `clock`, so it holds however time behaves,
+  including not at all. Accountable safety belongs here.
+* **Monotone** — assumes `TimeMonotone` and/or `ClocksMonotone`.
+* **Sound clocks** — assumes `ClocksSound`: no node reads the future.
+* **Synchronized** — assumes `Synchronized`, as both Majorum and TOB-SVD do. Liveness
+  needs this, plus `Diligent` and `TimeDiverges`. -/
 
-    Restricted to the awake, because a validator asleep across several rounds wakes
-    with a stale clock and can only catch up one `tick` at a time. A model that
-    wants waking validators to know the time immediately needs a stronger version,
-    or a `tick` that jumps rather than increments. -/
+/-- Time never goes backwards. -/
+def TimeMonotone (x : Exec Pr S) : Prop := ∀ i : Nat, x[i].time ≤ x[i + 1].time
+
+/-- No clock goes backwards. -/
+def ClocksMonotone (x : Exec Pr S) : Prop :=
+  ∀ (i : Nat) (p : Node), x[i][p].clock ≤ x[i + 1][p].clock
+
+/-- No node reads the future. -/
+def ClocksSound (x : Exec Pr S) : Prop :=
+  ∀ (i : Nat) (p : Node), x[i][p].clock ≤ x[i].time
+
+/-- Every awake node's clock reads real time — "validators have synchronized clocks".
+
+    Satisfiable together with sleep, which the earlier increment-by-one `tick` was not: a
+    node that slept through several rounds can be brought up to date by a single tick,
+    rather than needing one per missed round and re-reacting at each. That defect made
+    this assumption silently exclude every execution containing sleep. -/
 def Synchronized (x : Exec Pr S) : Prop :=
-  ∀ (i : Nat) p, x.Awake i p → x[i][p].clock = x[i].time
+  ∀ (i : Nat) (p : Node), x.Awake i p → x[i][p].clock = x[i].time
 
-/-! ### Progress -/
-
-/-- Real time does not stop advancing, stated over observable state rather than
-    over labels.
-
-    Weaker than `AdvanceFair` and implied by it. Both are kept deliberately: the
-    model bundles assume `AdvanceFair`, but a property that should not depend on
-    *which* action moved the clock can assume only this. -/
+/-- Time does not stop advancing. Since `advance` may set time to any value, this says
+    only that arbitrarily large times are eventually reached — not how, nor in what
+    steps. -/
 def TimeDiverges (x : Exec Pr S) : Prop :=
   ∀ r : Time, ∃ i : Nat, r ≤ x[i].time
 
@@ -139,13 +147,15 @@ def WeakFair (x : Exec Pr S) (a : Action Node Msg Ev) : Prop :=
 def StrongFair (x : Exec Pr S) (a : Action Node Msg Ev) : Prop :=
   (∀ i : Nat, ∃ j, i ≤ j ∧ x.Enabled j a) → ∀ i : Nat, ∃ j, i ≤ j ∧ x.lbl j = a
 
-/-- Validators do not stop ticking. Without this a validator can stay awake with a
-    lagging clock forever, so it never runs its protocol again. -/
-def TickFair (x : Exec Pr S) : Prop := ∀ p : Node, WeakFair x (.tick p)
+/-- Every awake node is ticked at every value of time, at that value.
 
-/-- Time does not stop advancing. `advance` is enabled everywhere, so this reduces
-    to "taken infinitely often". Implies `TimeDiverges`. -/
-def AdvanceFair (x : Exec Pr S) : Prop := WeakFair x .advance
+    This is what makes an awake node act at each round, and it is a *fairness* property
+    rather than a consequence of how clocks work — the earlier design hid it inside
+    `tick` incrementing by one. Without it, a node's clock may jump and skip the rounds
+    at which its protocol would have acted. -/
+def Diligent (x : Exec Pr S) : Prop :=
+  ∀ (r : Time) (p : Node), (∃ i : Nat, x[i].time = r ∧ x.Awake i p) →
+    ∃ i : Nat, x[i].time = r ∧ x.lbl i = .tick p r
 
 /-- Eventual delivery, for use where `Synchrony` does not reach — before GST there
     is no bound, but one may still want messages to arrive at all. -/

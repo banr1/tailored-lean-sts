@@ -45,11 +45,11 @@ theorem viewsSound {c : Config Node Msg NodeState} (h : Reachable Pr S c) : View
   | step _ hstep ih =>
       refine hstep.elim (motive := fun _ d d' => ViewsSound d → ViewsSound d')
         ?_ ?_ ?_ ?_ ?_ ?_ ih
-      -- advance: nothing moves
-      · intro d hv p m hm
+      -- advance: only `time` moves
+      · intro d t hv p m hm
         exact hv p m hm
       -- tick: the view is untouched, the network only grows
-      · intro d q eff _ _ hv p m hm
+      · intro d q t eff _ _ hv p m hm
         simp at hm
         exact Or.inl (hv p m hm)
       -- deliver: the one new message was in `sent` by the action's own guard

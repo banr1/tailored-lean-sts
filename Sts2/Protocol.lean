@@ -162,9 +162,11 @@ def install (p : Node) (eff : NodeStepResult NodeState Msg) (c : Config Node Msg
   { c.update p (fun l => { l with st := eff.state })
       with sent := c.sent ∪ (SignedMsg.mk p '' (eff.send : Set Msg)) }
 
-/-- `p`'s clock advanced by one. -/
-def bumped (p : Node) (c : Config Node Msg NodeState) : Config Node Msg NodeState :=
-  c.update p fun l => { l with clock := l.clock + 1 }
+/-- `p`'s clock now reads `t`. The framework says nothing about which `t` — see
+    `Framework.Sts2.Execution` for the assumptions that pin it down. -/
+def setClock (p : Node) (t : Time) (c : Config Node Msg NodeState) :
+    Config Node Msg NodeState :=
+  c.update p fun l => { l with clock := t }
 
 /-- `Reacts Pr p e pre c'` — `c'` is a configuration `p` may reach by reacting to `e`
     in `pre`. Existential over the permitted reactions, which is where honest
@@ -183,10 +185,10 @@ theorem reacts_total (Pr : Protocol Node Msg NodeState Ev) (p : Node) (e : Event
 
 /-- Transition labels. -/
 inductive Action (Node Msg Ev : Type) where
-  /-- Real time advances; no validator acts. -/
-  | advance
-  /-- `p`'s clock catches up by one, and `p` reacts. -/
-  | tick (p : Node)
+  /-- Real time becomes `t`; no validator acts. -/
+  | advance (t : Time)
+  /-- `p`'s clock comes to read `t`, and `p` reacts at that reading. -/
+  | tick (p : Node) (t : Time)
   /-- `m` is delivered to `p`, which reacts to it. -/
   | deliver (p : Node) (m : SignedMsg Node Msg)
   /-- `p` wakes up. -/
@@ -227,16 +229,20 @@ structure ActionSpec (Node Msg NodeState : Type) where
 /-- Each action's enabling condition and effect. -/
 def spec (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) :
     Action Node Msg Ev → ActionSpec Node Msg NodeState
-  -- Real time advances on its own. Always enabled, so no configuration is stuck.
-  | .advance => {
+  -- Time becomes `t`. Unconstrained: the framework does not say whether time moves
+  -- forwards, by how much, or at all. `Execution.TimeMonotone` and friends are where
+  -- that gets decided, so a property assumes only the discipline it needs.
+  | .advance t => {
       Enabled _ := True
-      Effect c c' := c' = { c with time := c.time + 1 }
+      Effect c c' := c' = { c with time := t }
       feasible _ _ := ⟨_, rfl⟩ }
-  -- An awake validator whose clock is behind advances it by one and reacts. The
-  -- guard gives exactly one tick per validator per round.
-  | .tick p => {
-      Enabled c := p ∈ S.awake (c.time : Int) ∧ c[p].clock < c.time
-      Effect c c' := Reacts Pr p .tick (bumped p c) c'
+  -- `p`'s clock comes to read `t`, and `p` reacts at that reading. Also unconstrained:
+  -- nothing here relates `t` to real time. `Execution.ClocksSound` forbids reading the
+  -- future, `Synchronized` pins the clock to real time, `ClocksMonotone` forbids going
+  -- backwards — each an assumption, none a fact of the model.
+  | .tick p t => {
+      Enabled c := p ∈ S.awake (c.time : Int)
+      Effect c c' := Reacts Pr p .tick (setClock p t c) c'
       feasible _ _ := reacts_total Pr p .tick _ }
   -- Any sent message may be delivered to any awake validator, at any time.
   -- Delivery to a sleeping validator is simply not enabled, which is how messages
@@ -284,12 +290,14 @@ def Step (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) (a : Action N
 theorem Step.elim {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
     {motive : Action Node Msg Ev → Config Node Msg NodeState → Config Node Msg NodeState → Prop}
     {a : Action Node Msg Ev} {c c' : Config Node Msg NodeState} (h : Step Pr S a c c')
-    (advance : ∀ d : Config Node Msg NodeState,
-      motive .advance d { d with time := d.time + 1 })
-    (tick : ∀ (d : Config Node Msg NodeState) (p : Node) (eff : NodeStepResult NodeState Msg),
-      (spec Pr S (.tick p)).Enabled d →
-      Pr.step p (bumped p d)[p].clock (bumped p d)[p].view (bumped p d)[p].st .tick eff →
-      motive (.tick p) d (install p eff (bumped p d)))
+    (advance : ∀ (d : Config Node Msg NodeState) (t : Time),
+      motive (.advance t) d { d with time := t })
+    (tick : ∀ (d : Config Node Msg NodeState) (p : Node) (t : Time)
+        (eff : NodeStepResult NodeState Msg),
+      (spec Pr S (.tick p t)).Enabled d →
+      Pr.step p (setClock p t d)[p].clock (setClock p t d)[p].view (setClock p t d)[p].st
+        .tick eff →
+      motive (.tick p t) d (install p eff (setClock p t d)))
     (deliver : ∀ (d : Config Node Msg NodeState) (p : Node) (m : SignedMsg Node Msg)
         (eff : NodeStepResult NodeState Msg),
       (spec Pr S (.deliver p m)).Enabled d →
@@ -309,8 +317,8 @@ theorem Step.elim {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
       motive (.adversarial p m) d { d with sent := insert ⟨p, m⟩ d.sent }) :
     motive a c c' := by
   cases a with
-  | advance => obtain ⟨-, rfl⟩ := h; exact advance c
-  | tick p => obtain ⟨he, eff, hp, rfl⟩ := h; exact tick c p eff he hp
+  | advance t => obtain ⟨-, rfl⟩ := h; exact advance c t
+  | tick p t => obtain ⟨he, eff, hp, rfl⟩ := h; exact tick c p t eff he hp
   | deliver p m => obtain ⟨he, eff, hp, rfl⟩ := h; exact deliver c p m eff he hp
   | wake p => obtain ⟨he, eff, hp, rfl⟩ := h; exact wake c p eff he hp
   | custom p ev => obtain ⟨he, eff, hp, rfl⟩ := h; exact custom c p ev eff he hp
@@ -326,8 +334,8 @@ destructuring. -/
 theorem sent_mono {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node} {a : Action Node Msg Ev}
     {c c' : Config Node Msg NodeState} (h : Step Pr S a c c') : c.sent ⊆ c'.sent := by
   refine h.elim (motive := fun _ d d' => d.sent ⊆ d'.sent) ?_ ?_ ?_ ?_ ?_ ?_
-  · exact fun _ _ hx => hx
-  · exact fun _ _ _ _ _ _ hx => Or.inl hx
+  · exact fun _ _ _ hx => hx
+  · exact fun _ _ _ _ _ _ _ hx => Or.inl hx
   · exact fun _ _ _ _ _ _ _ hx => Or.inl hx
   · exact fun _ _ _ _ _ _ hx => Or.inl hx
   · exact fun _ _ _ _ _ _ _ hx => Or.inl hx
@@ -377,26 +385,18 @@ omit [DecidableEq Msg] in
     (receive q m d).sent = d.sent := rfl
 
 omit [DecidableEq Msg] in
-@[simp] theorem bumped_view (q : Node) (d : Config Node Msg NodeState) (p : Node) :
-    ((bumped q d).nodes p).view = (d.nodes p).view := by
-  by_cases hpq : p = q <;> simp [bumped, Config.update, hpq]
+@[simp] theorem setClock_view (q : Node) (t : Time) (d : Config Node Msg NodeState)
+    (p : Node) : ((setClock q t d).nodes p).view = (d.nodes p).view := by
+  by_cases hpq : p = q <;> simp [setClock, Config.update, hpq]
 
 omit [DecidableEq Msg] in
-@[simp] theorem bumped_sent (q : Node) (d : Config Node Msg NodeState) :
-    (bumped q d).sent = d.sent := rfl
+@[simp] theorem setClock_sent (q : Node) (t : Time) (d : Config Node Msg NodeState) :
+    (setClock q t d).sent = d.sent := rfl
 
-/-- Clocks never go backwards. -/
-theorem clock_mono {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node} {a : Action Node Msg Ev}
-    {c c' : Config Node Msg NodeState} (h : Step Pr S a c c') (p : Node) :
-    c[p].clock ≤ c'[p].clock := by
-  refine h.elim (motive := fun _ d d' => d[p].clock ≤ d'[p].clock) ?_ ?_ ?_ ?_ ?_ ?_
-  · exact fun _ => le_refl _
-  · intro d q eff _ _
-    by_cases hpq : p = q <;> simp [bumped, Config.update, hpq]
-  · exact fun _ _ _ _ _ _ => by simp
-  · exact fun _ _ _ _ _ => by simp
-  · exact fun _ _ _ _ _ _ => by simp
-  · exact fun _ _ _ _ => le_refl _
+/-! `clock_mono` used to live here, proved from `tick` incrementing by one. It is gone:
+a tick may now set any reading, so clock monotonicity is an *assumption*
+(`Execution.ClocksMonotone`) rather than a fact of the step relation. That is the point
+of weakening the spec — the old version made a scheduling decision look like a theorem. -/
 
 /-- Initial configurations. -/
 def Init (Pr : Protocol Node Msg NodeState Ev) (c : Config Node Msg NodeState) : Prop :=

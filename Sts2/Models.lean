@@ -93,7 +93,8 @@ def Model {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
   S.MonotoneCorruption ∧ S.AwakeHonest ∧ S.CorruptionBounded Q.f ∧
     S.GlobalAwakeTime Q.gat Finset.univ ∧ Q.Compliant S ∧
     Synchronized x ∧ Synchrony Q.gst Q.delta x ∧
-    Relay Q.gst Q.delta x ∧ AdvanceFair x ∧ TickFair x
+    Relay Q.gst Q.delta x ∧
+    TimeMonotone x ∧ ClocksSound x ∧ TimeDiverges x ∧ Diligent x
 
 end Params
 
@@ -141,7 +142,8 @@ def Model {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
     (x : Exec Pr S) : Prop :=
   S.MonotoneCorruption ∧ S.AwakeHonest ∧ Q.Compliant S ∧
     Synchronized x ∧ Synchrony 0 Q.delta x ∧
-    Relay 0 Q.delta x ∧ AdvanceFair x ∧ TickFair x
+    Relay 0 Q.delta x ∧
+    TimeMonotone x ∧ ClocksSound x ∧ TimeDiverges x ∧ Diligent x
 
 end Params
 
