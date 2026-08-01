@@ -95,26 +95,54 @@ structure Protocol (V Msg State Ev : Type) where
   /-- When a protocol-specific event may fire, also against the local clock. -/
   enabled : Round → State → Ev → Prop
 
+/-- Everything tracked per validator: one record rather than several parallel
+    maps, so an action names the one field it changes and adding per-validator
+    state touches one place. -/
+structure Local (V Msg State : Type) where
+  /-- This validator's own clock reading. Advanced only by a `tick`. -/
+  clock : Round
+  /-- Its protocol state. -/
+  st : State
+  /-- Its view: everything delivered to it so far. -/
+  view : View V Msg
+
 /-- A global configuration. -/
 structure Config (V Msg State : Type) where
   /-- Real time. Read by the environment — schedule, network bound, GST — and
       never handed to a protocol. -/
   time : Round
-  /-- Each validator's own clock reading. Advanced only by `Step.tick`. -/
-  clock : V → Round
-  /-- Each validator's protocol state. -/
-  st : V → State
-  /-- Each validator's view: everything delivered to it so far. -/
-  view : V → View V Msg
+  /-- Each validator's local record. -/
+  nodes : V → Local V Msg State
   /-- Every message ever signed. Monotone. -/
   sent : Set (SignedMsg V Msg)
 
+namespace Config
+
+variable (c : Config V Msg State) (p : V)
+
+/-- `p`'s clock reading. -/
+def clock : Round := (c.nodes p).clock
+
+/-- `p`'s protocol state. -/
+def st : State := (c.nodes p).st
+
+/-- `p`'s view. -/
+def view : View V Msg := (c.nodes p).view
+
+end Config
+
 variable [DecidableEq V] [DecidableEq Msg]
+
+/-- Change one validator's local record, leaving everything else alone. Every
+    per-validator update goes through this. -/
+def Config.update (c : Config V Msg State) (p : V)
+    (f : Local V Msg State → Local V Msg State) : Config V Msg State :=
+  { c with nodes := fun q => if q = p then f (c.nodes q) else c.nodes q }
 
 /-- File a delivered message into `p`'s view, without reacting to it. -/
 def receive (p : V) (m : SignedMsg V Msg) (c : Config V Msg State) :
     Config V Msg State :=
-  { c with view := fun q => if q = p then insert m (c.view q) else c.view q }
+  c.update p fun l => { l with view := insert m l.view }
 
 /-- Run `p`'s reaction to `e` against its own clock: install the new state, and add
     what it sent to the network signed by `p`.
@@ -125,11 +153,8 @@ def receive (p : V) (m : SignedMsg V Msg) (c : Config V Msg State) :
     `step`. -/
 def react (Pr : Protocol V Msg State Ev) (p : V) (e : Event V Msg Ev)
     (c : Config V Msg State) : Config V Msg State :=
-  { c with
-      st := fun q =>
-        if q = p then (Pr.step p (c.clock p) (c.view p) (c.st p) e).state
-        else c.st q
-      sent := c.sent ∪
+  { c.update p (fun l => { l with st := (Pr.step p l.clock l.view l.st e).state })
+      with sent := c.sent ∪
         (SignedMsg.mk p ''
           ((Pr.step p (c.clock p) (c.view p) (c.st p) e).send : Set Msg)) }
 
@@ -189,7 +214,7 @@ def spec (Pr : Protocol V Msg State Ev) (S : Schedule V) :
   | .tick p => {
       Enabled c := p ∈ S.awake (c.time : Int) ∧ c.clock p < c.time
       Effect c c' := c' = react Pr p .tick
-        { c with clock := fun q => if q = p then c.clock q + 1 else c.clock q }
+        (c.update p fun l => { l with clock := l.clock + 1 })
       feasible _ _ := ⟨_, rfl⟩ }
   -- Any sent message may be delivered to any awake validator, at any time.
   -- Delivery to a sleeping validator is simply not enabled, which is how messages
@@ -226,8 +251,8 @@ def Step (Pr : Protocol V Msg State Ev) (S : Schedule V) (a : Action V Msg Ev)
 
 /-- Initial configurations. -/
 def Init (Pr : Protocol V Msg State Ev) (c : Config V Msg State) : Prop :=
-  c.time = 0 ∧ (∀ p, c.clock p = 0) ∧ (∀ p, c.st p = Pr.init p) ∧
-    (∀ p, c.view p = ∅) ∧ c.sent = ∅
+  c.time = 0 ∧ (∀ p, c.nodes p = { clock := 0, st := Pr.init p, view := ∅ }) ∧
+    c.sent = ∅
 
 /-- A labelled transition system: initial states, and a labelled step relation
     that may be nondeterministic and partial.
