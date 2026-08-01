@@ -16,16 +16,23 @@ is a function, `Step` is `enabled ∧ c' = act a c`, and no existential appears 
 relation at all. Enabledness is syntactic *and* needs no feasibility obligation.
 
 It is the cheapest of the three presentations to write down, and the one to be most careful
-with. The saving is real; the cost does not show up in a line count. See
-`Execution.WeakFair` — fairness can no longer be stated per label, so it is indexed by a
-*set* of labels, and choosing that set correctly is a fresh judgement in every fairness
-statement. The existential `Sts2` writes once inside `Reacts` reappears in every statement
-that names an occurrence.
+with. The saving is real; the cost does not show up in a line count. Fairness can no longer
+be stated per label — `x.lbl j = a` would name a *reaction* — so it is stated at a `Kind`,
+the label with the reaction erased and everything else pinned. That confines the reaction's
+existential to one definition (`WeakFairKind`) and makes the dangerous mistake unavailable:
+sets of labels can be widened, and widening is monotone in neither direction, whereas kinds
+cannot be unioned. `weakFairKind_iff` and `diligent_iff_res` keep both claims honest.
+
+The upshot is that this presentation needs **two** alphabets: `Action`, which determines the
+successor, and `Kind`, which says what happened. `Kind Node Msg Ev` is precisely `Sts2`'s
+`Action` — so C converges on B's alphabet for talking about occurrences while keeping its own
+for the step relation, with `Action.kind` as the erasure between them.
 
 There is also a modelling objection worth weighing: a label is what the *scheduler* picks —
 who acts, when, which message — whereas a `NodeStepResult` is picked by the node's own
 program. Carrying it in the label says the schedule chooses an honest node's internal
-decision.
+decision. Two alphabets and an erasure map is arguably the honest response to that, rather
+than a workaround for it.
 
 Generic scaffolding: nothing here is about any particular protocol. A
 specialization supplies three types (validators, messages, protocol state) and

@@ -214,6 +214,42 @@ inductive Action (Node Msg NodeState Ev : Type) where
   /-- An adversarial validator signs an arbitrary message. -/
   | adversarial (p : Node) (m : Msg)
 
+/-- A label with the reaction erased: the constructor and every other argument.
+
+    This exists because fairness must not be stated at a fully applied label — see
+    `Execution.WeakFairKind`. Erasing only the reaction is the right granularity, and the
+    reason to give it a *type* rather than write predicates by hand is that a type cannot be
+    coarsened by accident: there is no way to form the union of two kinds, and widening a
+    fairness set is monotone in neither direction.
+
+    Worth noticing what this type is: `Sts2`'s `Action`, the one that does not mention
+    `NodeState`. This presentation therefore needs two alphabets — one to say what happened
+    (this) and one to determine the successor (`Action`) — related by `Action.kind`. That is
+    either the cost of carrying the reaction in the label or an honest admission that
+    scheduling and reacting are different choices, depending on taste. -/
+inductive Kind (Node Msg Ev : Type) where
+  /-- Real time becomes `t`. -/
+  | advance (t : Time)
+  /-- `p`'s clock comes to read `t`, and `p` reacts. -/
+  | tick (p : Node) (t : Time)
+  /-- `m` is delivered to `p`, which reacts. -/
+  | deliver (p : Node) (m : SignedMsg Node Msg)
+  /-- `p` wakes up and reacts. -/
+  | wake (p : Node)
+  /-- A protocol-specific event fires at `p`, which reacts. -/
+  | custom (p : Node) (ev : Ev)
+  /-- An adversarial validator signs a message. -/
+  | adversarial (p : Node) (m : Msg)
+
+/-- Forget which reaction a label carried. -/
+def Action.kind : Action Node Msg NodeState Ev → Kind Node Msg Ev
+  | .advance t => .advance t
+  | .tick p t _ => .tick p t
+  | .deliver p m _ => .deliver p m
+  | .wake p _ => .wake p
+  | .custom p ev _ => .custom p ev
+  | .adversarial p m => .adversarial p m
+
 /-- When a label may be taken.
 
     Syntactic, like `Sts2`'s `ActionSpec.Enabled`, but here it can afford to be: since the

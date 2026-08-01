@@ -131,22 +131,23 @@ describe the wrong condition.
 says not "this action occurred" but "this *reaction* occurred", and `WeakFair x
 (.tick p t res)` would say that one permitted reaction is eventually taken — which, under a
 `Pr.step` that permits several, forces a validator to eventually make every legal choice.
-So fairness is indexed by a **set** of labels, with enabledness read off the same set so
-that the two cannot describe different things.
 
-`P := (· = a)` recovers the per-label definition the other attempts use, so this is a
-generalization and not a different assumption. The catch is that coarsening `P` is monotone
-in neither direction — widening it makes the antecedent *and* the conclusion easier to
-satisfy, the familiar fact that `WF (A ∨ B)` is neither implied by nor implies
-`WF A ∧ WF B`. Every fairness statement therefore has to choose its `P` deliberately: see
-`Diligent`, which quantifies the reaction existentially but keeps the validator *and the
-target reading* pinned, because "some tick of `p`" would let a validator tick to a stale
-reading forever. Get one of these wrong and the hypothesis is unsatisfiable, under which
-every liveness theorem is vacuously true.
+So fairness is stated at a **`Kind`**: the label with the reaction erased and everything else
+pinned. `WeakFairKind` is defined through the set-indexed `WeakFair`, so there is one notion
+underneath, and `weakFairKind_iff` proves the two agree.
 
-That judgement is the standing cost of carrying the effect in the label: the existential
-that `Sts2` writes once, inside `Reacts`, reappears here in every statement that names an
-occurrence. -/
+Underneath, sets are the general notion and `weakFair_singleton` shows they generalize the
+per-label form the other attempts use. But **do not state a fairness assumption at an
+arbitrary set.** Widening a set is monotone in neither direction: it makes the antecedent
+hold more often *and* the conclusion easier to satisfy, the familiar fact that `WF (A ∨ B)`
+neither implies nor follows from `WF A ∧ WF B`. Concretely, "`p` ticks to reading `r` if it
+can" is the useful assumption; widen it to "`p` ticks to *some* reading if it can" and a
+validator satisfies it by ticking to reading `0` forever, with nothing in the statement
+looking wrong. `Kind` exists to make that mistake unavailable — kinds cannot be unioned.
+
+Stating fairness at kinds also confines the reaction's existential to *one* place, the
+definition of `WeakFairKind`, rather than to every statement that names an occurrence.
+`diligent_iff_res` records that the erasure loses nothing. -/
 
 /-- Label `a` may be taken at step `i`. Syntactic, straight from `enabled`. -/
 def Execution.Enabled (x : Exec Pr S) (i : Nat) (a : Action Node Msg NodeState Ev) : Prop :=
@@ -181,6 +182,22 @@ theorem weakFair_singleton (x : Exec Pr S) (a : Action Node Msg NodeState Ev) :
   · intro h i hen
     exact h i fun j hj => by obtain ⟨b, rfl, hb⟩ := hen j hj; exact hb
 
+/-- Weak fairness at a kind: if some label of that shape stays available, some label of
+    that shape is eventually taken. The `∃ res` is here, once. -/
+def WeakFairKind (x : Exec Pr S) (k : Kind Node Msg Ev) : Prop :=
+  WeakFair x (fun a => a.kind = k)
+
+/-- Strong fairness at a kind: available infinitely often implies eventually taken. -/
+def StrongFairKind (x : Exec Pr S) (k : Kind Node Msg Ev) : Prop :=
+  StrongFair x (fun a => a.kind = k)
+
+/-- Unfolded, so the shape of the assumption is on the record: a kind is a particular
+    family of label sets, not a rival notion. -/
+theorem weakFairKind_iff (x : Exec Pr S) (k : Kind Node Msg Ev) :
+    WeakFairKind x k ↔
+      ∀ i : Nat, (∀ j, i ≤ j → ∃ a, a.kind = k ∧ x.Enabled j a) →
+        ∃ j, i ≤ j ∧ (x.lbl j).kind = k := Iff.rfl
+
 /-- Every awake node is ticked at every value of time, at that value.
 
     This is what makes an awake node act at each round, and it is a *fairness* property
@@ -188,23 +205,42 @@ theorem weakFair_singleton (x : Exec Pr S) (a : Action Node Msg NodeState Ev) :
     `tick` incrementing by one. Without it, a node's clock may jump and skip the rounds
     at which its protocol would have acted.
 
-    The `∃ res` is the whole difference from the other attempts, where the label does not
-    mention the reaction and this reads `x.lbl i = .tick p r`. Note what is *not*
-    existentially quantified: `p` and `r`. -/
+    Stated at a kind, so it reads as it does in the other attempts — the reaction is not
+    mentioned. Note what is *not* erased: `p` and the target reading `r`. Erasing `r` would
+    let a validator tick to reading `0` forever and satisfy this. -/
 def Diligent (x : Exec Pr S) : Prop :=
   ∀ (r : Time) (p : Node), (∃ i : Nat, x[i].time = r ∧ x.Awake i p) →
-    ∃ i : Nat, x[i].time = r ∧ ∃ res, x.lbl i = .tick p r res
+    ∃ i : Nat, x[i].time = r ∧ (x.lbl i).kind = .tick p r
+
+/-- Erasing the reaction loses nothing: `Diligent` is the hand-written `∃ res` spelling.
+    Checked because it is the claim that makes `Kind` worth having — if the two differed, the
+    kind version would be a *different* assumption rather than a tidier one. -/
+theorem diligent_iff_res (x : Exec Pr S) :
+    Diligent x ↔ ∀ (r : Time) (p : Node), (∃ i : Nat, x[i].time = r ∧ x.Awake i p) →
+      ∃ i : Nat, x[i].time = r ∧ ∃ res, x.lbl i = .tick p r res := by
+  unfold Diligent
+  constructor
+  · intro h r p hp
+    obtain ⟨i, ht, hk⟩ := h r p hp
+    refine ⟨i, ht, ?_⟩
+    -- `cases hl : x.lbl i` rewrites the goal as well, so only the tick case survives
+    cases hl : x.lbl i <;> rw [hl] at hk <;> simp [Action.kind] at hk
+    obtain ⟨rfl, rfl⟩ := hk
+    exact ⟨_, rfl⟩
+  · intro h r p hp
+    obtain ⟨i, ht, res, hl⟩ := h r p hp
+    exact ⟨i, ht, by rw [hl]; rfl⟩
 
 /-- Eventual delivery, for use where `Synchrony` does not reach — before GST there
     is no bound, but one may still want messages to arrive at all. -/
 def DeliverFair (x : Exec Pr S) : Prop :=
-  ∀ (p : Node) (m : SignedMsg Node Msg), WeakFair x (fun a => ∃ res, a = .deliver p m res)
+  ∀ (p : Node) (m : SignedMsg Node Msg), WeakFairKind x (.deliver p m)
 
 /-- A protocol-specific event that stays enabled eventually fires. This is the case
     state-based fairness could not express at all: what a `custom` reaction changes
     is up to the protocol, so there is no canonical state witness for it. -/
 def CustomFair (x : Exec Pr S) : Prop :=
-  ∀ (p : Node) (ev : Ev), WeakFair x (fun a => ∃ res, a = .custom p ev res)
+  ∀ (p : Node) (ev : Ev), WeakFairKind x (.custom p ev)
 
 /-! ### Network
 
