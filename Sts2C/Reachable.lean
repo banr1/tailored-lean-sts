@@ -34,8 +34,9 @@ def ViewsSound (c : Config Node Msg NodeState) : Prop :=
     assumed.
 
     The `obtain ⟨hen, rfl⟩` is paid once, not per case, because every label produces
-    `act a c`. What each case then needs from the guard it reads out of `hen`, whose shape
-    `enabled` fixes per label — `hen.1` for `deliver` is `m ∈ c.sent`. -/
+    `act a c`. The label is then split into its kind and its reaction, and the case analysis
+    is on the kind. What each case needs from the guard it reads out of `hen`, whose shape
+    `enabled` fixes per kind — `hen.1` for `deliver` is `m ∈ c.sent`. -/
 theorem viewsSound {c : Config Node Msg NodeState} (h : Reachable Pr S c) : ViewsSound c := by
   induction h with
   | init hi =>
@@ -44,16 +45,17 @@ theorem viewsSound {c : Config Node Msg NodeState} (h : Reachable Pr S c) : View
       simp [hnodes p] at hm
   | @step a d d' _ hstep ih =>
       obtain ⟨hen, rfl⟩ := hstep
-      cases a with
+      obtain ⟨k, res⟩ := a
+      cases k with
       -- advance: only `time` moves
       | advance t => exact ih
       -- tick: the view is untouched, the network only grows
-      | tick q t res =>
+      | tick q t =>
           intro p m hm
           simp [act] at hm
           exact Or.inl (ih p m hm)
       -- deliver: the one new message was in `sent` by the label's own guard
-      | deliver q msg res =>
+      | deliver q msg =>
           intro p m hm
           by_cases hpq : p = q
           · subst hpq
@@ -64,11 +66,11 @@ theorem viewsSound {c : Config Node Msg NodeState} (h : Reachable Pr S c) : View
           · simp [act, hpq] at hm
             exact Or.inl (ih p m hm)
       -- wake and custom: as tick
-      | wake q res =>
+      | wake q =>
           intro p m hm
           simp [act] at hm
           exact Or.inl (ih p m hm)
-      | custom q ev res =>
+      | custom q ev =>
           intro p m hm
           simp [act] at hm
           exact Or.inl (ih p m hm)

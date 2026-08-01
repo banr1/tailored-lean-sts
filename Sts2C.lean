@@ -23,10 +23,18 @@ existential to one definition (`WeakFairKind`) and makes the dangerous mistake u
 sets of labels can be widened, and widening is monotone in neither direction, whereas kinds
 cannot be unioned. `weakFairKind_iff` and `diligent_iff_res` keep both claims honest.
 
-The upshot is that this presentation needs **two** alphabets: `Action`, which determines the
-successor, and `Kind`, which says what happened. `Kind Node Msg Ev` is precisely `Sts2`'s
-`Action` — so C converges on B's alphabet for talking about occurrences while keeping its own
-for the step relation, with `Action.kind` as the erasure between them.
+The upshot is that this presentation needs **two** alphabets: `Kind`, which says what
+happened, and `Action = (k : Kind) × Reaction k`, which determines the successor.
+`Kind Node Msg Ev` is precisely `Sts2`'s `Action` — so C converges on B's alphabet for talking
+about occurrences while keeping a richer one for the step relation.
+
+`Kind` is the *primary* type and the reaction is a payload over it, rather than `Action` being
+an inductive with a hand-written erasure to `Kind`. That was a deliberate second pass: a
+hand-written erasure is a place to be wrong, and while `enabledKind_iff` happens to catch the
+obvious errors — its forward direction demands a label of every kind — surjectivity is not the
+same as being the intended map, and the protection depended on the luck of these six
+signatures. As a dependent pair the erasure is `Sigma.fst`, right by definition, and
+`enabledKind_iff` loses its `a.kind = k` equation entirely.
 
 There is also a modelling objection worth weighing: a label is what the *scheduler* picks —
 who acts, when, which message — whereas a `NodeStepResult` is picked by the node's own
@@ -51,8 +59,9 @@ claim is checked by the compiler rather than asserted.
   (awake *somewhere* vs awake *throughout*) and the constraints a model may
   impose on them.
 * `Protocol` — `System` (the framework's own, so `Framework/` depends on nothing
-  outside itself), `Protocol`, `Config`, and the step relation: a reaction-carrying `Action`,
-  a syntactic `enabled`, the successor *function* `act`, and `Step := enabled ∧ c' = act a c`.
+  outside itself), `Protocol`, `Config`, and the step relation: `Kind` and `Reaction` with
+  `Action` their dependent pair, the syntactic guards `enabled` and `enabledKind`, the
+  successor *function* `act`, and `Step := enabled ∧ c' = act a c`.
   A protocol reacts to **events**: `tick` and `recv m`, which the framework generates, plus
   `custom` events of the protocol's own type `Ev`, gated by `Protocol.enabled`.
 * `Reachable` — reachability and `viewsSound`, by case analysis on the label.

@@ -208,9 +208,9 @@ theorem weakFairKind_iff_set (x : Exec Pr S) (k : Kind Node Msg Ev) :
   unfold WeakFairKind WeakFair Execution.EnabledSome Execution.Enabled
   constructor
   · intro h i hen
-    exact h i fun j hj => (enabledKind_iff k x[j]).2 (hen j hj)
+    exact h i fun j hj => (enabledKind_iff k x[j]).2 ((exists_kind_iff k x[j]).1 (hen j hj))
   · intro h i hen
-    exact h i fun j hj => (enabledKind_iff k x[j]).1 (hen j hj)
+    exact h i fun j hj => (exists_kind_iff k x[j]).2 ((enabledKind_iff k x[j]).1 (hen j hj))
 
 /-- Every awake node is ticked at every value of time, at that value.
 
@@ -231,19 +231,23 @@ def Diligent (x : Exec Pr S) : Prop :=
     kind version would be a *different* assumption rather than a tidier one. -/
 theorem diligent_iff_res (x : Exec Pr S) :
     Diligent x ↔ ∀ (r : Time) (p : Node), (∃ i : Nat, x[i].time = r ∧ x.Awake i p) →
-      ∃ i : Nat, x[i].time = r ∧ ∃ res, x.lbl i = .tick p r res := by
+      ∃ i : Nat, x[i].time = r ∧
+        ∃ res : NodeStepResult NodeState Msg, x.lbl i = ⟨.tick p r, res⟩ := by
   unfold Diligent
   constructor
   · intro h r p hp
     obtain ⟨i, ht, hk⟩ := h r p hp
     refine ⟨i, ht, ?_⟩
-    -- `cases hl : x.lbl i` rewrites the goal as well, so only the tick case survives
-    cases hl : x.lbl i <;> rw [hl] at hk <;> simp [Action.kind] at hk
-    obtain ⟨rfl, rfl⟩ := hk
-    exact ⟨_, rfl⟩
+    -- `cases hl : x.lbl i` rewrites the goal as well, so the payload is in scope by name
+    cases hl : x.lbl i with
+    | mk k res =>
+        rw [hl] at hk
+        simp only [Action.kind] at hk
+        subst hk
+        exact ⟨res, rfl⟩
   · intro h r p hp
     obtain ⟨i, ht, res, hl⟩ := h r p hp
-    exact ⟨i, ht, by rw [hl]; rfl⟩
+    exact ⟨i, ht, by rw [hl]⟩
 
 /-- Eventual delivery, for use where `Synchrony` does not reach — before GST there
     is no bound, but one may still want messages to arrive at all. -/
