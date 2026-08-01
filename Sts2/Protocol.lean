@@ -148,46 +148,83 @@ inductive Action (V Msg Ev : Type) where
   /-- An adversarial validator signs an arbitrary message. -/
   | adversarial (p : V) (m : Msg)
 
-/-- The step relation. *When* messages must be delivered, and whether clocks agree
-    with real time, are properties of the model, imposed on executions. -/
-inductive Step (V Msg State Ev : Type) [DecidableEq V] [DecidableEq Msg]
-    (Pr : Protocol V Msg State Ev) (S : Schedule V) :
-    Action V Msg Ev → Config V Msg State → Config V Msg State → Prop where
-  /-- Real time advances, on its own. Always enabled, so no configuration is
-      stuck. -/
-  | advance {c : Config V Msg State} :
-      Step V Msg State Ev Pr S .advance c { c with time := c.time + 1 }
-  /-- An awake validator whose clock is behind real time advances it by one and
-      reacts. -/
-  | tick {c : Config V Msg State} {p : V} :
-      p ∈ S.awake (c.time : Int) → c.clock p < c.time →
-      Step V Msg State Ev Pr S (.tick p) c
-        (react Pr p .tick
-          { c with clock := fun q => if q = p then c.clock q + 1 else c.clock q })
-  /-- Any sent message may be delivered to any awake validator, at any time.
-      Delivery to a sleeping validator is simply not a transition, which is how
-      messages get queued: they stay in `sent` until it wakes. The message is filed
-      before the reaction runs, so `step` sees it in the view too. -/
-  | deliver {c : Config V Msg State} {p : V} {m : SignedMsg V Msg} :
-      m ∈ c.sent → p ∈ S.awake (c.time : Int) →
-      Step V Msg State Ev Pr S (.deliver p m) c
-        (react Pr p (.recv m) (receive p m c))
-  /-- `p` has just woken: awake now, asleep in the previous round. The framework
-      reports this because a protocol cannot start a joining procedure it is not
-      told about. -/
-  | wake {c : Config V Msg State} {p : V} :
-      p ∈ S.awake (c.time : Int) → p ∉ S.awake ((c.time : Int) - 1) →
-      Step V Msg State Ev Pr S (.wake p) c (react Pr p .wake c)
-  /-- A protocol-specific event fires, if the protocol allows it at the
-      validator's own clock reading. -/
-  | custom {c : Config V Msg State} {p : V} {ev : Ev} :
-      p ∈ S.awake (c.time : Int) → Pr.enabled (c.clock p) (c.st p) ev →
-      Step V Msg State Ev Pr S (.custom p ev) c (react Pr p (.custom ev) c)
-  /-- An adversarial validator signs anything. -/
-  | adversarial {c : Config V Msg State} {p : V} {m : Msg} :
-      p ∈ S.adv (c.time : Int) →
-      Step V Msg State Ev Pr S (.adversarial p m) c
-        { c with sent := insert ⟨p, m⟩ c.sent }
+/-- What one action does: when it may occur, and how it may change the
+    configuration.
+
+    The two halves sit **together, per action**, so they cannot be mismatched: there
+    is no way to write an enabling condition belonging to one action beside the
+    effect of another, and no way to add an action and forget one half.
+
+    `Effect` is a *relation*, not a function, so a nondeterministic action is
+    expressible — the successor need not be determined by the configuration. All six
+    current actions happen to be deterministic, because every choice is carried in
+    the action itself (`deliver p m` names the message, `custom p ev` the event), but
+    nothing here requires that.
+
+    `feasible` is the price of making enabling conditions syntactic: it says the
+    condition does not promise more than the effect can deliver. Event-B calls this
+    the *feasibility* proof obligation (FIS) and generates it for exactly this
+    reason; TLA+ avoids it by defining `ENABLED A` as "some successor satisfies `A`",
+    at the cost of enabledness never being explicit. Discharging it at the definition
+    site is what keeps `Execution.Enabled` honest — the alternative, an enabling
+    predicate passed alongside an action, has nothing tying the two together. -/
+structure ActionSpec (V Msg State : Type) where
+  /-- When the action may occur. -/
+  Enabled : Config V Msg State → Prop
+  /-- How it may change the configuration. -/
+  Effect : Config V Msg State → Config V Msg State → Prop
+  /-- Being enabled really does permit a step (Event-B's FIS). -/
+  feasible : ∀ c, Enabled c → ∃ c', Effect c c'
+
+/-- Each action's enabling condition and effect. -/
+def spec (Pr : Protocol V Msg State Ev) (S : Schedule V) :
+    Action V Msg Ev → ActionSpec V Msg State
+  -- Real time advances on its own. Always enabled, so no configuration is stuck.
+  | .advance => {
+      Enabled := fun _ => True
+      Effect := fun c c' => c' = { c with time := c.time + 1 }
+      feasible := fun _ _ => ⟨_, rfl⟩ }
+  -- An awake validator whose clock is behind advances it by one and reacts. The
+  -- guard gives exactly one tick per validator per round.
+  | .tick p => {
+      Enabled := fun c => p ∈ S.awake (c.time : Int) ∧ c.clock p < c.time
+      Effect := fun c c' => c' = react Pr p .tick
+        { c with clock := fun q => if q = p then c.clock q + 1 else c.clock q }
+      feasible := fun _ _ => ⟨_, rfl⟩ }
+  -- Any sent message may be delivered to any awake validator, at any time.
+  -- Delivery to a sleeping validator is simply not enabled, which is how messages
+  -- get queued: they stay in `sent` until it wakes. The message is filed before the
+  -- reaction runs, so `step` sees it in the view too.
+  | .deliver p m => {
+      Enabled := fun c => m ∈ c.sent ∧ p ∈ S.awake (c.time : Int)
+      Effect := fun c c' => c' = react Pr p (.recv m) (receive p m c)
+      feasible := fun _ _ => ⟨_, rfl⟩ }
+  -- Awake now, asleep in the previous round. Reported because a protocol cannot
+  -- start a joining procedure it is not told about.
+  | .wake p => {
+      Enabled := fun c =>
+        p ∈ S.awake (c.time : Int) ∧ p ∉ S.awake ((c.time : Int) - 1)
+      Effect := fun c c' => c' = react Pr p .wake c
+      feasible := fun _ _ => ⟨_, rfl⟩ }
+  -- A protocol-specific event, if the protocol allows it at the validator's own
+  -- clock reading.
+  | .custom p ev => {
+      Enabled := fun c =>
+        p ∈ S.awake (c.time : Int) ∧ Pr.enabled (c.clock p) (c.st p) ev
+      Effect := fun c c' => c' = react Pr p (.custom ev) c
+      feasible := fun _ _ => ⟨_, rfl⟩ }
+  -- An adversarial validator signs anything.
+  | .adversarial p m => {
+      Enabled := fun c => p ∈ S.adv (c.time : Int)
+      Effect := fun c c' => c' = { c with sent := insert ⟨p, m⟩ c.sent }
+      feasible := fun _ _ => ⟨_, rfl⟩ }
+
+/-- The step relation: enabled, and then the effect. *When* messages must be
+    delivered, and whether clocks agree with real time, are properties of the model,
+    imposed on executions rather than here. -/
+def Step (Pr : Protocol V Msg State Ev) (S : Schedule V) (a : Action V Msg Ev)
+    (c c' : Config V Msg State) : Prop :=
+  (spec Pr S a).Enabled c ∧ (spec Pr S a).Effect c c'
 
 /-- Initial configurations. -/
 def Init (Pr : Protocol V Msg State Ev) (c : Config V Msg State) : Prop :=
@@ -214,6 +251,6 @@ def system (V Msg State Ev : Type) [DecidableEq V] [DecidableEq Msg]
     (Pr : Protocol V Msg State Ev) (S : Schedule V) :
     System (Config V Msg State) (Action V Msg Ev) where
   Init := Init Pr
-  Step := Step V Msg State Ev Pr S
+  Step := Step Pr S
 
 end Framework.Sts2

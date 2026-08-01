@@ -116,43 +116,47 @@ ticks, leaving its clock behind for good, and no liveness argument survives that
 Hence weak fairness, stated in the textbook shape — *continuously enabled implies
 eventually taken* — which is what the step labels are for.
 
-Strong fairness ("enabled infinitely often implies eventually taken") is the same
-shape with `∀ j ≥ i, enabled j` weakened to `∀ i, ∃ j ≥ i, enabled j`; add it if a
-protocol needs it for a validator that only flickers awake. -/
+Enabledness is not a parameter: it comes from the action's own `ActionSpec`, so a
+fairness assumption cannot describe the wrong condition. -/
 
-/-- Weak fairness for one action: if it is enabled at every step from some point
-    on, it is eventually taken. -/
-def WeakFair (x : Exec Pr S) (enabled : Nat → Prop) (a : Action V Msg Ev) : Prop :=
-  ∀ i : Nat, (∀ j, i ≤ j → enabled j) → ∃ j, i ≤ j ∧ x.lbl j = a
+/-- Action `a` may be taken at step `i`.
 
-/-- When `Step.tick p` is enabled: `p` is awake and its clock is behind. -/
-def TickEnabled (x : Exec Pr S) (p : V) (i : Nat) : Prop :=
-  x.Awake i p ∧ x[i].clock p < x[i].time
+    Read off the action's own `ActionSpec`, so it cannot disagree with the step
+    relation, and `ActionSpec.feasible` guarantees it does not promise more than the
+    effect delivers. An earlier version passed the enabling condition to `WeakFair`
+    as a separate argument, with nothing tying the two together: a wrong one made the
+    assumption either vacuous or unsatisfiable, and an unsatisfiable assumption makes
+    every theorem under it vacuously true. -/
+def Execution.Enabled (x : Exec Pr S) (i : Nat) (a : Action V Msg Ev) : Prop :=
+  (spec Pr S a).Enabled x[i]
+
+/-- Weak fairness for one action: continuously enabled implies eventually taken. -/
+def WeakFair (x : Exec Pr S) (a : Action V Msg Ev) : Prop :=
+  ∀ i : Nat, (∀ j, i ≤ j → x.Enabled j a) → ∃ j, i ≤ j ∧ x.lbl j = a
+
+/-- Strong fairness: enabled infinitely often implies eventually taken. Needed for a
+    validator that only flickers awake, rather than staying awake. -/
+def StrongFair (x : Exec Pr S) (a : Action V Msg Ev) : Prop :=
+  (∀ i : Nat, ∃ j, i ≤ j ∧ x.Enabled j a) → ∀ i : Nat, ∃ j, i ≤ j ∧ x.lbl j = a
 
 /-- Validators do not stop ticking. Without this a validator can stay awake with a
     lagging clock forever, so it never runs its protocol again. -/
-def TickFair (x : Exec Pr S) : Prop :=
-  ∀ p : V, WeakFair x (TickEnabled x p) (.tick p)
+def TickFair (x : Exec Pr S) : Prop := ∀ p : V, WeakFair x (.tick p)
 
-/-- Time does not stop advancing. `Step.advance` has no premises, so it is always
-    enabled and weak fairness reduces to "taken infinitely often". Implies
-    `TimeDiverges`. -/
-def AdvanceFair (x : Exec Pr S) : Prop :=
-  ∀ i : Nat, ∃ j, i ≤ j ∧ x.lbl j = .advance
+/-- Time does not stop advancing. `advance` is enabled everywhere, so this reduces
+    to "taken infinitely often". Implies `TimeDiverges`. -/
+def AdvanceFair (x : Exec Pr S) : Prop := WeakFair x .advance
 
 /-- Eventual delivery, for use where `Synchrony` does not reach — before GST there
     is no bound, but one may still want messages to arrive at all. -/
 def DeliverFair (x : Exec Pr S) : Prop :=
-  ∀ (i : Nat) (p : V) (m : SignedMsg V Msg), m ∈ x[i].sent →
-    (∀ j, i ≤ j → x.Awake j p) → ∃ j, i ≤ j ∧ x.lbl j = .deliver p m
+  ∀ (p : V) (m : SignedMsg V Msg), WeakFair x (.deliver p m)
 
 /-- A protocol-specific event that stays enabled eventually fires. This is the case
-    that state-based fairness could not express: what a `custom` reaction changes is
-    up to the protocol, so there is no canonical state witness for it. -/
+    state-based fairness could not express at all: what a `custom` reaction changes
+    is up to the protocol, so there is no canonical state witness for it. -/
 def CustomFair (x : Exec Pr S) : Prop :=
-  ∀ (p : V) (ev : Ev),
-    WeakFair x (fun i => x.Awake i p ∧ Pr.enabled (x[i].clock p) (x[i].st p) ev)
-      (.custom p ev)
+  ∀ (p : V) (ev : Ev), WeakFair x (.custom p ev)
 
 /-! ### Network
 
