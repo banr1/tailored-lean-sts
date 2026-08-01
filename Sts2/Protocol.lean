@@ -140,28 +140,28 @@ instance : GetElem (Config Node Msg NodeState) Node (Local Node Msg NodeState) (
 
 variable [DecidableEq Node] [DecidableEq Msg]
 
-/-- Replace one validator's local record, leaving everything else alone. Every
-    per-validator update goes through this.
+/-- Replace `p`'s protocol state, leaving its clock and view alone.
 
-    Takes the new record rather than a function of the old one: a caller that needs the old
-    record reads it as `c[p]`, which is more explicit at the site, and it gives
-    `set_apply` below something useful to say — a function-shaped update would only ever
-    yield lemmas mentioning an opaque `f (c.nodes q)`. -/
-def Config.set (c : Config Node Msg NodeState) (p : Node)
-    (l : Local Node Msg NodeState) : Config Node Msg NodeState :=
-  { c with nodes := fun q => if p = q then l else c.nodes q }
+    One setter per field rather than one that replaces the whole `Local` record: the name
+    then says exactly what changes, which matters because `install`, `receive` and
+    `setClock` each touch a different field. The cost is that the `if` appears in each of
+    the three, where a record-level setter factored it out once. -/
+def Config.setNodeState (c : Config Node Msg NodeState) (p : Node) (s : NodeState) :
+    Config Node Msg NodeState :=
+  { c with nodes := fun q => if p = q then { c.nodes q with st := s } else c.nodes q }
 
 omit [DecidableEq Msg] in
-/-- How a `set` reads back. One unconditional lemma rather than a pair of conditional
-    ones, so a proof splits the `if` with whatever orientation its own `by_cases` used. -/
-@[simp] theorem Config.set_apply (c : Config Node Msg NodeState) (p : Node)
-    (l : Local Node Msg NodeState) (q : Node) :
-    (c.set p l).nodes q = if p = q then l else c.nodes q := rfl
+/-- How a `setNodeState` reads back. -/
+@[simp] theorem Config.setNodeState_apply (c : Config Node Msg NodeState) (p : Node)
+    (s : NodeState) (q : Node) :
+    (c.setNodeState p s).nodes q =
+      if p = q then { c.nodes q with st := s } else c.nodes q := rfl
 
 /-- File a delivered message into `p`'s view, without reacting to it. -/
 def receive (p : Node) (m : SignedMsg Node Msg) (c : Config Node Msg NodeState) :
     Config Node Msg NodeState :=
-  c.set p { c[p] with view := insert m c[p].view }
+  { c with nodes := fun q =>
+      if p = q then { c.nodes q with view := insert m (c.nodes q).view } else c.nodes q }
 
 /-- Apply a reaction: install `p`'s new state and add what it sent to the network,
     signed by `p`.
@@ -171,14 +171,15 @@ def receive (p : Node) (m : SignedMsg Node Msg) (c : Config Node Msg NodeState) 
     `voting(t)`" — and it achieves that by choosing `send := ∅` in its own `step`. -/
 def install (p : Node) (eff : NodeStepResult NodeState Msg) (c : Config Node Msg NodeState) :
     Config Node Msg NodeState :=
-  { c.set p { c[p] with st := eff.state }
+  { c.setNodeState p eff.state
       with sent := c.sent ∪ (SignedMsg.mk p '' (eff.send : Set Msg)) }
 
 /-- `p`'s clock now reads `t`. The framework says nothing about which `t` — see
     `Framework.Sts2.Execution` for the assumptions that pin it down. -/
 def setClock (p : Node) (t : Time) (c : Config Node Msg NodeState) :
     Config Node Msg NodeState :=
-  c.set p { c[p] with clock := t }
+  { c with nodes := fun q =>
+      if p = q then { c.nodes q with clock := t } else c.nodes q }
 
 /-- `Reacts Pr p e pre c'` — `c'` is a configuration `p` may reach by reacting to `e`
     in `pre`. Existential over the permitted reactions, which is where honest
