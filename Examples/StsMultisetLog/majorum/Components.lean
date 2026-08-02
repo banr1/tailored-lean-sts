@@ -230,10 +230,6 @@ noncomputable def gf (n : Nat) (V : View Node (Msg (Chain Tx) QC)) : Checkpoint 
 
 /-! ### Validity -/
 
-/-- A **valid fin-vote**: `C1.c < C2.c` and `C1.ch ⪯ C2.ch` (§4). -/
-def validFinVote (C1 C2 : Checkpoint (Chain Tx)) : Bool :=
-  C1.c < C2.c && chainLe C1.ch C2.ch
-
 /-- A **valid proposal**: it is a propose message, its chain was proposed in its own slot,
     and it extends the fast-confirmed chain it carries.
 
