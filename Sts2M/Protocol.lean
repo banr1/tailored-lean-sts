@@ -247,7 +247,7 @@ def extract (p : Node) (pre c' : Config Node Msg NodeState) : NodeStepResult Nod
   have hst : (applyNodeStepResult p ⟨st, snd⟩ pre)[p].st = st := by
     show (pre.setNode p { pre[p] with st := st })[p].st = st
     simp
-  simp [extract, hsub, hst, Multiset.map_map, Function.comp_def]
+  simp [extract, hsub, hst, Multiset.map_map]
 
 /-- `NodeStep Pr p e pre c'` — `c'` is the configuration `p` reaches by reacting to `e` in
     `pre`.
