@@ -46,20 +46,25 @@ Both of Lemma 2's cases are now proved *as statements about `MFC`*:
 * **Case 1's counting** — `voters_lt_two_mul_honest`: the paper's displayed inequality chain,
   which is what supplies that majority from Constraint (1).
 
-**What is left is exactly one thing**, and it is the one that needs the execution layer: the
-containment
+**The rest was believed to be "exactly one thing" — the execution-level containment. It is
+not.** Attempting it found that Lemma 2 is **false for the model as it stands**, in two
+independent ways, with three further gaps behind them:
 
-    S(V_i, t+1) ⊆ (H_{vote(t)} \ A_{vote(t+1)}) ∪ (A_{vote(t+1)} ∪ (H_{…} \ H_{vote(t)}))
+* `candidates` misses chains that are only *prefixes* of voted chains, so `mfc` can return
+  `genesis` where the paper's MFC — which quantifies over all chains — returns `ch`;
+* the handler does not implement the joining protocol, so just-woken honest validators vote
+  before they are active and Constraint (1) cannot bound the voter set;
+* nothing prevents two ticks at one reading, so an honest validator can equivocate and be
+  dropped by `FIL_eq`;
+* `Majority` counts messages where the paper counts validators, so fin-vote variants from
+  one sender can fake a majority;
+* `validProposal` does not check the certificate, which the vote-round half leans on.
 
-together with `H_{vote(t)} \ A_{vote(t+1)} ⊆` the supporters of `ch`. Both come from "all
-validators in `H_{vote(t)}` voted for extensions of `ch`" plus `Synchrony` and `Relay`
-putting those votes in `V_i` by `propose(t+1)` — statements about an execution, not about a
-view, so they need `the framework's flat multiset-log flavour.Execution` and the fact that `handler`'s vote branch ran.
-
-`le_mfc_of_majority` also takes comparability as a hypothesis rather than deriving it;
-`majority_chains_comparable` proves it, but connecting the two needs that a supporter's
-latest vote extends the chain it supports, which is true of `votesFor` by construction and
-not yet extracted as a lemma.
+The full accounting, the fix each needs, and a hole found in the paper's own proof are in
+`CONTEXT.md` (majorum, 2026-08-03). Everything proved in this file is true as stated and
+stays — the fifth item even dissolves the sender/message mismatch that left
+`majority_chains_comparable` taking comparability as a hypothesis. Nothing further of
+Lemma 2 is provable before the model changes, which are awaiting approval.
 -/
 
 set_option autoImplicit false
