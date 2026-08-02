@@ -87,7 +87,7 @@ A property is then in one of these classes, weakest first:
   including not at all. Accountable safety belongs here.
 * **Monotone** — assumes `TimeMonotone` and/or `ClocksMonotone`.
 * **Sound clocks** — assumes `ClocksSound`: no node reads the future.
-* **Synchronized** — assumes `Synchronized`, as both Majorum and TOB-SVD do. Liveness
+* **Synchronized clocks** — assumes `SynchronizedClocks`, as both Majorum and TOB-SVD do. Liveness
   needs this, plus `Diligent` and `TimeDiverges`. -/
 
 /-- Time never goes backwards. -/
@@ -107,7 +107,7 @@ def ClocksSound (x : Exec Pr S) : Prop :=
     node that slept through several rounds can be brought up to date by a single tick,
     rather than needing one per missed round and re-reacting at each. That defect made
     this assumption silently exclude every execution containing sleep. -/
-def Synchronized (x : Exec Pr S) : Prop :=
+def SynchronizedClocks (x : Exec Pr S) : Prop :=
   ∀ (i : Nat) (p : Node), x.Awake i p → x[i][p].clock = x[i].time
 
 /-- Time does not stop advancing. Since `advance` may set time to any value, this says

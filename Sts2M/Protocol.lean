@@ -34,7 +34,7 @@ actually depends on:
 * **Each validator reads its own clock**, `c[p].clock`, and that is the round
   handed to `step`. `Config.time` is *real* time, read only by the environment: the
   schedule, the network bound, GST. So clocks being synchronized is an
-  **assumption** (`Execution.Synchronized`) rather than a fact of the model, and
+  **assumption** (`Execution.SynchronizedClocks`) rather than a fact of the model, and
   monotonicity is free, since `Step.tick` only increments.
 
 The guard `c[p].clock < c.time` on `tick` stops a clock running ahead of real
@@ -45,7 +45,7 @@ Two consequences worth knowing. A round is no longer simultaneous: tick reaction
 interleave, so one validator may see another's message from the same round — which
 is strictly more general, and since delivery was always its own transition, rounds
 were never really lock-step. And a validator asleep across several rounds wakes with
-a *stale* clock, which it can only advance one tick at a time; `Synchronized` is
+a *stale* clock, which it can only advance one tick at a time; `SynchronizedClocks` is
 what rules that out where a model wants it.
 
 Who is awake and who is corrupted come from the `Schedule`: the adversary's fixed
@@ -340,7 +340,7 @@ def spec (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) :
       feasible _ _ := ⟨_, rfl⟩ }
   -- `p`'s clock comes to read `t`, and `p` reacts at that reading. Also unconstrained:
   -- nothing here relates `t` to real time. `Execution.ClocksSound` forbids reading the
-  -- future, `Synchronized` pins the clock to real time, `ClocksMonotone` forbids going
+  -- future, `SynchronizedClocks` pins the clock to real time, `ClocksMonotone` forbids going
   -- backwards — each an assumption, none a fact of the model.
   | .tick p t => {
       Enabled c := p ∈ S.awake (c.time : Int)
