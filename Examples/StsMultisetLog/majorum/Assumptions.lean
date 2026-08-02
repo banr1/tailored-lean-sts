@@ -44,7 +44,7 @@ variable {Node Msg NodeState Ev : Type} [Fintype Node] [DecidableEq Node] [Decid
     question worth answering rather than assuming — see `Theorems.lean`. -/
 def Wellformed (x : Exec Pr S) : Prop :=
   S.MonotoneCorruption ∧ S.AwakeHonest ∧
-    Synchronized x ∧ TimeMonotone x ∧ ClocksSound x ∧ TimeDiverges x ∧ Diligent x
+    SynchronizedClocks x ∧ TimeMonotone x ∧ ClocksSound x ∧ TimeDiverges x ∧ Diligent x
 
 /-- Partial synchrony after GST, and honest gossip. Majorum makes relay part of the model —
     "once an adversarial message is received by an honest validator, it is also gossiped by
