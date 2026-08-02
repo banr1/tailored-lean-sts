@@ -93,6 +93,18 @@ A property is then in one of these classes, weakest first:
 /-- Time never goes backwards. -/
 def TimeMonotone (x : Exec Pr S) : Prop := ∀ i : Nat, x[i].time ≤ x[i + 1].time
 
+/-- Time advances stepwise: each step leaves it alone or increments it, so every round
+    below the current time is an actual round of the execution. The framework's spec says
+    nothing about how time moves; a proof needs this exactly when it relies on a
+    *round-anchored* event — one whose enabling condition mentions a specific time, like a
+    wake, which is possible only while time equals its transition round. Skip the round and
+    the event can never fire. Subsumes `TimeMonotone` (`TimeStepwise.timeMonotone`). -/
+def TimeStepwise (x : Exec Pr S) : Prop :=
+  ∀ i : Nat, x[i + 1].time = x[i].time ∨ x[i + 1].time = x[i].time + 1
+
+theorem TimeStepwise.timeMonotone {x : Exec Pr S} (h : TimeStepwise x) : TimeMonotone x :=
+  fun i => by rcases h i with heq | heq <;> omega
+
 /-- No clock goes backwards. -/
 def ClocksMonotone (x : Exec Pr S) : Prop :=
   ∀ (i : Nat) (p : Node), x[i][p].clock ≤ x[i + 1][p].clock
@@ -156,6 +168,22 @@ def StrongFair (x : Exec Pr S) (a : Action Node Msg Ev) : Prop :=
 def Diligent (x : Exec Pr S) : Prop :=
   ∀ (r : Time) (p : Node), (∃ i : Nat, x[i].time = r ∧ x.Awake i p) →
     ∃ i : Nat, x[i].time = r ∧ x.lbl i = .tick p r
+
+/-- A validator learns it woke before it acts: a tick of a validator in its transition
+    round — awake now, asleep the round before — is preceded by that validator's wake
+    event, at the same time.
+
+    The framework reports waking through a separate `wake` event, which is enabled exactly
+    at transition configurations but, like any action, not guaranteed taken. A protocol
+    whose joining behaviour lives in its wake handler is only faithful to itself if the
+    report lands before the validator's next action; in a paper's atomic-round model the
+    two are the same step, so this discipline is invisible there and must be imposed here.
+    Together with `TimeStepwise` (the transition round exists) and `Diligent` (the freshly
+    awake validator is ticked in it), it forces every transition's wake event to fire. -/
+def WakePrecedesTick (x : Exec Pr S) : Prop :=
+  ∀ (j : Nat) (p : Node) (t : Time),
+    x.lbl j = .tick p t → p ∉ S.awake ((x[j].time : Int) - 1) →
+    ∃ k, k < j ∧ x.lbl k = .wake p ∧ x[k].time = x[j].time
 
 /-- Eventual delivery, for use where `Synchrony` does not reach — before GST there
     is no bound, but one may still want messages to arrive at all. -/
