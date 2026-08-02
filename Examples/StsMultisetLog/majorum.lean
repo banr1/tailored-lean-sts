@@ -4,6 +4,7 @@ import Examples.StsMultisetLog.majorum.Theorems
 import Examples.StsMultisetLog.majorum.Protocol
 import Examples.StsMultisetLog.majorum.Components
 import Examples.StsMultisetLog.majorum.Lemmas
+import Examples.StsMultisetLog.majorum.Lemma2
 
 /-!
 # Majorum, as an `Sts2`-framework specification
@@ -32,6 +33,10 @@ numbers move.
 * `Lemmas` — the counting core of the paper's Lemma 2: quorum intersection, and that
   majority-supported chains are comparable. **Lemma 2 itself is not proved** — the file says
   what is missing.
+* `Lemma2` — the execution layer under Lemma 2: provenance. Everything in the log entered
+  at some step; each step's contribution is the sender's own tick or an adversarial
+  injection; so an honest vote for slot `s` was sent by its sender's tick at reading
+  `voting(s)`, at real time `voting(s)` — whence the slot-time bound and one-vote-per-slot.
 * `Protocol` — **Algorithm 5 itself**: Majorum as a `the framework's flat multiset-log flavour.Protocol`. The four
   phase actions, the message formats and every state update, with the fork-choice and
   finality machinery abstracted into `Components`.

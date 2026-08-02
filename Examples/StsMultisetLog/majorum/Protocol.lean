@@ -196,14 +196,14 @@ noncomputable def handler (C : Components Node Chain QC) (Q : Params) (p : Node)
     else { state := s, send := 0 }
   else if phase = Q.delta then
     -- Vote, `4Δt + Δ`, lines 10–20, after lines 29–38.
-    let s := processProposals C V slot s
-    let chMFC := C.mfc s.vFrozen V s.chFrozen slot
+    let s' := processProposals C V slot s
+    let chMFC := C.mfc s'.vFrozen V s'.chFrozen slot
     let chAva :=
-      [s.chAva, C.kappaPrefix chMFC, s.gjFrozen.ch].foldl
-        (fun acc ch => if C.prefixLe ch chMFC then C.maxCh acc ch else acc) s.chAva
+      [s'.chAva, C.kappaPrefix chMFC, s'.gjFrozen.ch].foldl
+        (fun acc ch => if C.prefixLe ch chMFC then C.maxCh acc ch else acc) s'.chAva
     let chFin := C.commonPrefix chAva (C.gf V).ch
     let target : Checkpoint Chain :=
-      if s.gjFrozen.c = slot - 1 then ⟨chAva, slot⟩ else ⟨s.gjFrozen.ch, slot⟩
+      if s'.gjFrozen.c = slot - 1 then ⟨chAva, slot⟩ else ⟨s'.gjFrozen.ch, slot⟩
     let proposedNow : Option Chain :=
       V.toList.findSome? (fun sm => match sm.msg with
         | .propose chp _ _ _ t' =>
@@ -211,9 +211,11 @@ noncomputable def handler (C : Components Node Chain QC) (Q : Params) (p : Node)
             else none
         | .vote .. => none)
     let ch := proposedNow.getD chMFC
-    { state := { s with chAva := chAva, chFin := chFin },
+    -- the gate reads the *pre*-state's `activeAt`; `processProposals` never writes it,
+    -- so the two agree, and the un-shadowed spelling is the one proofs can see through
+    { state := { s' with chAva := chAva, chFin := chFin },
       -- a joining validator "executes the protocol, but without sending any message"
-      send := if s.activeAt ≤ r then {.vote ch s.gjFrozen target slot} else 0 }
+      send := if s.activeAt ≤ r then {.vote ch s'.gjFrozen target slot} else 0 }
   else if phase = 2 * Q.delta then
     -- Fast Confirm, `4Δt + 2Δ`, lines 21–24.
     let fastcand := (C.fastConfirm V slot).1
