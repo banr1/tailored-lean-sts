@@ -447,6 +447,52 @@ theorem Step.elim {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
       exact custom c p ev res he hp
   | adversarial p m => obtain ⟨he, rfl⟩ := h; exact adversarial c p m he
 
+/-- Case analysis on a step, leaving the successor **abstract** and handing each reacting
+    case the `Reacts` that constrains it.
+
+    The companion to `Step.elim`, and the reason both exist. This attempt has two equivalent
+    ways to say a reaction happened — `Reacts` as defined, and the existential
+    `reacts_iff_exists` proves it equal to — and they suit different proofs:
+
+    * `Step.elim` binds a reaction and gives a **concrete** successor. Use it when the goal
+      is about that term: `sent_mono` needs `d.sent ≤ (applyNodeStepResult …).sent`, and a
+      concrete successor is exactly what makes that immediate.
+    * `Step.elimR` leaves the successor as it is and gives a `Reacts` about it. Use it when
+      the goal is about an arbitrary `c'` and the frame lemmas are what the proof needs —
+      `Justified` is the example, where replacing `c'` by a term buys nothing.
+
+    Four of the six cases are one `exact` with no destructuring, because `Step` already *is*
+    `Enabled ∧ Reacts`. Going through the wrong eliminator costs a `reacts_iff_exists`
+    conversion in every reacting case; that is the whole of the difference. -/
+theorem Step.elimR {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
+    {motive : Action Node Msg Ev → Config Node Msg NodeState →
+      Config Node Msg NodeState → Prop}
+    {a : Action Node Msg Ev} {c c' : Config Node Msg NodeState} (h : Step Pr S a c c')
+    (advance : ∀ (d : Config Node Msg NodeState) (t : Time),
+      motive (.advance t) d { d with time := t })
+    (tick : ∀ (d d' : Config Node Msg NodeState) (p : Node) (t : Time),
+      (spec Pr S (.tick p t)).Enabled d → Reacts Pr p .tick (setClock p t d) d' →
+      motive (.tick p t) d d')
+    (deliver : ∀ (d d' : Config Node Msg NodeState) (p : Node) (m : SignedMsg Node Msg),
+      (spec Pr S (.deliver p m)).Enabled d → Reacts Pr p (.recv m) (receive p m d) d' →
+      motive (.deliver p m) d d')
+    (wake : ∀ (d d' : Config Node Msg NodeState) (p : Node),
+      (spec Pr S (.wake p)).Enabled d → Reacts Pr p .wake d d' → motive (.wake p) d d')
+    (custom : ∀ (d d' : Config Node Msg NodeState) (p : Node) (ev : Ev),
+      (spec Pr S (.custom p ev)).Enabled d → Reacts Pr p (.custom ev) d d' →
+      motive (.custom p ev) d d')
+    (adversarial : ∀ (d : Config Node Msg NodeState) (p : Node) (m : Msg),
+      (spec Pr S (.adversarial p m)).Enabled d →
+      motive (.adversarial p m) d { d with sent := ⟨p, m⟩ ::ₘ d.sent }) :
+    motive a c c' := by
+  cases a with
+  | advance t => obtain ⟨-, rfl⟩ := h; exact advance c t
+  | tick p t => exact tick c c' p t h.1 h.2
+  | deliver p m => exact deliver c c' p m h.1 h.2
+  | wake p => exact wake c c' p h.1 h.2
+  | custom p ev => exact custom c c' p ev h.1 h.2
+  | adversarial p m => obtain ⟨he, rfl⟩ := h; exact adversarial c p m he
+
 /-! ### Two invariants, proved through the eliminator
 
 Not needed by the framework, but they are what the eliminator is for: each case arrives
