@@ -59,10 +59,56 @@ def Network (Q : Majorum.Params) (x : Exec Pr S) : Prop :=
 def Synchronous (Q : Majorum.Params) (x : Exec Pr S) : Prop :=
   Synchrony 0 Q.delta x ∧ Relay 0 Q.delta x
 
-/-- Constraint (1), the sleepiness bound: in each slot after GST the adversary is smaller
-    than the honest validators awake throughout the preceding slot. -/
+/-- The validators **active** at slot `t`, in Majorum's sense.
+
+    The paper's `H_r` is the set of validators *active* at round `r`, which is not the set
+    awake at `r`: a validator that has woken but not finished the joining protocol is awake
+    and not yet active. The joining protocol (the paper's source line 129) says a validator waking in
+    `(voting(t-2)+Δ, voting(t-1)+Δ]` "sends nothing until round `voting(t)`, when it becomes
+    active". So to be active at `voting(t)` a validator must have woken by `voting(t-1)+Δ`
+    and stayed awake since:
+
+        Active t = awakeThroughout (voting(t-1) + Δ) (voting t)
+
+    Written with `voting t - 3Δ` for the lower end, since `voting(t-1) + Δ = voting t - 4Δ +
+    Δ`. That is not cosmetic: it is `Int` subtraction, so there is no `Nat` truncation and no
+    `1 ≤ t` guard.
+
+    Caveat at `t = 0`, where the window reaches back to `-2Δ`. The schedule is total on `ℤ`,
+    so this is well defined but does not implement the paper's `H_i := ∅` convention for
+    `i < 0` (the paper's source line 112); it is *weaker* than that convention, which would make `Active 0`
+    empty. Nothing below depends on `Active 0`, since `Sleepiness` starts its constraint at
+    slot 1. -/
+def Active (Q : Majorum.Params) (S : Schedule Node) (t : Nat) : Finset Node :=
+  S.awakeThroughout ((Q.voting t : Time) - 3 * (Q.delta : Int)) ((Q.voting t : Time) : Int)
+
+/-- **Constraint (1)** (the paper's source line 118), the sleepiness bound:
+
+        |H_{voting(t-1)} \ A_{voting t}| > |A_{voting t}|   for every slot t after GST
+
+    "The number of validators active at round `voting(t-1)` and not corrupted by
+    `voting(t)` must exceed the sum of adversarial validators at `voting(t)`." Its purpose
+    (the paper's source line 124) is to bound how many honest validators the adversary may corrupt after
+    slot `t-1`'s voting phase but before those votes are tallied.
+
+    Two differences from `Models.Majorum.Params.Compliant`, which this replaces rather than
+    calls:
+
+    1. **`Active` is named.** `Compliant` inlined the same window, so it read as though the
+       joining protocol were part of the sleepiness bound. It is not: `H` is the active set,
+       the joining protocol is what determines it, and the constraint is a statement about
+       `H`. Separating them makes the constraint the paper's one line again.
+    2. **Every slot, no `2 ≤ t` guard.** Indexing by `t+1` puts the previous slot at `t`, and
+       `Active` uses `Int` subtraction internally, so nothing truncates and every `t : Nat`
+       gives a real instance. `Compliant` needed the guard because `t - 2` truncates in
+       `Nat`.
+
+    Slot `0` is still outside the constraint, and that is the paper's own convention rather
+    than an omission: `H_i := ∅` for `i < 0` would make the inequality `0 > |A|`. -/
 def Sleepiness (Q : Majorum.Params) (S : Schedule Node) : Prop :=
-  Q.Compliant S
+  ∀ t : Nat, Q.gst ≤ Q.proposing (t + 1) →
+    (S.adv ((Q.voting (t + 1) : Time) : Int)).card <
+      (Active Q S t \ S.adv ((Q.voting (t + 1) : Time) : Int)).card
 
 /-- Every validator is awake from GAT on. Needed by liveness, which is stated after
     `max(GST, GAT)`. -/
