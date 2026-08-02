@@ -1,6 +1,7 @@
 import Framework.Sts2M.Message
 import Framework.Sts2M.Schedule
 import Framework.Sts2M.Protocol
+import Framework.Sts2M.Lemmas
 import Framework.Sts2M.Reachable
 import Framework.Sts2M.Justified
 import Framework.Sts2M.Execution
@@ -66,6 +67,9 @@ claim is checked by the compiler rather than asserted.
 * `Execution` — executions (recording the action taken at each step), the clock,
   network and fairness assumptions as predicates over them, and the security
   property definitions.
+* `Lemmas` — everything proved *about* `Protocol`: the field lemmas, the two eliminators
+  (`Step.elim` and `Step.elimR`), `sent_mono`, and the frame lemmas with their converse.
+  Split out so the specification reads as one.
 * `Justified` — the same invariant as `Sts2.Justified`, proved from the frame lemmas
   instead of `Step.elim`. The two files exist to be compared; see `CONTEXT.md`.
 * `Models` — Majorum's and TOB-SVD's models, expressed.
