@@ -8,10 +8,13 @@ import Examples.StsMultisetLog.majorum.Theorems
 Statements only, for now: the paper's security definitions and all seven of its theorems,
 written as `Prop`s over the framework's flat multiset-log flavour. No protocol, no proofs.
 
-Source: the paper's own source — not included here, so the
-statements below cite labels (`thm:liveness-chfin`, `def:reorg-resilience`, …) rather than
-page numbers. The protocol is called 3SF in the paper; the paper's macro file binds `\protocol`
-to *Majorum*, and the citing paper's source cites it as `damato2026majorum`.
+Source: **arXiv:2601.03862v1** —
+*Majorum: Ebb-and-Flow Consensus with Dynamic Quorums*, D'Amato, Saltini, Tran, Vonlanthen
+and Zanolini, arXiv:2601.03862v1, 7 Jan 2026, to appear at FC'26. Statements cite its
+numbered theorems and definitions, which are stable, rather than lines of the Overleaf
+working copy at the paper's own source — that copy was the original source and
+agrees with v1 on every statement rendered here, but it is not included here and its line
+numbers move.
 
 * `Assumptions` — the à la carte hypothesis groups. Majorum proves its theorems under
   *different* assumptions, so there is deliberately no single model predicate.

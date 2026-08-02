@@ -4,8 +4,8 @@ import Examples.StsMultisetLog.majorum.Security
 /-!
 # Majorum's theorems, as statements
 
-All seven `\begin{theorem}` environments of the paper's own source, rendered in the
-vocabulary of `Security.lean`. **Statements only** — nothing here is proved, and nothing
+All seven theorems of arXiv:2601.03862v1, rendered in the vocabulary of
+`Security.lean`. **Statements only** — nothing here is proved, and nothing
 here is a `theorem`.
 
 ## Why these are `def … : Prop` and not `theorem`
@@ -42,7 +42,7 @@ variable {Node Msg NodeState Ev Out Tx : Type} [Fintype Node] [DecidableEq Node]
 
 /-! ### The dynamically available component — Algorithm `prob-ga-fast` (§ GA-based) -/
 
-/-- **Theorem `thm:reorg-res-prop-tob`** (Reorg Resilience). "Algorithm `prob-ga-fast` is
+/-- **Theorem `Theorem 1`** (Reorg Resilience). "Algorithm `prob-ga-fast` is
     reorg-resilient." Unqualified, so after slot 0 and time 0.
 
     A **theorem**, not a property: it quantifies over the executions the paper's model
@@ -52,11 +52,11 @@ variable {Node Msg NodeState Ev Out Tx : Type} [Fintype Node] [DecidableEq Node]
 
     Assumptions: `Wellformed`, `Network`, `Sleepiness`, `Resilience`. The corruption bound
     `f < n/3` comes with `Q` (it is `Params.fBound`), and Constraint (1) is the paper's
-    standing requirement for slots after GST (the paper's source line 114).
+    standing requirement for slots after GST (the model section).
 
     **Not yet checked against the paper**: whether the GA section fixes further standing
-    assumptions. Its theorems sit at `:902`/`:934`, before the `:1045` block that assumes
-    `GST = 0` for the FFG analysis, so they inherit `:114` and possibly more. -/
+    assumptions. Its theorems sit at Theorems 1 and 2, before the the FFG analysis preamble block that assumes
+    `GST = 0` for the FFG analysis, so they inherit the model section and possibly more. -/
 def ThmReorgResilienceGA (Q : Majorum.Params) (out : Node → Config Node Msg NodeState → Out)
     (Pre : Out → Out → Prop) (proposedBy : Time → Node → Out → Prop) : Prop :=
   ∀ x : Exec Pr S,
@@ -72,8 +72,8 @@ each theorem its own. They are being worked through one at a time.
 
 ### The full protocol — Algorithm `3sf-tob-noga` (§ FFG) -/
 
-/-- **Theorem `thm:reorg-res-prop-tob-ffg`** (Reorg Resilience, analogous of
-    `thm:reorg-res-prop-tob`). "Algorithm `3sf-tob-noga` is reorg-resilient."
+/-- **Theorem `Theorem 3`** (Reorg Resilience, analogous of
+    `Theorem 1`). "Algorithm `3sf-tob-noga` is reorg-resilient."
 
     Signature updated to track `ReorgResilient`'s corrected one; the statement itself is
     still unreviewed — it takes `x` as a parameter and names no assumptions. -/
@@ -82,15 +82,15 @@ def ThmReorgResilienceFFG (out : Node → Config Node Msg NodeState → Out)
     (proposing : Time → Time) (x : Exec Pr S) : Prop :=
   ReorgResilient out Pre proposedBy proposing 0 0 x
 
-/-- **Theorem `thm:dyn-avail-fast-conf-tob-ffg`** (dynamic availability, analogous of
-    `thm:dyn-avail-fast-conf-tob`). "Algorithm `3sf-tob-noga` is dynamically-available
+/-- **Theorem `Theorem 4`** (dynamic availability, analogous of
+    `Theorem 2`). "Algorithm `3sf-tob-noga` is dynamically-available
     `\wop`." -/
 def ThmDynamicAvailabilityFFG (out : Node → Config Node Msg NodeState → Out)
     (Pre : Out → Out → Prop) (mem : Tx → Out → Prop) (pool : Time → Set Tx) (tconf : Time)
     (x : Exec Pr S) : Prop :=
   DynamicallyAvailable out Pre mem pool 0 tconf x
 
-/-- **Theorem `thm:accountable-safety`** (Accountable Safety). "Let `f ∈ [0, n]`. The
+/-- **Theorem `Theorem 5`** (Accountable Safety). "Let `f ∈ [0, n]`. The
     finalized chain `chainfin` is `n/3`-accountable."
 
     `n / 3` is `Nat` division, which truncates; the paper's `n/3` is exact and the
@@ -102,7 +102,7 @@ def ThmAccountableSafety (finalized : Node → Config Node Msg NodeState → Out
     (n : Nat) (x : Exec Pr S) : Prop :=
   AccountableSafety finalized Pre culprits (n / 3) x
 
-/-- **Theorem `thm:liveness-chfin`** (Liveness). "Assume `f < n/3`, and let `t` and `t+1`
+/-- **Theorem `Theorem 6`** (Liveness). "Assume `f < n/3`, and let `t` and `t+1`
     be slots after `max(GST, GAT) + 4Δ`. Then the chain `chain_p` proposed by the proposer
     of slot `t` is finalized at slot `t+2` or slot `t+3`. In particular, for any validator
     `v_i ∈ H_r` where `r ≥ 4Δ(t+3) + 2Δ`, it holds that `chain_p ⪯ chainfin^r_i` and
@@ -127,7 +127,7 @@ def ThmLiveness (finalized : Node → Config Node Msg NodeState → Out) (Pre : 
       Pre chainP (finalized p x[i]) ∧
         ∀ tx ∈ pool (proposing t), mem tx (finalized p x[i])
 
-/-- **Theorem `thm:ga-ebb-and-flow`.** "Algorithm `3sf-tob-noga` is a secure ebb-and-flow
+/-- **Theorem `Theorem 7`.** "Algorithm `3sf-tob-noga` is a secure ebb-and-flow
     protocol `\wop`." -/
 def ThmEbbAndFlow (available finalized : Node → Config Node Msg NodeState → Out)
     (Pre : Out → Out → Prop) (mem : Tx → Out → Prop) (pool : Time → Set Tx)

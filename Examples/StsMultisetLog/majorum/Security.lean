@@ -3,11 +3,9 @@ import the framework's flat multiset-log flavour
 /-!
 # Majorum's security definitions
 
-The vocabulary its theorems are stated in. Source: the paper's own source,
-Definitions 1–7 (`def:safety`, `def:liveness`, `def:security`, `def:dyn-ava`,
-`def:reorg-resilience`, `def:acc-safety`, and the unlabelled *Secure ebb-and-flow
-protocol*). The protocol was renamed: the paper says 3SF, the paper's macro file binds
-`\protocol` to *Majorum*.
+The vocabulary its theorems are stated in. Source: arXiv:2601.03862v1,
+Definitions 1–7 — Safe, Live, Secure, Dynamic Availability, Reorg Resilience, Accountable
+Safety, and Secure ebb-and-flow protocol.
 
 `Safe`, `Live` and `Secure` are Definitions 1–3 and already live in
 `the framework's flat multiset-log flavour.Execution`, since they are protocol-independent. What is here is the four
