@@ -3,6 +3,7 @@ import Examples.StsMultisetLog.majorum.Security
 import Examples.StsMultisetLog.majorum.Theorems
 import Examples.StsMultisetLog.majorum.Protocol
 import Examples.StsMultisetLog.majorum.Components
+import Examples.StsMultisetLog.majorum.Lemmas
 
 /-!
 # Majorum, as an `Sts2`-framework specification
@@ -28,6 +29,9 @@ numbers move.
   three vote filters, `MFC` (Algorithm 1), `fastconfirmsimple` (Algorithm 2), and
   justification, finalization, `GJ` and `GF` (§4). `algorithm5` is Majorum with all of them
   supplied.
+* `Lemmas` — the counting core of the paper's Lemma 2: quorum intersection, and that
+  majority-supported chains are comparable. **Lemma 2 itself is not proved** — the file says
+  what is missing.
 * `Protocol` — **Algorithm 5 itself**: Majorum as a `the framework's flat multiset-log flavour.Protocol`. The four
   phase actions, the message formats and every state update, with the fork-choice and
   finality machinery abstracted into `Components`.
