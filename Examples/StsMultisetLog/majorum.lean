@@ -1,6 +1,7 @@
 import Examples.StsMultisetLog.majorum.Assumptions
 import Examples.StsMultisetLog.majorum.Security
 import Examples.StsMultisetLog.majorum.Theorems
+import Examples.StsMultisetLog.majorum.Protocol
 
 /-!
 # Majorum, as an `Sts2`-framework specification
@@ -22,6 +23,9 @@ numbers move.
   secure ebb-and-flow. Definitions 1–3 (safe, live, secure) are protocol-independent and
   live in `the framework's flat multiset-log flavour.Execution`.
 * `Theorems` — the seven theorem statements.
+* `Protocol` — **Algorithm 5 itself**: Majorum as a `the framework's flat multiset-log flavour.Protocol`. The four
+  phase actions, the message formats and every state update, with the fork-choice and
+  finality machinery abstracted into `Components`.
 
 **Read the caveats in `Security.lean` before trusting any of this.** Four of the seven
 theorems hold only *with overwhelming probability*, which cannot be said here; asymptotic
