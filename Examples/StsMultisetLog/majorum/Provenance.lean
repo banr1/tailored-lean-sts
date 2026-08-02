@@ -1,11 +1,12 @@
 import Mathlib.Data.Finset.Max
-import Examples.StsMultisetLog.majorum.Lemmas
+import Examples.StsMultisetLog.majorum.Mfc
 
 /-!
-# Lemma 2, the execution layer
+# The execution layer: provenance, and the activation machinery
 
-The view-local half of Lemma 2 lives in `Lemmas.lean`; this file connects it to what
-happens in an execution of `protocol C Q`. The spine is **provenance**: everything in the
+Helper theorems about executions of `protocol C Q` — again no paper-numbered lemma, per
+the convention described in `Lemmas.lean`. The view-local half of the same material lives
+in `Mfc.lean`; this file connects it to what happens in an execution. The spine is **provenance**: everything in the
 log entered it at some step (`emitted_of_mem_sent`), each step's contribution is either the
 sender's own tick or an adversarial injection (`emitted_step`), and the handler's sends
 have a rigid shape (`mem_handler_send`). Composed, an honest vote for slot `s` pins down

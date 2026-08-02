@@ -3,8 +3,9 @@ import Examples.StsMultisetLog.majorum.Security
 import Examples.StsMultisetLog.majorum.Theorems
 import Examples.StsMultisetLog.majorum.Protocol
 import Examples.StsMultisetLog.majorum.Components
+import Examples.StsMultisetLog.majorum.Mfc
+import Examples.StsMultisetLog.majorum.Provenance
 import Examples.StsMultisetLog.majorum.Lemmas
-import Examples.StsMultisetLog.majorum.Lemma2
 
 /-!
 # Majorum, as an `Sts2`-framework specification
@@ -30,13 +31,13 @@ numbers move.
   three vote filters, `MFC` (Algorithm 1), `fastconfirmsimple` (Algorithm 2), and
   justification, finalization, `GJ` and `GF` (§4). `algorithm5` is Majorum with all of them
   supplied.
-* `Lemmas` — the counting core of the paper's Lemma 2: quorum intersection, and that
-  majority-supported chains are comparable. **Lemma 2 itself is not proved** — the file says
-  what is missing.
-* `Lemma2` — the execution layer under Lemma 2: provenance. Everything in the log entered
-  at some step; each step's contribution is the sender's own tick or an adversarial
-  injection; so an honest vote for slot `s` was sent by its sender's tick at reading
-  `voting(s)`, at real time `voting(s)` — whence the slot-time bound and one-vote-per-slot.
+* `Mfc` — view-local helpers: the vote filters, sender-counted majorities, and what `MFC`
+  returns (`base_le_mfc`, `le_mfc_of_majority`).
+* `Provenance` — execution-level helpers: everything in the log entered at a step, honest
+  votes come from their sender's tick at their slot's vote reading, one honest validator
+  casts one vote per slot, and an honest voter is active (`mem_active_of_honest_vote`).
+* `Lemmas` — **one theorem per numbered lemma of the paper**, and nothing else; empty until
+  Lemma 2 closes.
 * `Protocol` — **Algorithm 5 itself**: Majorum as a `the framework's flat multiset-log flavour.Protocol`. The four
   phase actions, the message formats and every state update, with the fork-choice and
   finality machinery abstracted into `Components`.
