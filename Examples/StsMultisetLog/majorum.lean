@@ -6,6 +6,7 @@ import Examples.StsMultisetLog.majorum.Components
 import Examples.StsMultisetLog.majorum.Algorithm2
 import Examples.StsMultisetLog.majorum.Mfc
 import Examples.StsMultisetLog.majorum.Provenance
+import Examples.StsMultisetLog.majorum.Provenance2
 import Examples.StsMultisetLog.majorum.Lemmas
 
 /-!

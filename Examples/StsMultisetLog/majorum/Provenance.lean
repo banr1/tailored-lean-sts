@@ -41,8 +41,10 @@ local notation "Pr" => protocol C Q
 
 /-! ### Navigation -/
 
-/-- `TimeMonotone`, chained along indices. -/
-theorem time_le_of_le {x : Exec Pr S} (hmono : TimeMonotone x) {i j : Nat} (hij : i ≤ j) :
+/-- `TimeMonotone`, chained along indices. Generic over the protocol: this and the two
+    generic lemmas below serve Algorithm 5's and Algorithm 2's layers alike. -/
+theorem time_le_of_le {NS : Type} {Pr' : Protocol Node (Msg (Chain Tx) QC) NS Empty}
+    {x : Exec Pr' S} (hmono : TimeMonotone x) {i j : Nat} (hij : i ≤ j) :
     x[i].time ≤ x[j].time := by
   induction j, hij using Nat.le_induction with
   | base => exact le_refl _
@@ -52,7 +54,8 @@ theorem time_le_of_le {x : Exec Pr S} (hmono : TimeMonotone x) {i j : Nat} (hij 
 
 /-- Everything in the log entered it at some step: the log is a multiset that starts empty
     and only grows, so a member has a positive count somewhere first. -/
-theorem emitted_of_mem_sent {x : Exec Pr S} {i : Nat}
+theorem emitted_of_mem_sent {NS : Type} {Pr' : Protocol Node (Msg (Chain Tx) QC) NS Empty}
+    {x : Exec Pr' S} {i : Nat}
     {sm : SignedMsg Node (Msg (Chain Tx) QC)} (h : sm ∈ x[i].sent) :
     ∃ k, k < i ∧ sm ∈ x[k + 1].sent - x[k].sent := by
   induction i with
@@ -325,7 +328,8 @@ theorem voting_lt_activationRound (Q : Params) {t n : Time}
 
 /-- Under `TimeStepwise`, every value below the current time was some configuration's
     time — the intermediate-value property of stepwise sequences. -/
-theorem exists_time_eq {x : Exec Pr S} (hstep : TimeStepwise x) {j : Nat} {w : Time}
+theorem exists_time_eq {NS : Type} {Pr' : Protocol Node (Msg (Chain Tx) QC) NS Empty}
+    {x : Exec Pr' S} (hstep : TimeStepwise x) {j : Nat} {w : Time}
     (hw : w ≤ x[j].time) : ∃ i, i ≤ j ∧ x[i].time = w := by
   induction j with
   | zero =>
