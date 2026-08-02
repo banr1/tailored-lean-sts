@@ -86,8 +86,19 @@ inductive Event (Node Msg Ev : Type) where
 structure NodeStepResult (NodeState Msg : Type) where
   /-- The node's state afterwards. -/
   state : NodeState
-  /-- Messages sent, each signed by the reacting validator. -/
-  send : Finset Msg
+  /-- Messages sent, each signed by the reacting validator.
+
+      A multiset, to match `Config.sent`. With a `Finset` here the two types disagree: the
+      log's delta can hold a message twice and a reaction cannot produce that, so
+      `applyNodeStepResult` is injective but not onto the `p`-signed extensions, and
+      `extract` has to deduplicate to cross the gap. Matching the types makes the two
+      mutually inverse — see `applyNodeStepResult_surjective`.
+
+      The cost is a distinction with no protocol meaning: sending `m` twice in one step now
+      differs from sending it once, and since views are `Finset`s no validator can tell. That
+      is the same extra distinction `Config.sent` already introduced, so the model is at least
+      uniform about it. -/
+  send : Multiset Msg
 
 /-- A protocol. -/
 structure Protocol (Node Msg NodeState Ev : Type) where
@@ -195,7 +206,7 @@ def receive (p : Node) (m : SignedMsg Node Msg) (c : Config Node Msg NodeState) 
 def applyNodeStepResult (p : Node) (res : NodeStepResult NodeState Msg) (c : Config Node Msg NodeState) :
     Config Node Msg NodeState :=
   { c.setNode p { c[p] with st := res.state }
-      with sent := c.sent + res.send.val.map (SignedMsg.mk p) }
+      with sent := c.sent + res.send.map (SignedMsg.mk p) }
 
 /-- `p`'s clock now reads `t`. The framework says nothing about which `t` — see
     `Framework.Sts2M.Execution` for the assumptions that pin it down. -/
@@ -211,7 +222,7 @@ def setClock (p : Node) (t : Time) (c : Config Node Msg NodeState) :
     is needed. Under `Sts2`'s `Set` log this function cannot exist: `∪` forgets a re-send, so
     two different reactions can produce the same successor. -/
 def extract (p : Node) (pre c' : Config Node Msg NodeState) : NodeStepResult NodeState Msg :=
-  { state := c'[p].st, send := ((c'.sent - pre.sent).map SignedMsg.msg).toFinset }
+  { state := c'[p].st, send := (c'.sent - pre.sent).map SignedMsg.msg }
 
 /-- The round trip: applying a reaction and reading it back is the identity. This is the
     lemma the whole attempt rests on. -/
@@ -220,14 +231,32 @@ def extract (p : Node) (pre c' : Config Node Msg NodeState) : NodeStepResult Nod
     extract p pre (applyNodeStepResult p res pre) = res := by
   obtain ⟨st, snd⟩ := res
   have hsub : (applyNodeStepResult p ⟨st, snd⟩ pre).sent - pre.sent
-      = snd.val.map (SignedMsg.mk p) := by
+      = snd.map (SignedMsg.mk p) := by
     ext a; simp [applyNodeStepResult]
   -- the `sent` update leaves `nodes` alone, so this is the `setNode` read-back
   have hst : (applyNodeStepResult p ⟨st, snd⟩ pre)[p].st = st := by
     show (pre.setNode p { pre[p] with st := st })[p].st = st
     simp
-  simp only [extract, hsub, hst, Multiset.map_map, Function.comp_def]
-  simp [Finset.val_toFinset]
+  simp [extract, hsub, hst, Multiset.map_map, Function.comp_def]
+
+/-- …and every extension of the log by messages `p` signed is produced by some reaction, so
+    `applyNodeStepResult p · pre` is onto those, not merely injective. Together with the round
+    trip, reactions and reachable successors correspond exactly.
+
+    This is what fails when `send` is a `Finset`: a delta holding one message twice is then
+    unreachable, and any characterisation of the successors has to say so. -/
+theorem applyNodeStepResult_surjective (p : Node) (pre c' : Config Node Msg NodeState)
+    (hle : pre.sent ≤ c'.sent) (hp : ∀ m ∈ c'.sent - pre.sent, m.sender = p) :
+    c'.sent = (applyNodeStepResult p (extract p pre c') pre).sent := by
+  have hid : (c'.sent - pre.sent).map (fun m => SignedMsg.mk p m.msg) = c'.sent - pre.sent := by
+    refine Multiset.map_congr rfl ?_ |>.trans (Multiset.map_id _)
+    intro m hm
+    have : m.sender = p := hp m hm
+    cases m; simp_all
+  -- the read-back lemmas live further down the file, so go through the definition
+  show c'.sent = pre.sent + ((c'.sent - pre.sent).map SignedMsg.msg).map (SignedMsg.mk p)
+  rw [Multiset.map_map, Function.comp_def, hid]
+  exact (add_tsub_cancel_of_le hle).symm
 
 /-- `Reacts Pr p e pre c'` — `c'` is the configuration `p` reaches by reacting to `e` in
     `pre`.
@@ -479,7 +508,7 @@ omit [DecidableEq Msg] in
 omit [DecidableEq Msg] in
 @[simp] theorem applyNodeStepResult_sent (q : Node) (res : NodeStepResult NodeState Msg)
     (d : Config Node Msg NodeState) :
-    (applyNodeStepResult q res d).sent = d.sent + res.send.val.map (SignedMsg.mk q) := rfl
+    (applyNodeStepResult q res d).sent = d.sent + res.send.map (SignedMsg.mk q) := rfl
 
 @[simp] theorem receive_clock (q : Node) (m : SignedMsg Node Msg)
     (d : Config Node Msg NodeState) (p : Node) :

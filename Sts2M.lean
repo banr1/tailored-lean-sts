@@ -22,6 +22,13 @@ witness in `Reacts` is therefore genuinely not a function of `(pre, c')`. Under 
 `c'.sent - pre.sent`. `extract_applyNodeStepResult` is the round trip and
 `reacts_iff_exists` proves the resulting relation is `Sts2`'s.
 
+`NodeStepResult.send` is a multiset for the same reason, and the two changes belong together.
+With a `Finset` there the types disagree — a log delta can hold a message twice, a reaction
+cannot produce that — so `applyNodeStepResult` is injective but *not onto* the `p`-signed
+extensions, and `extract` has to deduplicate to cross the gap. Matching them makes the two
+mutually inverse: `applyNodeStepResult_surjective` says every `p`-signed extension is some
+reaction's doing, so the model has no unreachable successors.
+
 Two things this does not buy, both recorded at the definitions:
 
 * **Case analysis gets no cheaper.** The successor equation `c' = applyNodeStepResult p
