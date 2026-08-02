@@ -35,25 +35,31 @@ What Lemma 2 needs beyond this, and why it is a much larger job:
 
 So the honest position is that the arithmetic is done and the protocol reasoning is not.
 
-## Status after a second attempt
+## Status
 
-Case 2 of the paper's proof is now proved outright (`base_le_mfc`), as is the counting chain
-in Case 1 (`voters_lt_two_mul_honest`). What is still missing for Case 1, in order:
+Both of Lemma 2's cases are now proved *as statements about `MFC`*:
 
-* the **containment** `S(V_i, t+1) ⊆ (H_{vote(t)} \ A_{vote(t+1)}) ∪ (A_{vote(t+1)} ∪ …)`,
-  which is where synchrony and the joining protocol enter and which needs the execution
-  layer;
-* a **maximality lemma for `mfc`** — that it returns a chain at least as long as every
-  candidate carrying a majority — which with `majority_chains_comparable` would give
-  `ch ⪯ MFC`.
+* **Case 2** — `base_le_mfc`: `MFC(V, V', chC, t) ⪰ chC`, so once `chfrozen ⪰ ch` the
+  conclusion is immediate.
+* **Case 1's conclusion** — `le_mfc_of_majority`: `MFC ⪰ ch` for every candidate `ch` that
+  extends the base and carries a majority of `S(V', t)`.
+* **Case 1's counting** — `voters_lt_two_mul_honest`: the paper's displayed inequality chain,
+  which is what supplies that majority from Constraint (1).
 
-  A first attempt failed with "failed to synthesize `Decidable (mfcGuard …)`", which I read
-  as the model's fold guard needing to be a `Bool`. **That was wrong.** The guard is
-  decidable; what defeated instance search was naming it with a plain `def`, which is not
-  reducible, so the conjunction was opaque. An `abbrev` — or `@[reducible] def` — is found
-  immediately, needing only `noncomputable` on anything that then produces data, since the
-  instance mentions `voters`. Nothing in `Components.lean` needs to change; the remaining
-  work is the induction itself.
+**What is left is exactly one thing**, and it is the one that needs the execution layer: the
+containment
+
+    S(V_i, t+1) ⊆ (H_{vote(t)} \ A_{vote(t+1)}) ∪ (A_{vote(t+1)} ∪ (H_{…} \ H_{vote(t)}))
+
+together with `H_{vote(t)} \ A_{vote(t+1)} ⊆` the supporters of `ch`. Both come from "all
+validators in `H_{vote(t)}` voted for extensions of `ch`" plus `Synchrony` and `Relay`
+putting those votes in `V_i` by `propose(t+1)` — statements about an execution, not about a
+view, so they need `the framework's flat multiset-log flavour.Execution` and the fact that `handler`'s vote branch ran.
+
+`le_mfc_of_majority` also takes comparability as a hypothesis rather than deriving it;
+`majority_chains_comparable` proves it, but connecting the two needs that a supporter's
+latest vote extends the chain it supports, which is true of `votesFor` by construction and
+not yet extracted as a lemma.
 -/
 
 set_option autoImplicit false
@@ -131,6 +137,97 @@ theorem base_le_mfc (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx) (t :
       b.length < a.length
   · simpa [h] using h.1
   · simpa [h] using hb
+
+/-! ### `MFC` returns an extension of every majority-supported chain
+
+The other half of Case 1. Three fold invariants — the result never shortens, it is at least
+as long as any majority candidate, and it is either the base or itself majority-supported —
+combine with `majority_chains_comparable` to give the conclusion the paper draws from
+`|V^{ch,t+1}| > |S(V_i,t+1)|/2`. -/
+
+/-- The majority condition `mfc` tests. An `abbrev`, so instance search can see through it:
+    as a plain `def` it is opaque and every `Decidable` goal about it fails. -/
+abbrev Majority (V V' : View Node (Msg (Chain Tx) QC)) (t : Nat) (a : Chain Tx) : Prop :=
+  (voters V' t).card < 2 * ((votesFor V a t) ∩ (votesFor V' a t)).card
+
+/-- The fold never shortens what it holds. -/
+private theorem foldl_length_mono (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx)
+    (t : Nat) : ∀ (l : List (Chain Tx)) (b : Chain Tx),
+      b.length ≤ (l.foldl (fun best ch =>
+        if chainLe chC ch ∧ Majority V V' t ch ∧ best.length < ch.length then ch else best)
+        b).length
+  | [], _ => le_refl _
+  | x :: xs, b => by
+      simp only [List.foldl_cons]
+      refine le_trans ?_ (foldl_length_mono V V' chC t xs _)
+      split
+      · rename_i h; exact le_of_lt h.2.2
+      · exact le_refl _
+
+/-- The fold ends at least as long as every candidate that extends the base and carries a
+    majority. -/
+private theorem foldl_length_ge (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx)
+    (t : Nat) : ∀ (l : List (Chain Tx)) (b x : Chain Tx), x ∈ l → chainLe chC x →
+      Majority V V' t x →
+      x.length ≤ (l.foldl (fun best ch =>
+        if chainLe chC ch ∧ Majority V V' t ch ∧ best.length < ch.length then ch else best)
+        b).length
+  | y :: ys, b, x, hx, hbase, hmaj => by
+      simp only [List.foldl_cons]
+      rcases List.mem_cons.1 hx with rfl | hx'
+      · by_cases h : chainLe chC x ∧ Majority V V' t x ∧ b.length < x.length
+        · rw [if_pos h]; exact foldl_length_mono V V' chC t ys x
+        · rw [if_neg h]
+          have : x.length ≤ b.length := by
+            by_contra hlt
+            exact h ⟨hbase, hmaj, by omega⟩
+          exact le_trans this (foldl_length_mono V V' chC t ys b)
+      · exact foldl_length_ge V V' chC t ys _ x hx' hbase hmaj
+
+/-- The fold's result is the base or carries a majority itself. -/
+private theorem foldl_base_or_majority (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx)
+    (t : Nat) : ∀ (l : List (Chain Tx)) (b : Chain Tx), (b = chC ∨ Majority V V' t b) →
+      (l.foldl (fun best ch =>
+        if chainLe chC ch ∧ Majority V V' t ch ∧ best.length < ch.length then ch else best)
+        b = chC ∨
+       Majority V V' t (l.foldl (fun best ch =>
+        if chainLe chC ch ∧ Majority V V' t ch ∧ best.length < ch.length then ch else best) b))
+  | [], _, hb => hb
+  | x :: xs, b, hb => by
+      simp only [List.foldl_cons]
+      refine foldl_base_or_majority V V' chC t xs _ ?_
+      split
+      · rename_i h; exact Or.inr h.2.1
+      · exact hb
+
+/-- A prefix that is at least as long is the whole thing, so comparable chains are ordered
+    by length. -/
+theorem chainLe_of_comparable (a b : Chain Tx) (hc : chainLe a b ∨ chainLe b a)
+    (hl : a.length ≤ b.length) : chainLe a b := by
+  rcases hc with h | h
+  · exact h
+  · simp only [chainLe, List.isPrefixOf_iff_prefix] at h ⊢
+    rw [h.eq_of_length_le hl]
+
+/-- **`MFC(V, V', chC, t) ⪰ ch` for every majority-supported candidate `ch`.**
+
+    This is what Case 1 of Lemma 2 concludes once it has shown `|V^{ch,t+1}| >
+    |S(V_i,t+1)|/2`. The `wit`/`hw` hypotheses are what `majority_chains_comparable` needs:
+    a supporter of a chain has a latest vote extending it, which holds of `votesFor` by
+    construction but is supplied here rather than re-derived. -/
+theorem le_mfc_of_majority (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx) (t : Nat)
+    (ch : Chain Tx) (hmem : ch ∈ candidates V chC) (hbase : chainLe chC ch)
+    (hmaj : Majority V V' t ch)
+    (hcomp : ∀ b, Majority V V' t b → chainLe ch b ∨ chainLe b ch) :
+    chainLe ch (mfc V V' chC t) := by
+  have hlen : ch.length ≤ (mfc V V' chC t).length :=
+    foldl_length_ge V V' chC t _ chC ch (Finset.mem_toList.2 hmem) hbase hmaj
+  rcases foldl_base_or_majority V V' chC t (candidates V chC).toList chC (Or.inl rfl) with h | h
+  · -- the fold never left the base, so the base is at least as long as `ch`, hence equal
+    have : chC = mfc V V' chC t := h.symm
+    rw [← this] at hlen ⊢
+    exact chainLe_of_comparable ch chC (Or.inr hbase) hlen
+  · exact chainLe_of_comparable ch _ (hcomp _ h) hlen
 
 /-! ### The counting in Case 1
 
