@@ -602,4 +602,198 @@ theorem mem_active_of_honest_vote [Fintype Node] {x : Exec Pr S}
     by_contra hna
     exact hbad ⟨r, Finset.mem_Icc.mpr ⟨h1, h2⟩, hna⟩
 
+/-! ### The propose-round half of Lemma 2 -/
+
+/-- Inverting `votes`: a member of the vote filter really is a vote. -/
+theorem exists_vote_of_mem_votes {V : View Node (Msg (Chain Tx) QC)}
+    {sm : SignedMsg Node (Msg (Chain Tx) QC)} (h : sm ∈ votes V) :
+    ∃ e src tgt s, sm.msg = Msg.vote e src tgt s := by
+  simp only [votes, Finset.mem_filter] at h
+  obtain ⟨-, hv⟩ := h
+  cases hm : sm.msg with
+  | propose chp chC qc gj t' =>
+      rw [hm] at hv
+      exact absurd hv (by simp)
+  | vote e src tgt s => exact ⟨e, src, tgt, s, rfl⟩
+
+section Lemma2Propose
+
+variable [Fintype Node]
+
+/-- **Lemma 2's hypothesis, over the log**: every validator active in slot `t` has, by the
+    end of `voting(t)`, sent a slot-`t` vote for a chain extending `ch`. The paper says
+    "all validators in `H_{vote(t)}` send vote messages for chains extending `ch`"; with
+    `honest_vote_unique` the one exhibited vote is the only one, so "a vote extends" and
+    "all their votes extend" coincide for the honest. -/
+def ActiveVotesExtend (x : Exec Pr S) (t : Nat) (ch : Chain Tx) : Prop :=
+  ∀ p ∈ Active Q S (t : Int), ∃ (i : Nat) (e : Chain Tx) (src tgt : Checkpoint (Chain Tx)),
+    x[i].time = Q.slotLength * t + Q.delta ∧
+    (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) QC)) ∈ x[i].sent ∧
+    chainLe ch e
+
+/-- **The propose-round half of Lemma 2**: if every validator active in slot `t` voted for
+    an extension of `ch`, then at `propose(t+1)` the fork-choice of any validator active in
+    slot `t+1` returns an extension of `ch`, over any base `b ⪯ ch`.
+
+    The paper's Case 1, assembled: `Synchrony` delivers the slot-`t` votes into the view;
+    provenance and one-vote-per-slot push each honest vote through the three filters; every
+    voter the view shows is corrupt at `voting(t+1)` or, by `mem_active_of_honest_vote`,
+    active in slot `t` — the containment; and Constraint (1) at slot `t+1` turns the
+    containment into `MFC`'s majority. -/
+theorem le_mfc_at_propose {x : Exec Pr S}
+    (hsync : SynchronizedClocks x) (hstepw : TimeStepwise x) (hdil : Diligent x)
+    (hwpt : WakePrecedesTick x) (hone : OneTickPerReading x) (hmc : S.MonotoneCorruption)
+    (hsyn : Synchrony 0 Q.delta x) (hslp : Sleepiness Q S) (hgst : Q.gst = 0)
+    {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx} (hvotes : ActiveVotesExtend x t ch)
+    {ip : Nat} (hip : x[ip].time = Q.slotLength * (t + 1))
+    {v : Node} (hv : v ∈ Active Q S ((t : Int) + 1))
+    {b : Chain Tx} (hb : chainLe b ch) :
+    chainLe ch (mfc (x[ip][v].view) (x[ip][v].view) b (t + 1)) := by
+  have hmono := hstepw.timeMonotone
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have hexp : Q.slotLength * (t + 1) = Q.slotLength * t + Q.slotLength := Nat.mul_succ ..
+  have hvot1 : Q.voting ((t : Int) + 1) = ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  -- `v` is awake at `propose(t+1)`: it sits inside slot `t+1`'s activity window
+  have hvAw : x.Awake ip v := by
+    show v ∈ S.awake ((x[ip].time : Int))
+    rw [hip]
+    refine mem_awakeThroughout.mp hv _ ?_ ?_ <;> rw [hvot1] <;> push_cast <;> omega
+  -- each still-honest active of slot `t` pushes its vote through the filters at `t+1`
+  have hmemFor : ∀ p ∈ Active Q S (t : Int) \ S.adv (Q.voting ((t : Int) + 1)),
+      ∃ smp ∈ votesFor (x[ip][v].view) ch (t + 1), smp.sender = p := by
+    intro p hp
+    obtain ⟨hpA, hpH⟩ := Finset.mem_sdiff.mp hp
+    obtain ⟨iv, e, src, tgt, htiv, hsent, hext⟩ := hvotes p hpA
+    have hhon : ∀ r : Time, r ≤ Q.slotLength * (t + 1) + Q.delta →
+        p ∉ S.adv ((r : Int)) := by
+      intro r hr had
+      refine hpH (hmc _ _ ?_ had)
+      rw [hvot1]
+      exact_mod_cast hr
+    -- delivery: sent at `voting(t)`, in the view by `propose(t+1)`
+    have hview : (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) QC))
+        ∈ x[ip][v].view := by
+      refine hsyn iv ip v _ hsent ?_ hvAw
+      rw [htiv, hip]
+      omega
+    have hsent_ip : (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) QC))
+        ∈ x[ip].sent := views_sound x ip v _ hview
+    have hhon_ip : p ∉ S.adv ((x[ip].time : Int)) := by
+      rw [hip]
+      exact hhon _ (by omega)
+    refine ⟨⟨p, Msg.vote e src tgt t⟩, ?_, rfl⟩
+    -- build the filter membership inside out
+    have hvv : (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) QC))
+        ∈ votes (x[ip][v].view) := by
+      simp only [votes, Finset.mem_filter]
+      exact ⟨hview, trivial⟩
+    have hfeq : (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) QC))
+        ∈ filEq (x[ip][v].view) := by
+      simp only [filEq, Finset.mem_filter]
+      refine ⟨hvv, ?_⟩
+      rintro ⟨sm', hsm', hsend', hslot', hne⟩
+      have hsm'log : sm' ∈ x[ip].sent :=
+        views_sound x ip v _ (by simp only [votes, Finset.mem_filter] at hsm'; exact hsm'.1)
+      obtain ⟨e', src', tgt', s', hm'⟩ := exists_vote_of_mem_votes hsm'
+      have e2 : msgSlot sm'.msg = s' := by rw [hm']; exact rfl
+      rw [e2] at hslot'
+      -- the two spellings of "our vote's slot" are definitionally `t`
+      have hs' : s' = t := hslot'
+      subst hs'
+      have hh' : sm'.sender ∉ S.adv ((x[ip].time : Int)) := by
+        rw [hsend']
+        exact hhon_ip
+      have heq := honest_vote_unique hsync hone hmc hmono hsent_ip hsm'log hhon_ip hh'
+        hsend' rfl hm'
+      exact hne (by rw [heq])
+    have hfexp : (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) QC))
+        ∈ fil1Exp (filEq (x[ip][v].view)) (t + 1) := by
+      simp only [fil1Exp, Finset.mem_filter]
+      exact ⟨hfeq, by show t + 1 ≤ t + 1; omega⟩
+    have hflmd : (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) QC))
+        ∈ filLmd (fil1Exp (filEq (x[ip][v].view)) (t + 1)) := by
+      simp only [filLmd, Finset.mem_filter]
+      refine ⟨hfexp, ?_⟩
+      rintro ⟨sm', hsm', hsend', hlt⟩
+      have hsm'v : sm' ∈ votes (x[ip][v].view) := by
+        simp only [fil1Exp, filEq, Finset.mem_filter] at hsm'
+        exact hsm'.1.1
+      have hsm'log : sm' ∈ x[ip].sent :=
+        views_sound x ip v _ (by simp only [votes, Finset.mem_filter] at hsm'v; exact hsm'v.1)
+      obtain ⟨e', src', tgt', s', hm'⟩ := exists_vote_of_mem_votes hsm'v
+      have hh' : sm'.sender ∉ S.adv ((x[ip].time : Int)) := by
+        rw [hsend']
+        exact hhon_ip
+      have hbound := voting_le_of_vote_mem hsync hmc hmono hsm'log hh' hm'
+      rw [hip] at hbound
+      have e2 : msgSlot sm'.msg = s' := by rw [hm']; exact rfl
+      rw [e2] at hlt
+      have hlt' : t < s' := hlt
+      have hmul : Q.slotLength * (t + 1) ≤ Q.slotLength * s' :=
+        Nat.mul_le_mul_left _ (by omega)
+      omega
+    simp only [votesFor, Finset.mem_filter]
+    exact ⟨hflmd, hext⟩
+  -- `Active(t) \ A` injects into the supporters' senders
+  have himg : Active Q S (t : Int) \ S.adv (Q.voting ((t : Int) + 1)) ⊆
+      (votesFor (x[ip][v].view) ch (t + 1) ∩ votesFor (x[ip][v].view) ch (t + 1)).image
+        SignedMsg.sender := by
+    intro p hp
+    obtain ⟨smp, hsmp, hsend⟩ := hmemFor p hp
+    exact Finset.mem_image.mpr ⟨smp, Finset.mem_inter.mpr ⟨hsmp, hsmp⟩, hsend⟩
+  -- the containment: every voter the view shows is active-or-corrupt
+  have hsub : voters (x[ip][v].view) (t + 1) ⊆
+      (Active Q S (t : Int) \ S.adv (Q.voting ((t : Int) + 1))) ∪
+        S.adv (Q.voting ((t : Int) + 1)) := by
+    intro q hq
+    simp only [voters, Finset.mem_image] at hq
+    obtain ⟨smq, hsmq, rfl⟩ := hq
+    simp only [fil1Exp, Finset.mem_filter] at hsmq
+    obtain ⟨hsmqv, hexp'⟩ := hsmq
+    by_cases hqa : smq.sender ∈ S.adv (Q.voting ((t : Int) + 1))
+    · exact Finset.mem_union_right _ hqa
+    refine Finset.mem_union_left _ (Finset.mem_sdiff.mpr ⟨?_, hqa⟩)
+    have hqlog : smq ∈ x[ip].sent :=
+      views_sound x ip v _ (by simp only [votes, Finset.mem_filter] at hsmqv; exact hsmqv.1)
+    obtain ⟨e', src', tgt', s', hm'⟩ := exists_vote_of_mem_votes hsmqv
+    have hh' : smq.sender ∉ S.adv ((x[ip].time : Int)) := by
+      rw [hip]
+      intro had
+      refine hqa (hmc _ _ ?_ had)
+      rw [hvot1]
+      exact_mod_cast (by omega : Q.slotLength * (t + 1) ≤ Q.slotLength * (t + 1) + Q.delta)
+    have hbound := voting_le_of_vote_mem hsync hmc hmono hqlog hh' hm'
+    rw [hip] at hbound
+    have e2 : msgSlot smq.msg = s' := by rw [hm']; exact rfl
+    rw [e2] at hexp'
+    have hs' : s' = t := by
+      by_contra hne'
+      have hmul : Q.slotLength * (t + 1) ≤ Q.slotLength * s' :=
+        Nat.mul_le_mul_left _ (by omega)
+      omega
+    subst hs'
+    exact mem_active_of_honest_vote hsync hstepw hdil hwpt hmc ht hqlog hh' hm'
+  -- Constraint (1) at slot `t + 1` turns the containment into the majority
+  have hgstok : (Q.gst : Int) ≤ Q.proposing ((t : Int) + 1) := by
+    rw [hgst]
+    unfold Params.proposing
+    push_cast
+    exact mul_nonneg (Int.natCast_nonneg _) (by omega)
+  have hc1 : (S.adv (Q.voting ((t : Int) + 1))).card <
+      (Active Q S (t : Int) \ S.adv (Q.voting ((t : Int) + 1))).card := by
+    have h := hslp ((t : Int) + 1) hgstok
+    simpa using h
+  have hvoters := voters_lt_two_mul_honest hsub hc1
+  have himgcard := Finset.card_le_card himg
+  have hmaj : Majority (x[ip][v].view) (x[ip][v].view) (t + 1) ch := by
+    show (voters (x[ip][v].view) (t + 1)).card < 2 * _
+    omega
+  exact le_mfc_of_majority _ _ b (t + 1) ch hb hmaj
+
+end Lemma2Propose
+
 end Majorum
