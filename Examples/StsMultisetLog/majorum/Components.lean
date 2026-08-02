@@ -14,13 +14,14 @@ A chain is a list of blocks, oldest first, each block carrying the slot it was p
 ordered by `⪯`, have a genesis, and that `ch.p` is the slot a chain was proposed in, so this
 is the smallest structure that supports what Algorithm 5 does with them.
 
-## Three places this is a model rather than a transcription
+## Four places this is a model rather than a transcription
 
-* **Candidate chains come from the view.** `MFC` returns "the longest chain `ch ⪰ chC`
-  such that …", quantifying over all chains — an infinite set. Here the candidates are the
-  chains that appear in votes in the view, plus `chC`. Any chain outside that set has no
-  votes at all, so it cannot meet the majority condition; the restriction loses nothing and
-  makes the function definable.
+* **Candidate chains are the prefixes of voted chains.** `MFC` returns "the longest chain
+  `ch ⪰ chC` such that …", quantifying over all chains — an infinite set. A chain can pass
+  the majority test only if some vote's chain extends it, making it a prefix of a chain
+  the view carries; so the prefix closure of the voted chains, plus the base, is a
+  complete finite search space. See `candidates` for why anything smaller is not.
+* **Support is counted in validators, not messages** — see `Majority`.
 * **Justification is an inductive `Prop`, not a `Bool`.** "Reachable from `(B_genesis, 0)` by
   a chain of supermajority links" is a least fixed point, so it is an `inductive`. Deciding
   it is done classically, which is why everything here is `noncomputable` — as
@@ -132,22 +133,41 @@ noncomputable def votesFor (V : View Node (Msg (Chain Tx) QC)) (ch : Chain Tx) (
 noncomputable def voters (V : View Node (Msg (Chain Tx) QC)) (t : Nat) : Finset Node :=
   (fil1Exp (votes V) t).image SignedMsg.sender
 
-/-- The chains that could be `MFC`'s answer: those someone voted for, plus the base. -/
+/-- The chains `MFC`'s "longest chain such that …" ranges over: the base, plus every
+    prefix of every voted chain.
+
+    The paper quantifies over all chains, but a chain passes the majority test only if some
+    vote's chain *extends* it — support flows down from extensions — and a chain that some
+    vote extends is a prefix of that vote's chain, hence reconstructible from the view. So
+    this set is complete, and minimal among complete ones: chains the view mentions only in
+    proposals or checkpoints can never pass, having no supporters.
+
+    An earlier version kept only the voted chains themselves, missing the common prefix —
+    which is exactly what wins when honest support splits across siblings, and what made
+    Lemma 2 false for the model; see `CONTEXT.md` (2026-08-03). -/
 noncomputable def candidates (V : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx) :
     Finset (Chain Tx) :=
-  insert chC ((votes V).image (fun sm => msgChain sm.msg))
+  insert chC ((votes V).biUnion fun sm => (msgChain sm.msg).inits.toFinset)
 
-/-- **`MFC(V, V', chC, t)`** (Algorithm 1): the longest `ch ⪰ chC` with
-    `|V^{ch,t} ∩ (V')^{ch,t}| > |S(V',t)| / 2`, or `chC` if there is none.
+/-- The strict-majority test of Algorithm 1: more than half of `S(V', t)` supports `ch`,
+    counting **validators, not messages**. Algorithm 2's `fastcands` writes the sender
+    counting out explicitly, and message counting is wrong here: two votes differing only
+    in their fin-vote parts share sender, chain and slot, survive every filter, and would
+    let one sender manufacture a majority.
 
-    "More than half" is `2 * |·| > |S|`, which avoids dividing. -/
+    An `abbrev`, so `Decidable` sees through it — a plain `def` fails every decidability
+    search at the use sites (`CONTEXT.md`, 2026-08-03). -/
+abbrev Majority (V V' : View Node (Msg (Chain Tx) QC)) (t : Nat) (ch : Chain Tx) : Prop :=
+  (voters V' t).card <
+    2 * (((votesFor V ch t) ∩ (votesFor V' ch t)).image SignedMsg.sender).card
+
+/-- **`MFC(V, V', chC, t)`** (Algorithm 1): the longest `ch ⪰ chC` supported by a strict
+    majority of `S(V', t)`, or `chC` if there is none. -/
 noncomputable def mfc (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx) (t : Nat) :
     Chain Tx :=
   (candidates V chC).toList.foldl
     (fun best ch =>
-      if chainLe chC ch ∧
-          (voters V' t).card < 2 * ((votesFor V ch t) ∩ (votesFor V' ch t)).card ∧
-          best.length < ch.length then ch else best)
+      if chainLe chC ch ∧ Majority V V' t ch ∧ best.length < ch.length then ch else best)
     chC
 
 /-- **`fastconfirmsimple(V, t)`** (Algorithm 2): the greatest chain supported by more than

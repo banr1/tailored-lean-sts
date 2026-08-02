@@ -33,9 +33,14 @@ framework requires.
   `[4Δt, 4Δt+Δ]`, but "validators delay processing such proposals until `vote(t)`" — so
   `recv` does nothing and the vote handler reads them out of the view, which the framework
   maintains. This is the one place the framework's design does real work for us.
-* **Waking does nothing.** The joining protocol says a waking validator "sends nothing until
-  round `voting(t)`", which is `send := ∅` — see the framework's flat multiset-log flavour's note on why joining is
-  the protocol's business and not the framework's.
+* **Waking starts the joining protocol.** The wake handler computes the activation round
+  from the paper's window — waking at `r ∈ (voting(t-2)+Δ, voting(t-1)+Δ]` means active at
+  `voting(t)` — and stores it in `NodeState.activeAt`; the propose and vote branches send
+  nothing while `r < activeAt`, still updating state ("executes the protocol, but without
+  sending any message"). Computing it from the clock is sound because under
+  `SynchronizedClocks` even a just-woken validator's clock reads real time. An earlier
+  version had the wake *event* send nothing but let the very next tick vote, which
+  falsified Lemma 2 — see `CONTEXT.md` (2026-08-03).
 * **Noncomputable**, because reading the view in a fixed order needs `Finset.toList`. See
   `processProposals`: the order is a choice the paper does not make, and resolving it
   properly would make `step` relational and computable at once.
@@ -80,6 +85,11 @@ structure NodeState (Node Chain QC : Type) where
   chFrozen : Chain
   /-- Latest frozen greatest justified checkpoint. -/
   gjFrozen : Checkpoint Chain
+  /-- The first round from which this validator may send — `voting(t)` for the slot `t`
+      its joining protocol targets (`activationRound`). `0` at initialization: validators
+      awake from the start are active from the start, the genesis convention the paper
+      leaves implicit. -/
+  activeAt : Time
 
 /-- The pieces Algorithm 5 calls, defined elsewhere in the paper. -/
 structure Components (Node Chain QC : Type) where
@@ -129,6 +139,14 @@ end Components
 
 variable [DecidableEq Node] [DecidableEq Chain] [DecidableEq QC]
 
+/-- The round at which a validator waking at round `r` becomes active.
+
+    "Joining Protocol" (§2): a validator waking at `r ∈ (voting(t-2)+Δ, voting(t-1)+Δ]`
+    becomes active at `voting(t)`. Solving the window for `t` gives `t = ⌈(r+2Δ)/4Δ⌉`, so
+    this is `voting` of that ceiling, computed in `Nat` (`⌈x/n⌉ = (x+n-1)/n`). -/
+def activationRound (Q : Params) (r : Time) : Time :=
+  Q.slotLength * ((r + 2 * Q.delta + (Q.slotLength - 1)) / Q.slotLength) + Q.delta
+
 /-- Algorithm 5 lines 29–38: fold every propose message for slot `t` in the view into
     `gjFrozen` and `chFrozen`.
 
@@ -168,8 +186,9 @@ noncomputable def handler (C : Components Node Chain QC) (Q : Params) (p : Node)
   let slot : Nat := r / Q.slotLength
   let phase : Nat := r % Q.slotLength
   if phase = 0 then
-    -- Propose, `4Δt`, lines 5–9.
-    if p = C.proposer slot then
+    -- Propose, `4Δt`, lines 5–9 — only once active: "if v_i is elected leader for slot t
+    -- but is inactive at proposal time, it does not propose in that slot".
+    if p = C.proposer slot ∧ s.activeAt ≤ r then
       let cq := C.fastConfirm V (slot - 1)
       let chMFC := C.mfc V V cq.1 slot
       let chp := C.extend chMFC slot
@@ -193,7 +212,8 @@ noncomputable def handler (C : Components Node Chain QC) (Q : Params) (p : Node)
         | .vote .. => none)
     let ch := proposedNow.getD chMFC
     { state := { s with chAva := chAva, chFin := chFin },
-      send := {.vote ch s.gjFrozen target slot} }
+      -- a joining validator "executes the protocol, but without sending any message"
+      send := if s.activeAt ≤ r then {.vote ch s.gjFrozen target slot} else 0 }
   else if phase = 2 * Q.delta then
     -- Fast Confirm, `4Δt + 2Δ`, lines 21–24.
     let fastcand := (C.fastConfirm V slot).1
@@ -216,11 +236,12 @@ noncomputable def handler (C : Components Node Chain QC) (Q : Params) (p : Node)
 noncomputable def protocol (C : Components Node Chain QC) (Q : Params) :
     Protocol Node (Msg Chain QC) (NodeState Node Chain QC) Empty where
   init _ := { chAva := C.genesis, chFin := C.genesis, vFrozen := ∅,
-              chFrozen := C.genesis, gjFrozen := ⟨C.genesis, 0⟩ }
+              chFrozen := C.genesis, gjFrozen := ⟨C.genesis, 0⟩, activeAt := 0 }
   step p r V s e res := res = match e with
     | .tick => handler C Q p r V s
     | .recv _ => { state := s, send := 0 }   -- filed into the view; processed at `vote(t)`
-    | .wake => { state := s, send := 0 }     -- joining: "sends nothing until `voting(t)`"
+    | .wake => -- the joining protocol starts: silent until the activation round
+        { state := { s with activeAt := activationRound Q r }, send := 0 }
     | .custom ev => ev.elim
   total _ _ _ _ _ := ⟨_, rfl⟩
   enabled _ _ ev := ev.elim

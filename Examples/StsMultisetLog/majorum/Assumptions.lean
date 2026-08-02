@@ -88,6 +88,18 @@ def Wellformed (x : Exec Pr S) : Prop :=
   S.MonotoneCorruption ∧ S.AwakeHonest ∧
     SynchronizedClocks x ∧ TimeMonotone x ∧ ClocksSound x ∧ TimeDiverges x ∧ Diligent x
 
+/-- At most one tick per validator per clock reading.
+
+    The paper's rounds are atomic — a validator acts once per round. The framework
+    deliberately leaves ticking free, so nothing stops the schedule ticking a validator
+    twice at one reading with deliveries in between; its two runs of the vote phase could
+    then send *different* votes, and `FIL_eq` would discard it as an equivocator. This is
+    the finer model's rendering of round atomicity, and Lemma 2 is false without it
+    (`CONTEXT.md`, 2026-08-03). À la carte like the rest: cited by the statements that
+    need it, not folded into `Wellformed`. -/
+def OneTickPerReading (x : Exec Pr S) : Prop :=
+  ∀ (i j : Nat) (p : Node) (t : Time), x.lbl i = .tick p t → x.lbl j = .tick p t → i = j
+
 /-- Partial synchrony after GST, and honest gossip. Majorum makes relay part of the model —
     "once an adversarial message is received by an honest validator, it is also gossiped by
     it" — so it belongs here rather than in the protocol. -/

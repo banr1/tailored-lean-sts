@@ -46,25 +46,27 @@ Both of Lemma 2's cases are now proved *as statements about `MFC`*:
 * **Case 1's counting** — `voters_lt_two_mul_honest`: the paper's displayed inequality chain,
   which is what supplies that majority from Constraint (1).
 
-**The rest was believed to be "exactly one thing" — the execution-level containment. It is
-not.** Attempting it found that Lemma 2 is **false for the model as it stands**, in two
-independent ways, with three further gaps behind them:
+**Where this stands** (2026-08-03). The model defects that had made Lemma 2 false are
+fixed — `candidates` is prefix-closed, `Majority` counts senders, the handler implements
+the joining protocol — and `OneTickPerReading` exists in `Assumptions.lean`; only
+`validProposal`'s certificate check stays deferred to the vote-round half. On top of the
+fixes, the view-local layer is now complete and hypothesis-light:
 
-* `candidates` misses chains that are only *prefixes* of voted chains, so `mfc` can return
-  `genesis` where the paper's MFC — which quantifies over all chains — returns `ch`;
-* the handler does not implement the joining protocol, so just-woken honest validators vote
-  before they are active and Constraint (1) cannot bound the voter set;
-* nothing prevents two ticks at one reading, so an honest validator can equivocate and be
-  dropped by `FIL_eq`;
-* `Majority` counts messages where the paper counts validators, so fin-vote variants from
-  one sender can fake a majority;
-* `validProposal` does not check the certificate, which the vote-round half leans on.
+* **Case 2** ("by definition `MFC ⪰ chfrozen`") — `base_le_mfc`.
+* **Case 1's conclusion** — `le_mfc_of_majority`: majority alone gives `MFC ⪰ ch`, since a
+  majority chain is automatically a candidate (`mem_candidates_of_majority`) and any two
+  majority chains are comparable through a common supporter (`majority_comparable`, whose
+  linchpin is `chain_eq_of_same_sender`: after `FIL_eq` and `FIL_lmd`, one sender has one
+  chain).
+* **Case 1's counting** — `voters_lt_two_mul_honest`, the paper's displayed inequality
+  chain.
 
-The full accounting, the fix each needs, and a hole found in the paper's own proof are in
-`CONTEXT.md` (majorum, 2026-08-03). Everything proved in this file is true as stated and
-stays — the fifth item even dissolves the sender/message mismatch that left
-`majority_chains_comparable` taking comparability as a hypothesis. Nothing further of
-Lemma 2 is provable before the model changes, which are awaiting approval.
+What remains for the propose-round half is the execution layer: provenance (an honest
+validator's votes in any view came from its vote-phase ticks — adversarial injection under
+that signature is excluded up to `voting(t+1)` by `MonotoneCorruption`), the containment of
+`S(V_i, t+1)` in `(H_{vote(t)} \ A_{vote(t+1)}) ∪ A_{vote(t+1)}`, and their assembly. The
+vote-round half additionally needs the `chfrozen` comparability invariant through `merge`
+and `processProposals`. See `CONTEXT.md`.
 -/
 
 set_option autoImplicit false
@@ -92,25 +94,100 @@ theorem comparable_of_common_extension {a b c : Chain Tx}
   simp only [chainLe, List.isPrefixOf_iff_prefix] at ha hb ⊢
   exact List.prefix_or_prefix_of_prefix ha hb
 
-/-- **Majority-supported chains are comparable.**
+/-- `chainLe` unfolded to Mathlib's prefix order. -/
+theorem chainLe_iff_prefix {a b : Chain Tx} : chainLe a b ↔ a <+: b := by
+  simp [chainLe, List.isPrefixOf_iff_prefix]
 
-    If a validator's latest non-expired vote is for a chain extending both `a` and `b`, then
-    `a` and `b` are nested; so if each of `a` and `b` is supported by more than half of
-    `S(V', t)`, quorum intersection supplies such a validator.
+/-! ### Reading the vote filters
 
-    This is what makes `mfc`'s "the longest chain such that …" a definite description rather
-    than a choice among incomparable options, and it is the step Lemma 2 uses to conclude
-    that `MFC` returns an extension of `ch` once `ch` itself carries a majority. -/
-theorem majority_chains_comparable {V' : View Node (Msg (Chain Tx) QC)} {t : Nat}
-    {a b : Chain Tx} {A B : Finset Node}
-    (hA : A ⊆ voters V' t) (hB : B ⊆ voters V' t)
-    (ha : (voters V' t).card < 2 * A.card) (hb : (voters V' t).card < 2 * B.card)
-    (wit : Node → Chain Tx)
-    (hwa : ∀ p ∈ A, chainLe a (wit p)) (hwb : ∀ p ∈ B, chainLe b (wit p)) :
+Small extraction lemmas, plus the one structural fact the comparability argument turns on:
+after `FIL_eq` and `FIL_lmd`, **one sender has one chain** — a sender's surviving votes all
+carry its maximal slot (`FIL_lmd`), and same-slot votes with different chains were both
+removed (`FIL_eq`). -/
+
+theorem votesFor_subset_filtered (V : View Node (Msg (Chain Tx) QC)) (ch : Chain Tx)
+    (t : Nat) : votesFor V ch t ⊆ filLmd (fil1Exp (filEq V) t) := by
+  intro sm h
+  simp only [votesFor, Finset.mem_filter] at h
+  exact h.1
+
+theorem votesFor_subset_votes (V : View Node (Msg (Chain Tx) QC)) (ch : Chain Tx)
+    (t : Nat) : votesFor V ch t ⊆ votes V := by
+  intro sm h
+  simp only [votesFor, filLmd, fil1Exp, filEq, Finset.mem_filter] at h
+  exact h.1.1.1.1
+
+theorem votesFor_extends {V : View Node (Msg (Chain Tx) QC)} {ch : Chain Tx} {t : Nat}
+    {sm : SignedMsg Node (Msg (Chain Tx) QC)} (h : sm ∈ votesFor V ch t) :
+    chainLe ch (msgChain sm.msg) := by
+  simp only [votesFor, Finset.mem_filter] at h
+  exact h.2
+
+/-- A supporter is a voter: its message is a vote in the view with a non-expired slot. -/
+theorem sender_mem_voters {V : View Node (Msg (Chain Tx) QC)} {ch : Chain Tx} {t : Nat}
+    {sm : SignedMsg Node (Msg (Chain Tx) QC)} (h : sm ∈ votesFor V ch t) :
+    sm.sender ∈ voters V t := by
+  simp only [votesFor, filLmd, fil1Exp, filEq, Finset.mem_filter] at h
+  obtain ⟨⟨⟨⟨hv, -⟩, hexp⟩, -⟩, -⟩ := h
+  simp only [voters, fil1Exp, Finset.mem_image]
+  exact ⟨sm, Finset.mem_filter.2 ⟨hv, hexp⟩, rfl⟩
+
+/-- One sender, one chain, after the filters. -/
+theorem chain_eq_of_same_sender {V : View Node (Msg (Chain Tx) QC)} {t : Nat}
+    {m m' : SignedMsg Node (Msg (Chain Tx) QC)}
+    (hm : m ∈ filLmd (fil1Exp (filEq V) t)) (hm' : m' ∈ filLmd (fil1Exp (filEq V) t))
+    (hs : m'.sender = m.sender) : msgChain m'.msg = msgChain m.msg := by
+  simp only [filLmd, Finset.mem_filter] at hm hm'
+  obtain ⟨hmS, hmlmd⟩ := hm
+  obtain ⟨hm'S, hm'lmd⟩ := hm'
+  -- equal slots: each forbids a strictly later same-sender vote in the filtered set
+  have h1 : ¬ msgSlot m.msg < msgSlot m'.msg := fun hlt => hmlmd ⟨m', hm'S, hs, hlt⟩
+  have h2 : ¬ msgSlot m'.msg < msgSlot m.msg := fun hlt => hm'lmd ⟨m, hmS, hs.symm, hlt⟩
+  have hslot : msgSlot m'.msg = msgSlot m.msg := by omega
+  -- equal chains: otherwise `m'` witnesses `m`'s equivocation clause in `FIL_eq`
+  simp only [fil1Exp, Finset.mem_filter] at hmS hm'S
+  simp only [filEq, Finset.mem_filter] at hmS hm'S
+  by_contra hne
+  exact hmS.1.2 ⟨m', hm'S.1.1, hs, hslot, hne⟩
+
+/-- **Any two majority-supported chains are comparable** — the intersection of two strict
+    sender-majorities of `S(V', t)` is inhabited, and the common supporter's single
+    post-filter chain extends both. This is what makes `mfc`'s "the longest chain such
+    that …" a definite description rather than a choice among incomparable options. -/
+theorem majority_comparable {V V' : View Node (Msg (Chain Tx) QC)} {t : Nat}
+    {a b : Chain Tx} (ha : Majority V V' t a) (hb : Majority V V' t b) :
     chainLe a b ∨ chainLe b a := by
-  obtain ⟨p, hp⟩ := quorum_inter hA hB ha hb
-  rw [Finset.mem_inter] at hp
-  exact comparable_of_common_extension (hwa p hp.1) (hwb p hp.2)
+  have hsub : ∀ c : Chain Tx,
+      ((votesFor V c t ∩ votesFor V' c t).image SignedMsg.sender) ⊆ voters V' t := by
+    intro c q hq
+    obtain ⟨sm, hsm, rfl⟩ := Finset.mem_image.1 hq
+    exact sender_mem_voters (Finset.mem_inter.1 hsm).2
+  obtain ⟨q, hq⟩ := quorum_inter (hsub a) (hsub b) ha hb
+  rw [Finset.mem_inter] at hq
+  obtain ⟨sma, hsma, hqa⟩ := Finset.mem_image.1 hq.1
+  obtain ⟨smb, hsmb, hqb⟩ := Finset.mem_image.1 hq.2
+  have hma : sma ∈ votesFor V' a t := (Finset.mem_inter.1 hsma).2
+  have hmb : smb ∈ votesFor V' b t := (Finset.mem_inter.1 hsmb).2
+  have hchain : msgChain smb.msg = msgChain sma.msg :=
+    chain_eq_of_same_sender (votesFor_subset_filtered V' a t hma)
+      (votesFor_subset_filtered V' b t hmb) (by rw [hqb, hqa])
+  exact comparable_of_common_extension (votesFor_extends hma)
+    (hchain ▸ votesFor_extends hmb)
+
+/-- **A majority chain is a candidate**: a strict majority forces at least one supporting
+    vote, and a chain some vote extends is among that vote's prefixes — which is where the
+    prefix closure of `candidates` earns its place. -/
+theorem mem_candidates_of_majority {V V' : View Node (Msg (Chain Tx) QC)} {chC : Chain Tx}
+    {t : Nat} {ch : Chain Tx} (h : Majority V V' t ch) : ch ∈ candidates V chC := by
+  have hne : ((votesFor V ch t ∩ votesFor V' ch t).image SignedMsg.sender).Nonempty := by
+    rw [← Finset.card_pos]
+    omega
+  obtain ⟨q, hq⟩ := hne
+  obtain ⟨sm, hsm, -⟩ := Finset.mem_image.1 hq
+  have hv : sm ∈ votes V := votesFor_subset_votes V ch t (Finset.mem_inter.1 hsm).1
+  have hle : chainLe ch (msgChain sm.msg) := votesFor_extends (Finset.mem_inter.1 hsm).1
+  simp only [candidates, Finset.mem_insert, Finset.mem_biUnion]
+  exact Or.inr ⟨sm, hv, List.mem_toFinset.2 ((List.mem_inits _ _).2 (chainLe_iff_prefix.1 hle))⟩
 
 /-! ### Case 2 of the paper's proof
 
@@ -137,10 +214,8 @@ theorem base_le_mfc (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx) (t :
   unfold mfc
   refine foldl_invariant (fun b => chainLe chC b) _ _ chC (chainLe_refl chC) ?_
   intro b a hb
-  by_cases h : chainLe chC a ∧
-      (voters V' t).card < 2 * ((votesFor V a t) ∩ (votesFor V' a t)).card ∧
-      b.length < a.length
-  · simpa [h] using h.1
+  by_cases h : chainLe chC a ∧ Majority V V' t a ∧ b.length < a.length
+  · simp [h]
   · simpa [h] using hb
 
 /-! ### `MFC` returns an extension of every majority-supported chain
@@ -149,11 +224,6 @@ The other half of Case 1. Three fold invariants — the result never shortens, i
 as long as any majority candidate, and it is either the base or itself majority-supported —
 combine with `majority_chains_comparable` to give the conclusion the paper draws from
 `|V^{ch,t+1}| > |S(V_i,t+1)|/2`. -/
-
-/-- The majority condition `mfc` tests. An `abbrev`, so instance search can see through it:
-    as a plain `def` it is opaque and every `Decidable` goal about it fails. -/
-abbrev Majority (V V' : View Node (Msg (Chain Tx) QC)) (t : Nat) (a : Chain Tx) : Prop :=
-  (voters V' t).card < 2 * ((votesFor V a t) ∩ (votesFor V' a t)).card
 
 /-- The fold never shortens what it holds. -/
 private theorem foldl_length_mono (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx)
@@ -214,25 +284,26 @@ theorem chainLe_of_comparable (a b : Chain Tx) (hc : chainLe a b ∨ chainLe b a
   · simp only [chainLe, List.isPrefixOf_iff_prefix] at h ⊢
     rw [h.eq_of_length_le hl]
 
-/-- **`MFC(V, V', chC, t) ⪰ ch` for every majority-supported candidate `ch`.**
+/-- **`MFC(V, V', chC, t) ⪰ ch` for every majority-supported `ch ⪰ chC`** — the step
+    Case 1 of Lemma 2 takes once the counting has produced the majority.
 
-    This is what Case 1 of Lemma 2 concludes once it has shown `|V^{ch,t+1}| >
-    |S(V_i,t+1)|/2`. The `wit`/`hw` hypotheses are what `majority_chains_comparable` needs:
-    a supporter of a chain has a latest vote extending it, which holds of `votesFor` by
-    construction but is supplied here rather than re-derived. -/
+    Majority alone suffices: it forces a supporting vote, which puts `ch` among the
+    prefix-closed candidates (`mem_candidates_of_majority`), and any two majority chains
+    are comparable through a common supporter (`majority_comparable`). Earlier versions
+    took both as extra hypotheses; the model fixes of 2026-08-03 made them derivable. -/
 theorem le_mfc_of_majority (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx) (t : Nat)
-    (ch : Chain Tx) (hmem : ch ∈ candidates V chC) (hbase : chainLe chC ch)
-    (hmaj : Majority V V' t ch)
-    (hcomp : ∀ b, Majority V V' t b → chainLe ch b ∨ chainLe b ch) :
+    (ch : Chain Tx) (hbase : chainLe chC ch) (hmaj : Majority V V' t ch) :
     chainLe ch (mfc V V' chC t) := by
   have hlen : ch.length ≤ (mfc V V' chC t).length :=
-    foldl_length_ge V V' chC t _ chC ch (Finset.mem_toList.2 hmem) hbase hmaj
-  rcases foldl_base_or_majority V V' chC t (candidates V chC).toList chC (Or.inl rfl) with h | h
+    foldl_length_ge V V' chC t _ chC ch
+      (Finset.mem_toList.2 (mem_candidates_of_majority (chC := chC) hmaj)) hbase hmaj
+  rcases foldl_base_or_majority V V' chC t (candidates V chC).toList chC (Or.inl rfl)
+    with h | h
   · -- the fold never left the base, so the base is at least as long as `ch`, hence equal
     have : chC = mfc V V' chC t := h.symm
     rw [← this] at hlen ⊢
     exact chainLe_of_comparable ch chC (Or.inr hbase) hlen
-  · exact chainLe_of_comparable ch _ (hcomp _ h) hlen
+  · exact chainLe_of_comparable ch _ (majority_comparable hmaj h) hlen
 
 /-! ### The counting in Case 1
 
