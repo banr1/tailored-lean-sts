@@ -34,6 +34,21 @@ What Lemma 2 needs beyond this, and why it is a much larger job:
    `merge` branch of `handler` related to the `vote` branch a slot later.
 
 So the honest position is that the arithmetic is done and the protocol reasoning is not.
+
+## Status after a second attempt
+
+Case 2 of the paper's proof is now proved outright (`base_le_mfc`), as is the counting chain
+in Case 1 (`voters_lt_two_mul_honest`). What is still missing for Case 1, in order:
+
+* the **containment** `S(V_i, t+1) ⊆ (H_{vote(t)} \ A_{vote(t+1)}) ∪ (A_{vote(t+1)} ∪ …)`,
+  which is where synchrony and the joining protocol enter and which needs the execution
+  layer;
+* a **maximality lemma for `mfc`** — that it returns a chain at least as long as every
+  candidate carrying a majority — which with `majority_chains_comparable` would give
+  `ch ⪯ MFC`. Attempted and abandoned: `mfc`'s fold guard is a `Prop` decided classically, so
+  the `if` has no `Decidable` instance to induct through, and the fold would have to be
+  restated with a `Bool` guard first. That is a change to `Components.lean`, not a proof, and
+  is the obvious next step.
 -/
 
 set_option autoImplicit false
@@ -80,5 +95,71 @@ theorem majority_chains_comparable {V' : View Node (Msg (Chain Tx) QC)} {t : Nat
   obtain ⟨p, hp⟩ := quorum_inter hA hB ha hb
   rw [Finset.mem_inter] at hp
   exact comparable_of_common_extension (hwa p hp.1) (hwb p hp.2)
+
+/-! ### Case 2 of the paper's proof
+
+"Given that by definition `MFC^{propose(t+1)}_i ⪰ chfrozen`, we have `MFC ⪰ ch`." That is a
+property of `mfc` and nothing else, so it is provable here in full. -/
+
+/-- Fold invariant, in the form the two `mfc` lemmas need. -/
+private theorem foldl_invariant {α β : Type} (P : β → Prop) (f : β → α → β) :
+    ∀ (l : List α) (b : β), P b → (∀ b a, P b → P (f b a)) → P (l.foldl f b)
+  | [], _, hb, _ => hb
+  | x :: xs, b, hb, hf => foldl_invariant P f xs (f b x) (hf b x hb) hf
+
+/-- `chainLe` is reflexive. -/
+theorem chainLe_refl (a : Chain Tx) : chainLe a a := by
+  simp [chainLe]
+
+/-- **`MFC(V, V', chC, t) ⪰ chC`.** The fork-choice never returns something that fails to
+    extend its base, because the fold only ever moves to a candidate that does.
+
+    This is Case 2 of Lemma 2's proof for both `MFC^{propose(t+1)}` and `MFC^{vote(t+1)}`:
+    once `chfrozen ⪰ ch`, the conclusion is immediate. -/
+theorem base_le_mfc (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx) (t : Nat) :
+    chainLe chC (mfc V V' chC t) := by
+  unfold mfc
+  refine foldl_invariant (fun b => chainLe chC b) _ _ chC (chainLe_refl chC) ?_
+  intro b a hb
+  by_cases h : chainLe chC a ∧
+      (voters V' t).card < 2 * ((votesFor V a t) ∩ (votesFor V' a t)).card ∧
+      b.length < a.length
+  · simpa [h] using h.1
+  · simpa [h] using hb
+
+/-! ### The counting in Case 1
+
+The paper's displayed chain of inequalities:
+
+    |S(V_i, t+1)| = |H_{vote(t)} \ A_{vote(t+1)}| + |S(V_i,t+1) \ (H_{vote(t)} \ A_{vote(t+1)})|
+                  ≤ |H_{vote(t)} \ A_{vote(t+1)}| + |A_{vote(t+1)} ∪ (H_{…} \ H_{vote(t)})|
+                  < 2 |H_{vote(t)} \ A_{vote(t+1)}|
+
+the last step "comes from Equation (1)". Both steps are pure `Finset` arithmetic, so both are
+proved; what is *not* proved is the containment they start from, which is where synchrony
+and the joining protocol enter. -/
+
+/-- The paper's inequality chain. `S` is `S(V_i, t+1)`, `honest` is
+    `H_{vote(t)} \ A_{vote(t+1)}`, and `other` is
+    `A_{vote(t+1)} ∪ (H_{vote(t-η+1),vote(t-1)} \ H_{vote(t)})` — the two sets Constraint (1)
+    compares.
+
+    The hypothesis `hsub` is the paper's "any vote in `S(V_i, t+1)` that is not from a
+    validator in `H_{vote(t)} \ A_{vote(t+1)}` must be either from a validator Byzantine at
+    `vote(t+1)` or from one active between `vote(t-η+1)` and `vote(t-1)` but not at
+    `vote(t)`". -/
+theorem voters_lt_two_mul_honest {S honest other : Finset Node}
+    (hsub : S ⊆ honest ∪ other) (hc1 : other.card < honest.card) :
+    S.card < 2 * honest.card := by
+  have h₁ : S.card ≤ (honest ∪ other).card := Finset.card_le_card hsub
+  have h₂ : (honest ∪ other).card ≤ honest.card + other.card := Finset.card_union_le _ _
+  omega
+
+/-- The same, in the shape Constraint (1) actually supplies it: `Sleepiness` gives
+    `|A_{vote(t)}| < |Active(t-1) \ A_{vote(t)}|`, so the "other" set is the adversary. -/
+theorem voters_lt_of_sleepiness {S honest : Finset Node} {adv : Finset Node}
+    (hsub : S ⊆ honest ∪ adv) (hc1 : adv.card < honest.card) :
+    S.card < 2 * honest.card :=
+  voters_lt_two_mul_honest hsub hc1
 
 end Majorum
