@@ -1,0 +1,259 @@
+import Examples.StsMultisetLog.majorum.Protocol
+
+/-!
+# The functions Algorithm 5 relies on
+
+`Protocol.lean` takes them as a `Components` record; here they are defined. Sources in
+arXiv:2601.03862v1: chains and the fork-choice in §2 and Algorithm 1 (`MFC`),
+fast confirmation in Algorithm 2, and justification, finalization, `GJ` and `GF` in §4.
+
+## The chain model
+
+A chain is a list of blocks, oldest first, each block carrying the slot it was proposed in.
+`B_genesis` is the empty list and `⪯` is list prefix. The paper says only that chains are
+ordered by `⪯`, have a genesis, and that `ch.p` is the slot a chain was proposed in, so this
+is the smallest structure that supports what Algorithm 5 does with them.
+
+## Three places this is a model rather than a transcription
+
+* **Candidate chains come from the view.** `MFC` returns "the longest chain `ch ⪰ chC`
+  such that …", quantifying over all chains — an infinite set. Here the candidates are the
+  chains that appear in votes in the view, plus `chC`. Any chain outside that set has no
+  votes at all, so it cannot meet the majority condition; the restriction loses nothing and
+  makes the function definable.
+* **Justification is an inductive `Prop`, not a `Bool`.** "Reachable from `(B_genesis, 0)` by
+  a chain of supermajority links" is a least fixed point, so it is an `inductive`. Deciding
+  it is done classically, which is why everything here is `noncomputable` — as
+  `Protocol.lean` already was.
+* **Ties are broken by list order.** `GJ` and `GF` take the justified or finalized checkpoint
+  of largest slot, and the paper says "ties break arbitrarily". Folding over `Finset.toList`
+  is one arbitrary choice; two checkpoints of the same slot with different chains means a
+  safety violation is already under way, which is the situation Theorem 5 is about.
+-/
+
+set_option autoImplicit false
+
+namespace Majorum
+
+open the framework's flat multiset-log flavour Classical
+
+variable {Node Tx QC : Type}
+
+/-! ### Chains and certificates -/
+
+/-- A block: the slot it was proposed in, and its payload. -/
+structure Block (Tx : Type) where
+  /-- The slot this block was proposed in. -/
+  slot : Nat
+  /-- Its transactions. -/
+  txs : Tx
+  deriving DecidableEq
+
+/-- A chain, oldest block first. `B_genesis` is `[]`. -/
+abbrev Chain (Tx : Type) := List (Block Tx)
+
+/-- A quorum certificate: who voted, for which chain, in which slot.
+
+    The paper says a `QC` "consist[s] of the corresponding vote messages", which is
+    circular — a vote message carries a `QC`. Recording the content of those votes instead
+    breaks the recursion and keeps everything a certificate is used for: checking that
+    enough distinct validators supported a chain in a slot. -/
+abbrev QCert (Node Tx : Type) := Finset (Node × Chain Tx × Nat)
+
+variable [DecidableEq Tx]
+
+/-- `ch ⪯ ch'`, chain prefix. -/
+def chainLe (a b : Chain Tx) : Bool := a.isPrefixOf b
+
+/-- `ch.p`, the slot the chain was proposed in — the slot of its last block, and `0` for
+    genesis. -/
+def proposedAt (ch : Chain Tx) : Nat := (ch.getLast?).elim 0 Block.slot
+
+/-- The `κ`-deep prefix `(ch)⌈κ`: drop the most recent `κ` blocks. -/
+def kappaPrefix (kappa : Nat) (ch : Chain Tx) : Chain Tx := ch.take (ch.length - kappa)
+
+/-- The greatest common prefix, which is `max {ch : ch ⪯ a ∧ ch ⪯ b}` for a prefix order. -/
+def commonPrefix : Chain Tx → Chain Tx → Chain Tx
+  | [], _ => []
+  | _, [] => []
+  | x :: xs, y :: ys => if x = y then x :: commonPrefix xs ys else []
+
+/-- `Extend(ch, t)`: extend `ch` with a block for slot `t` carrying the pool's transactions.
+
+    The paper says "produces a chain of length `t` that extends `ch`", measuring length in
+    slots; what the protocol then checks of the result is `chp.p = t`, which appending one
+    block gives. A model in which chains have a block per slot would need the intermediate
+    slots filled with something, and the paper does not say with what. -/
+def extend (pool : Nat → Tx) (ch : Chain Tx) (t : Nat) : Chain Tx :=
+  ch ++ [⟨t, pool t⟩]
+
+/-! ### Reading votes out of a view -/
+
+/-- The vote messages in a view. -/
+noncomputable def votes (V : View Node (Msg (Chain Tx) QC)) :
+    Finset (SignedMsg Node (Msg (Chain Tx) QC)) :=
+  V.filter (fun sm => match sm.msg with | .vote .. => True | .propose .. => False)
+
+/-- The slot a vote was cast in, and `0` for anything else. -/
+def msgSlot (m : Msg (Chain Tx) QC) : Nat :=
+  match m with | .vote _ _ _ t => t | .propose _ _ _ _ t => t
+
+/-- The chain a vote is for, and genesis for anything else. -/
+def msgChain (m : Msg (Chain Tx) QC) : Chain Tx :=
+  match m with | .vote ch _ _ _ => ch | .propose _ _ _ _ _ => []
+
+variable [DecidableEq Node] [DecidableEq QC]
+
+/-- `FIL_eq`: drop every validator that equivocated — sent two votes in the same slot for
+    different chains. -/
+noncomputable def filEq (V : View Node (Msg (Chain Tx) QC)) :
+    Finset (SignedMsg Node (Msg (Chain Tx) QC)) :=
+  (votes V).filter (fun sm => ¬ ∃ sm' ∈ votes V,
+    sm'.sender = sm.sender ∧ msgSlot sm'.msg = msgSlot sm.msg ∧
+      msgChain sm'.msg ≠ msgChain sm.msg)
+
+/-- `FIL_1-exp`: drop votes older than one slot. -/
+def fil1Exp (V : Finset (SignedMsg Node (Msg (Chain Tx) QC))) (t : Nat) :
+    Finset (SignedMsg Node (Msg (Chain Tx) QC)) :=
+  V.filter (fun sm => t ≤ msgSlot sm.msg + 1)
+
+/-- `FIL_lmd`: keep only each validator's latest vote. -/
+noncomputable def filLmd (V : Finset (SignedMsg Node (Msg (Chain Tx) QC))) :
+    Finset (SignedMsg Node (Msg (Chain Tx) QC)) :=
+  V.filter (fun sm => ¬ ∃ sm' ∈ V,
+    sm'.sender = sm.sender ∧ msgSlot sm.msg < msgSlot sm'.msg)
+
+/-- `V^{ch,t}`: the latest, non-expired, non-equivocating votes for chains extending `ch`. -/
+noncomputable def votesFor (V : View Node (Msg (Chain Tx) QC)) (ch : Chain Tx) (t : Nat) :
+    Finset (SignedMsg Node (Msg (Chain Tx) QC)) :=
+  (filLmd (fil1Exp (filEq V) t)).filter (fun sm => chainLe ch (msgChain sm.msg))
+
+/-- `S(V, t)`: the validators with non-expired votes in `V` at slot `t`. -/
+noncomputable def voters (V : View Node (Msg (Chain Tx) QC)) (t : Nat) : Finset Node :=
+  (fil1Exp (votes V) t).image SignedMsg.sender
+
+/-- The chains that could be `MFC`'s answer: those someone voted for, plus the base. -/
+noncomputable def candidates (V : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx) :
+    Finset (Chain Tx) :=
+  insert chC ((votes V).image (fun sm => msgChain sm.msg))
+
+/-- **`MFC(V, V', chC, t)`** (Algorithm 1): the longest `ch ⪰ chC` with
+    `|V^{ch,t} ∩ (V')^{ch,t}| > |S(V',t)| / 2`, or `chC` if there is none.
+
+    "More than half" is `2 * |·| > |S|`, which avoids dividing. -/
+noncomputable def mfc (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx) (t : Nat) :
+    Chain Tx :=
+  (candidates V chC).toList.foldl
+    (fun best ch =>
+      if chainLe chC ch ∧
+          (voters V' t).card < 2 * ((votesFor V ch t) ∩ (votesFor V' ch t)).card ∧
+          best.length < ch.length then ch else best)
+    chC
+
+/-- **`fastconfirmsimple(V, t)`** (Algorithm 2): the greatest chain supported by more than
+    `2n/3` of the validators voting in slot `t`, with the votes that support it. -/
+noncomputable def fastConfirmSimple (n : Nat) (V : View Node (Msg (Chain Tx) QC)) (t : Nat) :
+    Chain Tx × Option (QCert Node Tx) :=
+  let support : Chain Tx → Finset (SignedMsg Node (Msg (Chain Tx) QC)) := fun ch =>
+    (votes V).filter (fun sm => msgSlot sm.msg = t ∧ chainLe ch (msgChain sm.msg))
+  let cands := (candidates V []).filter
+    (fun ch => 2 * n ≤ 3 * ((support ch).image SignedMsg.sender).card)
+  let best := cands.toList.foldl (fun best ch => if best.length < ch.length then ch else best) []
+  if best.isEmpty ∧ ¬ ([] ∈ cands) then ([], none)
+  else (best, some ((support best).image (fun sm => (sm.sender, msgChain sm.msg, msgSlot sm.msg))))
+
+/-! ### Justification and finalization (§4) -/
+
+/-- A **supermajority link** `C → C'`: at least `2n/3` validators fin-vote from `C` to `C'`.
+    Fin-votes ride in vote messages, so this reads them out of the view. -/
+noncomputable def link (n : Nat) (V : View Node (Msg (Chain Tx) QC))
+    (C C' : Checkpoint (Chain Tx)) : Prop :=
+  2 * n ≤ 3 * (((votes V).filter (fun sm => match sm.msg with
+    | .vote _ src tgt _ => src = C ∧ tgt = C'
+    | .propose .. => False)).image SignedMsg.sender).card
+
+/-- **Justified**: genesis, or reachable from it by supermajority links. A least fixed
+    point, hence an inductive rather than a `Bool`. -/
+inductive JustifiedIn (n : Nat) (V : View Node (Msg (Chain Tx) QC)) :
+    Checkpoint (Chain Tx) → Prop
+  /-- `(B_genesis, 0)` is justified. -/
+  | genesis : JustifiedIn n V ⟨[], 0⟩
+  /-- A supermajority link from a justified checkpoint justifies its target. -/
+  | link {C C' : Checkpoint (Chain Tx)} :
+      JustifiedIn n V C → link n V C C' → JustifiedIn n V C'
+
+/-- **Finalized**: justified, with a supermajority link to the next checkpoint slot. -/
+def FinalizedIn (n : Nat) (V : View Node (Msg (Chain Tx) QC))
+    (C : Checkpoint (Chain Tx)) : Prop :=
+  JustifiedIn n V C ∧ ∃ C', C'.c = C.c + 1 ∧ link n V C C'
+
+/-- The checkpoints a view mentions, plus genesis — the search space for `GJ` and `GF`. -/
+noncomputable def checkpoints (V : View Node (Msg (Chain Tx) QC)) :
+    Finset (Checkpoint (Chain Tx)) :=
+  insert ⟨[], 0⟩ ((votes V).biUnion (fun sm => match sm.msg with
+    | .vote _ src tgt _ => {src, tgt}
+    | .propose .. => ∅))
+
+/-- The one of largest slot, ties broken by list order — the paper's "ties break
+    arbitrarily". -/
+noncomputable def greatestBySlot (S : Finset (Checkpoint (Chain Tx))) :
+    Checkpoint (Chain Tx) :=
+  S.toList.foldl (fun best C => if best.c ≤ C.c then C else best) ⟨[], 0⟩
+
+/-- **`GJ(V)`**, the greatest justified checkpoint. -/
+noncomputable def gj (n : Nat) (V : View Node (Msg (Chain Tx) QC)) : Checkpoint (Chain Tx) :=
+  greatestBySlot ((checkpoints V).filter (fun C => JustifiedIn n V C))
+
+/-- **`GF(V)`**, the greatest finalized checkpoint. -/
+noncomputable def gf (n : Nat) (V : View Node (Msg (Chain Tx) QC)) : Checkpoint (Chain Tx) :=
+  greatestBySlot ((checkpoints V).filter (fun C => FinalizedIn n V C))
+
+/-! ### Validity -/
+
+/-- A **valid fin-vote**: `C1.c < C2.c` and `C1.ch ⪯ C2.ch` (§4). -/
+def validFinVote (C1 C2 : Checkpoint (Chain Tx)) : Bool :=
+  C1.c < C2.c && chainLe C1.ch C2.ch
+
+/-- A **valid proposal**: it is a propose message, its chain was proposed in its own slot,
+    and it extends the fast-confirmed chain it carries.
+
+    Algorithm 2's vote phase says a proposal is valid "with `QC` certifying `chC` and
+    `chp.p = t`"; certificate checking is left to `QC`'s own validity, which the paper does
+    not spell out, so it is not checked here. -/
+def validProposal (sm : SignedMsg Node (Msg (Chain Tx) QC)) : Bool :=
+  match sm.msg with
+  | .propose chp chC _ _ t => proposedAt chp == t && chainLe chC chp
+  | .vote .. => false
+
+/-! ### Assembling them -/
+
+/-- All of Algorithm 5's components, defined. `n` is the validator count, `κ` the
+    confirmation depth, `pool` the transaction pool, and `proposer` the idealized election.
+
+    Deciding `JustifiedIn` and `FinalizedIn` is classical, so this is noncomputable — as
+    `Protocol.lean` already was for an unrelated reason. -/
+noncomputable def components (n kappa : Nat) (pool : Nat → Tx) (proposer : Nat → Node) :
+    Components Node (Chain Tx) (QCert Node Tx) where
+  genesis := []
+  prefixLe := chainLe
+  proposedAt := proposedAt
+  kappaPrefix := kappaPrefix kappa
+  commonPrefix := commonPrefix
+  mfc := mfc
+  extend := extend pool
+  fastConfirmSimple := fastConfirmSimple n
+  gj := gj n
+  gf := gf n
+  justified := fun C V => decide (JustifiedIn n V C)
+  validProposal := validProposal
+  proposer := proposer
+
+/-- Majorum, Algorithm 5, with everything it calls defined. Named for the algorithm
+    rather than the protocol, since the namespace is already `majorum`. -/
+noncomputable def algorithm5 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
+    (proposer : Nat → Node) :
+    Protocol Node (Msg (Chain Tx) (QCert Node Tx))
+      (NodeState Node (Chain Tx) (QCert Node Tx)) Empty :=
+  protocol (components n kappa pool proposer) Q
+
+end Majorum

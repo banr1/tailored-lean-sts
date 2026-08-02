@@ -147,8 +147,9 @@ variable [DecidableEq Node] [DecidableEq Chain] [DecidableEq QC]
     the model cannot be executed. Making the choice explicit — a relational `step` — would
     recover computability *and* be more faithful, and is the obvious next change if execution
     is ever wanted. -/
-noncomputable def processProposals (C : Components Node Chain QC) (V : View Node (Msg Chain QC)) (t : Nat)
-    (s : NodeState Node Chain QC) : NodeState Node Chain QC :=
+noncomputable def processProposals (C : Components Node Chain QC)
+    (V : View Node (Msg Chain QC)) (t : Nat) (s : NodeState Node Chain QC) :
+    NodeState Node Chain QC :=
   V.toList.foldl (fun acc sm =>
     match sm.msg with
     | .propose _ chC _ gjp t' =>

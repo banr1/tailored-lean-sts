@@ -55,7 +55,8 @@ variable {Node Msg NodeState Ev Out Tx : Type} [Fintype Node] [DecidableEq Node]
     standing requirement for slots after GST (the model section).
 
     **Not yet checked against the paper**: whether the GA section fixes further standing
-    assumptions. Its theorems sit at Theorems 1 and 2, before the the FFG analysis preamble block that assumes
+        assumptions. Its theorems sit at Theorems 1 and 2, before the the FFG analysis preamble
+    block that assumes
     `GST = 0` for the FFG analysis, so they inherit the model section and possibly more. -/
 def ThmReorgResilienceGA (Q : Params) (out : Node → Config Node Msg NodeState → Out)
     (Pre : Out → Out → Prop) (proposedBy : Int → Node → Out → Prop) : Prop :=

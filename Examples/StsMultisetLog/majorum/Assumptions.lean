@@ -4,7 +4,8 @@ import the framework's flat multiset-log flavour
 # Majorum's assumptions, à la carte
 
 Majorum does **not** prove its theorems under one set of assumptions, so there is no single
-`Model` predicate here. Accountable safety is the extreme case: Theorem 5, arXiv:2601.03862v1 and its lemmas
+`Model` predicate here. Accountable safety is the extreme case: Theorem 5, arXiv:2601.03862v1 and
+its lemmas
 open with `Assume $f \in [0,n]$`, explicitly overriding the paper's standing `f < n/3`, and
 the section preamble calls the finalized chain "always Accountably Safe". Handing it a synchrony
 assumption and a corruption bound would turn the paper's strongest claim into a much weaker
@@ -104,7 +105,8 @@ def Synchronous (Q : Params) (x : Exec Pr S) : Prop :=
 
     The paper's `H_r` is the set of validators *active* at round `r`, which is not the set
     awake at `r`: a validator that has woken but not finished the joining protocol is awake
-    and not yet active. The joining protocol (`arXiv:2601.03862v1, "Joining Protocol"`) says a validator waking in
+        and not yet active. The joining protocol (`arXiv:2601.03862v1, "Joining Protocol"`) says a
+    validator waking in
     `(voting(t-2)+Δ, voting(t-1)+Δ]` "sends nothing until round `voting(t)`, when it becomes
     active". So to be active at `voting(t)` a validator must have woken by `voting(t-1)+Δ`
     and stayed awake since:
@@ -117,7 +119,8 @@ def Synchronous (Q : Params) (x : Exec Pr S) : Prop :=
 
     Caveat at `t = 0`, where the window reaches back to `-2Δ`. The schedule is total on `ℤ`,
     so this is well defined but does not implement the paper's `H_i := ∅` convention for
-    `i < 0` (`arXiv:2601.03862v1, the `H_i := ∅ if i < 0` convention`); it is *weaker* than that convention, which would make `Active 0`
+        `i < 0` (`arXiv:2601.03862v1, the `H_i := ∅ if i < 0` convention`); it is *weaker* than
+    that convention, which would make `Active 0`
     empty. Nothing below depends on `Active 0`, since `Sleepiness` starts its constraint at
     slot 1. -/
 def Active (Q : Params) (S : Schedule Node) (t : Int) : Finset Node :=
@@ -129,7 +132,8 @@ def Active (Q : Params) (S : Schedule Node) (t : Int) : Finset Node :=
 
     "The number of validators active at round `voting(t-1)` and not corrupted by
     `voting(t)` must exceed the sum of adversarial validators at `voting(t)`." Its purpose
-    (`arXiv:2601.03862v1, the paragraph after Constraint (1)`) is to bound how many honest validators the adversary may corrupt after
+        (`arXiv:2601.03862v1, the paragraph after Constraint (1)`) is to bound how many honest
+    validators the adversary may corrupt after
     slot `t-1`'s voting phase but before those votes are tallied.
 
     Two differences from `the framework's flat multiset-log flavour.Models.Majorum.Params.Compliant`, which this
