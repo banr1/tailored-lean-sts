@@ -27,15 +27,15 @@ The paper's theorems are one line each because they cite the definitions; the co
   only as a section heading. Two pairs of statements consequently coincide.
 
 Slots: the paper's slot `t` spans `4Δ` rounds, `proposing t` and `voting t` are rounds
-within it. Those are `the framework's flat multiset-log flavour.Models.Majorum.Params` fields; here they are plain
-parameters so this file does not depend on that bundle.
+within it. They are fields of this directory's own `Params`, in `Assumptions.lean`; nothing
+here depends on `the framework's flat multiset-log flavour.Models`.
 -/
 
 set_option autoImplicit false
 
 namespace Majorum
 
-open the framework's flat multiset-log flavour the framework's flat multiset-log flavour.Models
+open the framework's flat multiset-log flavour
 
 variable {Node Msg NodeState Ev Out Tx : Type} [Fintype Node] [DecidableEq Node]
   [DecidableEq Msg] {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
@@ -57,11 +57,34 @@ variable {Node Msg NodeState Ev Out Tx : Type} [Fintype Node] [DecidableEq Node]
     **Not yet checked against the paper**: whether the GA section fixes further standing
     assumptions. Its theorems sit at Theorems 1 and 2, before the the FFG analysis preamble block that assumes
     `GST = 0` for the FFG analysis, so they inherit the model section and possibly more. -/
-def ThmReorgResilienceGA (Q : Majorum.Params) (out : Node → Config Node Msg NodeState → Out)
-    (Pre : Out → Out → Prop) (proposedBy : Time → Node → Out → Prop) : Prop :=
+def ThmReorgResilienceGA (Q : Params) (out : Node → Config Node Msg NodeState → Out)
+    (Pre : Out → Out → Prop) (proposedBy : Int → Node → Out → Prop) : Prop :=
   ∀ x : Exec Pr S,
     Wellformed x → Network Q x → Sleepiness Q S → Resilience Q S →
     ReorgResilient out Pre proposedBy Q.proposing 0 0 x
+
+/-- **Theorem 2.** "Algorithm `prob-ga-fast` is dynamically-available `\wop`."
+
+    Reviewed. Unqualified dynamic availability is Definition 4's second sentence — "always
+    secure when `GST = 0`" — so `tdyn = 0` and the network assumption is `Synchronous`, the
+    `Δ` bound holding from the start, rather than `Network`, which only binds after `Q.gst`.
+    That distinction is the whole content of the qualifier and is easy to lose: passing
+    `Network Q x` here would state something the paper does not claim.
+
+    The `\wop` is dropped, so this is the deterministic shadow of the theorem — see the
+    module docstring. `tconf` stands for Definition 4's `O(κ)`.
+
+    Same open question as Theorem 1: whether the GA section fixes standing assumptions
+    beyond `f < n/3` and Constraint (1).
+
+    (This statement was silently lost when Theorem 1 was corrected — a span replacement
+    swallowed it — and is restored here.) -/
+def ThmDynamicAvailabilityGA (Q : Params)
+    (out : Node → Config Node Msg NodeState → Out) (Pre : Out → Out → Prop)
+    (mem : Tx → Out → Prop) (pool : Time → Set Tx) (tconf : Time) : Prop :=
+  ∀ x : Exec Pr S,
+    Wellformed x → Synchronous Q x → Sleepiness Q S → Resilience Q S →
+    DynamicallyAvailable out Pre mem pool 0 tconf x
 
 /-! ### Not yet reviewed
 
@@ -78,8 +101,8 @@ each theorem its own. They are being worked through one at a time.
     Signature updated to track `ReorgResilient`'s corrected one; the statement itself is
     still unreviewed — it takes `x` as a parameter and names no assumptions. -/
 def ThmReorgResilienceFFG (out : Node → Config Node Msg NodeState → Out)
-    (Pre : Out → Out → Prop) (proposedBy : Time → Node → Out → Prop)
-    (proposing : Time → Time) (x : Exec Pr S) : Prop :=
+    (Pre : Out → Out → Prop) (proposedBy : Int → Node → Out → Prop)
+    (proposing : Int → Int) (x : Exec Pr S) : Prop :=
   ReorgResilient out Pre proposedBy proposing 0 0 x
 
 /-- **Theorem `Theorem 4`** (dynamic availability, analogous of

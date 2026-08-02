@@ -70,11 +70,11 @@ def DynamicallyAvailable (out : Node → Config Node Msg NodeState → Out)
     "Reorg-resilient" unqualified is this at `treorg = 0`, `Treorg = 0`. The execution class
     `E` is not here: it is the hypothesis each theorem in `Theorems.lean` supplies. -/
 def ReorgResilient (out : Node → Config Node Msg NodeState → Out) (Pre : Out → Out → Prop)
-    (proposedBy : Time → Node → Out → Prop) (proposing : Time → Time)
-    (treorg tReorg : Time) (x : Exec Pr S) : Prop :=
-  ∀ (i : Nat) (p q : Node) (t : Time) (o : Out),
+    (proposedBy : Int → Node → Out → Prop) (proposing : Int → Int)
+    (treorg : Int) (tReorg : Time) (x : Exec Pr S) : Prop :=
+  ∀ (i : Nat) (p q : Node) (t : Int) (o : Out),
     tReorg ≤ x[i].time → x.Honest i p →
-    treorg ≤ t → proposedBy t q o → q ∉ S.adv ((proposing t : Int)) →
+    treorg ≤ t → proposedBy t q o → q ∉ S.adv (proposing t) →
     ¬ Conflicts Pre o (out p x[i])
 
 /-- **Definition 6 (Accountable Safety), with resilience `facc`.** "Upon a safety
