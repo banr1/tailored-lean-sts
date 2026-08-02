@@ -3,6 +3,7 @@ import Examples.StsMultisetLog.majorum.Security
 import Examples.StsMultisetLog.majorum.Theorems
 import Examples.StsMultisetLog.majorum.Protocol
 import Examples.StsMultisetLog.majorum.Components
+import Examples.StsMultisetLog.majorum.Algorithm2
 import Examples.StsMultisetLog.majorum.Mfc
 import Examples.StsMultisetLog.majorum.Provenance
 import Examples.StsMultisetLog.majorum.Lemmas
@@ -36,6 +37,11 @@ numbers move.
 * `Provenance` — execution-level helpers: everything in the log entered at a step, honest
   votes come from their sender's tick at their slot's vote reading, one honest validator
   casts one vote per slot, and an honest voter is active (`mem_active_of_honest_vote`).
+* `Algorithm2` — the probabilistically-safe TOB-SVD variant with fast confirmations, the
+  dynamically available component on its own. **Lemma 2 and Theorems 1–2 are about this
+  algorithm**, not Algorithm 5; its messages are Algorithm 5's with the paper's "·"
+  placeholder in the finality fields, and its proposal validity includes the certificate
+  check against the receiver's view.
 * `Lemmas` — **one theorem per numbered lemma of the paper**, and nothing else; empty until
   Lemma 2 closes.
 * `Protocol` — **Algorithm 5 itself**: Majorum as a `the framework's flat multiset-log flavour.Protocol`. The four
