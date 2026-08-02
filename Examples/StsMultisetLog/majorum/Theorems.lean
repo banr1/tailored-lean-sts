@@ -1,3 +1,4 @@
+import Examples.StsMultisetLog.majorum.Assumptions
 import Examples.StsMultisetLog.majorum.Security
 
 /-!
@@ -34,43 +35,52 @@ set_option autoImplicit false
 
 namespace Majorum
 
-open the framework's flat multiset-log flavour
+open the framework's flat multiset-log flavour the framework's flat multiset-log flavour.Models
 
-variable {Node Msg NodeState Ev Out Tx : Type} [DecidableEq Node] [DecidableEq Msg]
-  {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
+variable {Node Msg NodeState Ev Out Tx : Type} [Fintype Node] [DecidableEq Node]
+  [DecidableEq Msg] {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
 
 /-! ### The dynamically available component — Algorithm `prob-ga-fast` (§ GA-based) -/
 
 /-- **Theorem `thm:reorg-res-prop-tob`** (Reorg Resilience). "Algorithm `prob-ga-fast` is
-    reorg-resilient." Unqualified, so after slot 0 and time 0. -/
-def ThmReorgResilienceGA (out : Node → Config Node Msg NodeState → Out)
-    (Pre : Out → Out → Prop) (proposedBy : Time → Out → Prop) (proposing : Time → Time)
-    (honestAt : Time → Prop) (x : Exec Pr S) : Prop :=
-  ReorgResilient out Pre proposedBy proposing honestAt 0 0 x
+    reorg-resilient." Unqualified, so after slot 0 and time 0.
 
-/-- **Theorem `thm:dyn-avail-fast-conf-tob`.** "Algorithm `prob-ga-fast` is
-    dynamically-available `\wop`."
+    A **theorem**, not a property: it quantifies over the executions the paper's model
+    admits, rather than taking one as a parameter. An earlier version took `x` as an
+    argument and so asserted nothing — instantiated at a hostile execution it is simply
+    false.
 
-    The `\wop` is dropped — see the module docstring. Dynamic availability unqualified is
-    "always secure when `GST = 0`", so `tdyn = 0` and the synchronous network is the
-    caller's obligation. -/
-def ThmDynamicAvailabilityGA (out : Node → Config Node Msg NodeState → Out)
-    (Pre : Out → Out → Prop) (mem : Tx → Out → Prop) (pool : Time → Set Tx) (tconf : Time)
-    (x : Exec Pr S) : Prop :=
-  DynamicallyAvailable out Pre mem pool 0 tconf x
+    Assumptions: `Wellformed`, `Network`, `Sleepiness`, `Resilience`. The corruption bound
+    `f < n/3` comes with `Q` (it is `Params.fBound`), and Constraint (1) is the paper's
+    standing requirement for slots after GST (the paper's source line 114).
 
-/-! ### The full protocol — Algorithm `3sf-tob-noga` (§ FFG) -/
+    **Not yet checked against the paper**: whether the GA section fixes further standing
+    assumptions. Its theorems sit at `:902`/`:934`, before the `:1045` block that assumes
+    `GST = 0` for the FFG analysis, so they inherit `:114` and possibly more. -/
+def ThmReorgResilienceGA (Q : Majorum.Params) (out : Node → Config Node Msg NodeState → Out)
+    (Pre : Out → Out → Prop) (proposedBy : Time → Node → Out → Prop) : Prop :=
+  ∀ x : Exec Pr S,
+    Wellformed x → Network Q x → Sleepiness Q S → Resilience Q S →
+    ReorgResilient out Pre proposedBy Q.proposing 0 0 x
+
+/-! ### Not yet reviewed
+
+Everything below still has the two defects `ThmReorgResilienceGA` was just corrected for:
+it takes the execution as a **parameter** rather than quantifying over the ones the model
+admits, so it asserts nothing; and it therefore names no assumptions, where the paper gives
+each theorem its own. They are being worked through one at a time.
+
+### The full protocol — Algorithm `3sf-tob-noga` (§ FFG) -/
 
 /-- **Theorem `thm:reorg-res-prop-tob-ffg`** (Reorg Resilience, analogous of
     `thm:reorg-res-prop-tob`). "Algorithm `3sf-tob-noga` is reorg-resilient."
 
-    Identical in shape to `ThmReorgResilienceGA`; they differ in the algorithm, which is
-    not modelled, so the two propositions coincide. Kept separate because the paper does,
-    and because they will diverge as soon as `Alg` is more than a comment. -/
+    Signature updated to track `ReorgResilient`'s corrected one; the statement itself is
+    still unreviewed — it takes `x` as a parameter and names no assumptions. -/
 def ThmReorgResilienceFFG (out : Node → Config Node Msg NodeState → Out)
-    (Pre : Out → Out → Prop) (proposedBy : Time → Out → Prop) (proposing : Time → Time)
-    (honestAt : Time → Prop) (x : Exec Pr S) : Prop :=
-  ReorgResilient out Pre proposedBy proposing honestAt 0 0 x
+    (Pre : Out → Out → Prop) (proposedBy : Time → Node → Out → Prop)
+    (proposing : Time → Time) (x : Exec Pr S) : Prop :=
+  ReorgResilient out Pre proposedBy proposing 0 0 x
 
 /-- **Theorem `thm:dyn-avail-fast-conf-tob-ffg`** (dynamic availability, analogous of
     `thm:dyn-avail-fast-conf-tob`). "Algorithm `3sf-tob-noga` is dynamically-available

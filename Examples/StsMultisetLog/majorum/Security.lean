@@ -59,21 +59,24 @@ def DynamicallyAvailable (out : Node → Config Node Msg NodeState → Out)
   Secure out Pre mem pool tdyn tconf x
 
 /-- **Definition 5 (Reorg Resilience).** "A protocol is reorg-resilient after slot
-    `treorg` and time `Treorg` if, for any execution, round `r ≥ Treorg`, and validator
-    `v_i` honest in `r`, any chain proposed in slot `t ≥ treorg` by a validator honest in
-    `proposing(t)` does not conflict with `Chain^r_i`."
+    `treorg` and time `Treorg` in executions `E` if, for any `E`-execution, round
+    `r ≥ Treorg`, and validator `v_i` honest in `r`, any chain proposed in slot `t ≥ treorg`
+    by a validator honest in `proposing(t)` does not conflict with `Chain^r_i`."
 
-    `proposedBy t o` reads "`o` was proposed in slot `t` by the slot's proposer"; whether
-    that proposer was honest at `proposing t` is the second hypothesis, and both are
-    model-supplied because the framework has no notion of a proposer.
+    `proposedBy t q o` reads "in slot `t`, validator `q` proposed `o`" — model-supplied,
+    since the framework has no notion of a proposer. Honesty of that proposer is *not* a
+    parameter: it is `q ∉ S.adv (proposing t)`, the same notion `Execution.Honest` uses, at
+    the round the paper names. An earlier version took an opaque `honestAt : Time → Prop`
+    connected to neither the proposer nor the schedule, which `fun _ => True` discharges.
 
-    "Reorg-resilient" unqualified is this at `treorg = 0`, `Treorg = 0`. -/
+    "Reorg-resilient" unqualified is this at `treorg = 0`, `Treorg = 0`. The execution class
+    `E` is not here: it is the hypothesis each theorem in `Theorems.lean` supplies. -/
 def ReorgResilient (out : Node → Config Node Msg NodeState → Out) (Pre : Out → Out → Prop)
-    (proposedBy : Time → Out → Prop) (proposing : Time → Time)
-    (honestAt : Time → Prop) (treorg tReorg : Time) (x : Exec Pr S) : Prop :=
-  ∀ (i : Nat) (p : Node) (t : Time) (o : Out),
+    (proposedBy : Time → Node → Out → Prop) (proposing : Time → Time)
+    (treorg tReorg : Time) (x : Exec Pr S) : Prop :=
+  ∀ (i : Nat) (p q : Node) (t : Time) (o : Out),
     tReorg ≤ x[i].time → x.Honest i p →
-    treorg ≤ t → proposedBy t o → honestAt (proposing t) →
+    treorg ≤ t → proposedBy t q o → q ∉ S.adv ((proposing t : Int)) →
     ¬ Conflicts Pre o (out p x[i])
 
 /-- **Definition 6 (Accountable Safety), with resilience `facc`.** "Upon a safety
