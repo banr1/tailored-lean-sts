@@ -251,4 +251,193 @@ theorem honest_vote_unique {x : Exec Pr S} (hsync : SynchronizedClocks x)
   cases sm'
   simp_all
 
+/-! ### The activation round is trustworthy
+
+The pieces that turn `activeAt ≤ voting(t)` at the vote tick into schedule-level activity:
+nothing but a wake event writes `activeAt`, a wake event writes the activation round of its
+own (real-time) round, and the wake event for every transition actually fires
+(`TimeStepwise` supplies the round, `Diligent` a tick in it, `WakePrecedesTick` the
+ordering). -/
+
+/-- `processProposals` never writes `activeAt`. -/
+theorem processProposals_activeAt (C : Components Node (Chain Tx) QC)
+    (V : View Node (Msg (Chain Tx) QC)) (t : Nat) (s : NodeState Node (Chain Tx) QC) :
+    (processProposals C V t s).activeAt = s.activeAt := by
+  unfold processProposals
+  generalize V.toList = l
+  induction l generalizing s with
+  | nil => rfl
+  | cons a l ih =>
+      rw [List.foldl_cons, ih]
+      cases hm : a.msg with
+      | vote ch src tgt t' => rfl
+      | propose chp chC qc gj t' =>
+          dsimp only
+          split_ifs <;> rfl
+
+/-- Neither does any branch of the handler: activation is written by wake events alone. -/
+theorem handler_activeAt (p : Node) (r : Time) (V : View Node (Msg (Chain Tx) QC))
+    (s : NodeState Node (Chain Tx) QC) :
+    (handler C Q p r V s).state.activeAt = s.activeAt := by
+  simp only [handler, apply_ite NodeStepResult.state]
+  split_ifs <;> simp [processProposals_activeAt]
+
+/-- `activationRound` is monotone in the wake round. -/
+theorem activationRound_mono (Q : Params) {r r' : Time} (h : r ≤ r') :
+    activationRound Q r ≤ activationRound Q r' := by
+  unfold activationRound
+  have h1 : (r + 2 * Q.delta + (Q.slotLength - 1)) / Q.slotLength ≤
+      (r' + 2 * Q.delta + (Q.slotLength - 1)) / Q.slotLength :=
+    Nat.div_le_div_right (by omega)
+  exact Nat.add_le_add_right (Nat.mul_le_mul_left _ h1) _
+
+/-- A wake round inside slot `t`'s activity window activates only *after* `voting(t)` —
+    the arithmetic behind "a validator that woke too recently cannot have the gate open". -/
+theorem voting_lt_activationRound (Q : Params) {t n : Time}
+    (h : Q.slotLength * t < n + 2 * Q.delta) :
+    Q.slotLength * t + Q.delta < activationRound Q n := by
+  unfold activationRound
+  have hsl : 0 < Q.slotLength := by
+    have := Q.deltaPos
+    unfold Params.slotLength
+    omega
+  have hd : Q.delta < Q.slotLength := by
+    have := Q.deltaPos
+    unfold Params.slotLength
+    omega
+  have hle : t + 1 ≤ (n + 2 * Q.delta + (Q.slotLength - 1)) / Q.slotLength := by
+    rw [Nat.le_div_iff_mul_le hsl, Nat.succ_mul, Nat.mul_comm t Q.slotLength]
+    omega
+  have := Nat.mul_le_mul_left Q.slotLength hle
+  have hexp : Q.slotLength * (t + 1) = Q.slotLength * t + Q.slotLength := Nat.mul_succ ..
+  omega
+
+/-- Under `TimeStepwise`, every value below the current time was some configuration's
+    time — the intermediate-value property of stepwise sequences. -/
+theorem exists_time_eq {x : Exec Pr S} (hstep : TimeStepwise x) {j : Nat} {w : Time}
+    (hw : w ≤ x[j].time) : ∃ i, i ≤ j ∧ x[i].time = w := by
+  induction j with
+  | zero =>
+      have h0 : x[0].time = 0 := x.init.1
+      exact ⟨0, le_refl _, by omega⟩
+  | succ n ih =>
+      rcases hstep n with heq | heq
+      · obtain ⟨i, hi, hti⟩ := ih (by omega)
+        exact ⟨i, Nat.le_succ_of_le hi, hti⟩
+      · by_cases hw' : w ≤ x[n].time
+        · obtain ⟨i, hi, hti⟩ := ih hw'
+          exact ⟨i, Nat.le_succ_of_le hi, hti⟩
+        · exact ⟨n + 1, le_refl _, by omega⟩
+
+/-- Membership in `awakeThroughout`, unfolded to a per-round statement. -/
+theorem mem_awakeThroughout [Fintype Node] {p : Node} {a b : Int} :
+    p ∈ S.awakeThroughout a b ↔ ∀ r, a ≤ r → r ≤ b → p ∈ S.awake r := by
+  unfold Schedule.awakeThroughout
+  rw [← Finset.singleton_subset_iff]
+  constructor
+  · intro h r har hrb
+    exact Finset.singleton_subset_iff.mp
+      (h.trans (Finset.inf_le (Finset.mem_Icc.mpr ⟨har, hrb⟩)))
+  · intro h
+    refine Finset.le_inf fun r hr => ?_
+    obtain ⟨har, hrb⟩ := Finset.mem_Icc.mp hr
+    exact Finset.singleton_subset_iff.mpr (h r har hrb)
+
+/-! `simp only [protocol]` is the wrong tool for reducing `(protocol C Q).step …`: as a
+simp rewrite it also unfolds `protocol C Q` inside the *type arguments* of every term in
+the hypothesis, and a later `subst` splices those into the goal, leaving terms that are
+defeq to the clean spelling but never again syntactically equal to it. These three
+definitional lemmas rewrite exactly the proposition and nothing else. -/
+
+theorem protocol_step_tick {p : Node} {r : Time} {V : View Node (Msg (Chain Tx) QC)}
+    {s : NodeState Node (Chain Tx) QC} {res} :
+    (protocol C Q).step p r V s .tick res ↔ res = handler C Q p r V s := Iff.rfl
+
+theorem protocol_step_recv {p : Node} {r : Time} {V : View Node (Msg (Chain Tx) QC)}
+    {s : NodeState Node (Chain Tx) QC} {m : SignedMsg Node (Msg (Chain Tx) QC)} {res} :
+    (protocol C Q).step p r V s (.recv m) res ↔ res = { state := s, send := 0 } := Iff.rfl
+
+theorem protocol_step_wake {p : Node} {r : Time} {V : View Node (Msg (Chain Tx) QC)}
+    {s : NodeState Node (Chain Tx) QC} {res} :
+    (protocol C Q).step p r V s .wake res ↔
+      res = { state := { s with activeAt := activationRound Q r }, send := 0 } := Iff.rfl
+
+/-- A wake event writes the activation round of its own round: the wake handler computes
+    it from the clock, and the clock of a (necessarily awake) waking validator reads real
+    time. -/
+theorem wake_sets_activeAt {x : Exec Pr S} (hsync : SynchronizedClocks x) {k : Nat}
+    {p : Node} (hlbl : x.lbl k = .wake p) :
+    x[k + 1][p].st.activeAt = activationRound Q x[k].time := by
+  have hstep : Step Pr S (x.lbl k) x[k] x[k + 1] := x.step k
+  rw [hlbl] at hstep
+  obtain ⟨hen, heff⟩ := hstep
+  simp only [spec] at hen heff
+  have hclock : x[k][p].clock = x[k].time := hsync k p hen.1
+  rw [nodeStep_iff_exists] at heff
+  obtain ⟨res, hres, hpost⟩ := heff
+  rw [protocol_step_wake] at hres
+  subst hres
+  rw [hpost, applyNodeStepResult_getElem, if_pos rfl]
+  dsimp only
+  rw [hclock]
+
+/-- One step cannot lower `activeAt` below a bound that also lies below the activation
+    round of the current time: every branch of the handler preserves `activeAt`, other
+    validators' steps do not touch it, and a wake resets it to the activation round of the
+    current round — no earlier.
+
+    The per-configuration clock fact is threaded through the motive rather than taken from
+    `SynchronizedClocks` inside the case analysis, because `Step.elimR` keeps the
+    configurations abstract. -/
+theorem activeAt_lb_step {x : Exec Pr S} (hsync : SynchronizedClocks x) {m : Nat}
+    {p : Node} {A : Time} (hA : A ≤ x[m][p].st.activeAt)
+    (hAm : A ≤ activationRound Q x[m].time) : A ≤ x[m + 1][p].st.activeAt := by
+  have hstep : Step Pr S (x.lbl m) x[m] x[m + 1] := x.step m
+  refine hstep.elimR (motive := fun _ c c' =>
+      A ≤ c[p].st.activeAt → A ≤ activationRound Q c.time →
+      (∀ q : Node, q ∈ S.awake ((c.time : Int)) → c[q].clock = c.time) →
+      A ≤ c'[p].st.activeAt)
+    ?_ ?_ ?_ ?_ ?_ ?_ hA hAm (fun q hq => hsync m q hq)
+  · -- advance: nodes untouched
+    intro d t h _ _
+    exact h
+  · -- tick: the handler never writes `activeAt`
+    intro d d' q t hen hns h _ _
+    rw [nodeStep_iff_exists] at hns
+    obtain ⟨res, hres, rfl⟩ := hns
+    rw [protocol_step_tick] at hres
+    subst hres
+    by_cases hq : q = p
+    · subst hq
+      simpa [applyNodeStepResult_getElem, handler_activeAt, setClock_getElem] using h
+    · simpa [applyNodeStepResult_getElem, setClock_getElem, hq] using h
+  · -- deliver: the recv reaction returns the state unchanged
+    intro d d' q mm hen hns h _ _
+    rw [nodeStep_iff_exists] at hns
+    obtain ⟨res, hres, rfl⟩ := hns
+    rw [protocol_step_recv] at hres
+    subst hres
+    by_cases hq : q = p
+    · subst hq
+      simpa [applyNodeStepResult_getElem, receive_getElem] using h
+    · simpa [applyNodeStepResult_getElem, receive_getElem, hq] using h
+  · -- wake: resets `activeAt` to the activation round of the current round
+    intro d d' q hen hns h hm' hclocks
+    simp only [spec] at hen
+    rw [nodeStep_iff_exists] at hns
+    obtain ⟨res, hres, rfl⟩ := hns
+    rw [protocol_step_wake] at hres
+    subst hres
+    by_cases hq : q = p
+    · subst hq
+      simp only [applyNodeStepResult_getElem, if_pos rfl]
+      simpa [hclocks q hen.1] using hm'
+    · simpa [applyNodeStepResult_getElem, hq] using h
+  · -- custom: there are none
+    intro d d' q ev hen hns
+    exact ev.elim
+  · -- adversarial: nodes untouched
+    intro d q mm hen h _ _
+    exact h
+
 end Majorum
