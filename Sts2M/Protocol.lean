@@ -523,6 +523,13 @@ omit [DecidableEq Msg] in
     (d : Config Node Msg NodeState) (p : Node) (h : p ≠ q) :
     (receive q m d)[p].view = d[p].view := by simp [receive_getElem, Ne.symm h]
 
+/-- What a reaction added to the log, as a multiset difference. Not `simp`: it is the
+    inverse direction of `applyNodeStepResult_sent` and would loop with it. -/
+theorem applyNodeStepResult_sent_sub (q : Node) (res : NodeStepResult NodeState Msg)
+    (d : Config Node Msg NodeState) :
+    (applyNodeStepResult q res d).sent - d.sent = res.send.map (SignedMsg.mk q) := by
+  ext a; simp [applyNodeStepResult]
+
 @[simp] theorem receive_sent (q : Node) (m : SignedMsg Node Msg)
     (d : Config Node Msg NodeState) : (receive q m d).sent = d.sent := rfl
 
@@ -539,6 +546,90 @@ omit [DecidableEq Msg] in
 a tick may now set any reading, so clock monotonicity is an *assumption*
 (`Execution.ClocksMonotone`) rather than a fact of the step relation. That is the point
 of weakening the spec — the old version made a scheduling decision look like a theorem. -/
+
+/-! ### What a reaction may and may not touch
+
+The frame conditions, as *theorems* about `applyNodeStepResult` rather than as its
+definition. Stating them this way keeps the frame problem away: a field added to `Config` or
+`Local` is left alone because the function does not mention it, and these lemmas would simply
+not mention it either — whereas a frame *relation* would let the new field change arbitrarily
+until someone remembered a conjunct for it.
+
+`reacts_of_frame` closes the loop: the six are not merely necessary but sufficient. That is
+what `NodeStepResult.send` being a multiset buys — with a `Finset` there, a successor whose
+log gained one message twice satisfies all six and is still unreachable, so a seventh
+condition (`Nodup` on the delta) would be needed. -/
+
+section Frame
+
+variable {Pr : Protocol Node Msg NodeState Ev} {p : Node} {e : Event Node Msg Ev}
+    {pre c' : Config Node Msg NodeState}
+
+/-- Two configurations agreeing on every field are equal. -/
+theorem Config.ext' {c d : Config Node Msg NodeState} (ht : c.time = d.time)
+    (hn : ∀ q, c.nodes q = d.nodes q) (hs : c.sent = d.sent) : c = d := by
+  obtain ⟨t₁, n₁, s₁⟩ := c
+  obtain ⟨t₂, n₂, s₂⟩ := d
+  simp only [Config.mk.injEq]
+  exact ⟨ht, funext hn, hs⟩
+
+/-- Real time is the environment's, not a reacting validator's. -/
+theorem Reacts.time (h : Reacts Pr p e pre c') : c'.time = pre.time := by
+  conv_lhs => rw [h.2]
+  rfl
+
+/-- No other validator is touched. -/
+theorem Reacts.other (h : Reacts Pr p e pre c') (q : Node) (hq : q ≠ p) : c'[q] = pre[q] := by
+  conv_lhs => rw [h.2]
+  simp [applyNodeStepResult_getElem, Ne.symm hq]
+
+/-- `p`'s own clock is not touched: only a `tick` moves it, and it does so before the
+    reaction runs. -/
+theorem Reacts.clock (h : Reacts Pr p e pre c') : c'[p].clock = pre[p].clock := by
+  conv_lhs => rw [h.2]
+  simp
+
+/-- Nor is `p`'s view: only a delivery adds to it, again before the reaction runs. -/
+theorem Reacts.view (h : Reacts Pr p e pre c') : c'[p].view = pre[p].view := by
+  conv_lhs => rw [h.2]
+  simp
+
+/-- The log only grows. -/
+theorem Reacts.sent_le (h : Reacts Pr p e pre c') : pre.sent ≤ c'.sent := by
+  conv_rhs => rw [h.2]
+  exact Multiset.le_iff_exists_add.mpr ⟨_, rfl⟩
+
+/-- And it grows only by messages `p` signed. -/
+theorem Reacts.sent_signed (h : Reacts Pr p e pre c') (m : SignedMsg Node Msg)
+    (hm : m ∈ c'.sent - pre.sent) : m.sender = p := by
+  have hdelta : c'.sent - pre.sent = (extract p pre c').send.map (SignedMsg.mk p) := by
+    conv_lhs => rw [h.2]
+    exact applyNodeStepResult_sent_sub _ _ _
+  rw [hdelta] at hm
+  obtain ⟨x, -, rfl⟩ := Multiset.mem_map.1 hm
+  rfl
+
+/-- The converse: the six conditions characterise a reaction completely. -/
+theorem reacts_of_frame
+    (hstep : Pr.step p pre[p].clock pre[p].view pre[p].st e (extract p pre c'))
+    (htime : c'.time = pre.time) (hother : ∀ q, q ≠ p → c'[q] = pre[q])
+    (hclock : c'[p].clock = pre[p].clock) (hview : c'[p].view = pre[p].view)
+    (hle : pre.sent ≤ c'.sent) (hsigned : ∀ m ∈ c'.sent - pre.sent, m.sender = p) :
+    Reacts Pr p e pre c' := by
+  refine ⟨hstep, Config.ext' htime (fun q => ?_) ?_⟩
+  -- both sides in bracket form, so the read-back lemmas match
+  · show c'[q] = (applyNodeStepResult p (extract p pre c') pre)[q]
+    by_cases hq : q = p
+    · subst hq
+      simp only [applyNodeStepResult_getElem, Config.setNode_apply, if_pos rfl]
+      rw [← hclock, ← hview]
+      -- what is left is `c'[q]` written out field by field
+      simp [extract]
+    · rw [hother q hq]
+      simp [applyNodeStepResult_getElem, Ne.symm hq]
+  · exact applyNodeStepResult_surjective p pre c' hle hsigned
+
+end Frame
 
 /-- Initial configurations. -/
 def Init (Pr : Protocol Node Msg NodeState Ev) (c : Config Node Msg NodeState) : Prop :=

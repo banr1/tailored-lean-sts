@@ -74,8 +74,11 @@ claim is checked by the compiler rather than asserted.
 
 ## Deliberate omissions
 
-* **Almost no proofs.** `sent_mono` and `viewsSound` as in `Sts2`, plus the three that make
-  this attempt's claim: `extract_applyNodeStepResult`, `reacts_iff_exists` and `reacts_total`.
+* **Almost no proofs.** `sent_mono` and `viewsSound` as in `Sts2`; the three that make this
+  attempt's claim — `extract_applyNodeStepResult`, `applyNodeStepResult_surjective` and
+  `reacts_iff_exists`; and the frame lemmas (`Reacts.time`, `.other`, `.clock`, `.view`,
+  `.sent_le`, `.sent_signed`) with their converse `reacts_of_frame`, which say exactly what a
+  reaction may and may not touch.
   What the framework *will* own once it settles: a reusable "everything a correct validator
   signed is justified by its state" schema.
 * **No blocks, chains or transaction pool.** They are reusable but they commit
