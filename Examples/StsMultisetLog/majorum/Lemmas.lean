@@ -45,10 +45,15 @@ in Case 1 (`voters_lt_two_mul_honest`). What is still missing for Case 1, in ord
   layer;
 * a **maximality lemma for `mfc`** — that it returns a chain at least as long as every
   candidate carrying a majority — which with `majority_chains_comparable` would give
-  `ch ⪯ MFC`. Attempted and abandoned: `mfc`'s fold guard is a `Prop` decided classically, so
-  the `if` has no `Decidable` instance to induct through, and the fold would have to be
-  restated with a `Bool` guard first. That is a change to `Components.lean`, not a proof, and
-  is the obvious next step.
+  `ch ⪯ MFC`.
+
+  A first attempt failed with "failed to synthesize `Decidable (mfcGuard …)`", which I read
+  as the model's fold guard needing to be a `Bool`. **That was wrong.** The guard is
+  decidable; what defeated instance search was naming it with a plain `def`, which is not
+  reducible, so the conjunction was opaque. An `abbrev` — or `@[reducible] def` — is found
+  immediately, needing only `noncomputable` on anything that then produces data, since the
+  instance mentions `voters`. Nothing in `Components.lean` needs to change; the remaining
+  work is the induction itself.
 -/
 
 set_option autoImplicit false
