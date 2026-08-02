@@ -5,8 +5,8 @@ import Framework.Sts2M.Reachable
 
 The same invariant as `Framework.Sts2.Justified`, proved the way this attempt makes
 available: from the **frame lemmas**, with the successor never replaced by a term.
-`justified_reacts` reasons about `c'` through `Reacts.other` and `Reacts.sent_signed`, and
-`Step.elimR` is the eliminator that suits that — it hands each reacting case a `Reacts` and
+`justified_nodeStep` reasons about `c'` through `NodeStep.other` and `NodeStep.sent_signed`, and
+`Step.elimR` is the eliminator that suits that — it hands each reacting case a `NodeStep` and
 leaves `c'` alone, where `Step.elim` would bind a reaction and substitute a concrete
 successor.
 
@@ -63,8 +63,8 @@ theorem justified_receive (q : Node) (m : SignedMsg Node Msg)
 /-- The reaction, through the frame lemmas. `c'` is never replaced by a term: what the proof
     uses is that the signer's state is unchanged unless it is `p`, and that any message the
     log gained was signed by `p`. -/
-theorem justified_reacts (hj : Justifies Pr S H Just) (p : Node) (e : Event Node Msg Ev)
-    (pre c' : Config Node Msg NodeState) (h : Reacts Pr p e pre c')
+theorem justified_nodeStep (hj : Justifies Pr S H Just) (p : Node) (e : Event Node Msg Ev)
+    (pre c' : Config Node Msg NodeState) (h : NodeStep Pr p e pre c')
     (hJ : Justified H Just pre) : Justified H Just c' := by
   intro sm hm hH
   by_cases hs : sm.sender = p
@@ -95,8 +95,8 @@ theorem justified_reacts (hj : Justifies Pr S H Just) (p : Node) (e : Event Node
 /-- Everything an honest validator signed is justified by its current state, everywhere
     reachable.
 
-    Through `Step.elimR`, whose reacting cases hand over exactly the `Reacts` the helper
-    wants. Going through `Step.elim` instead costs a `reacts_iff_exists` wrap per case, and
+    Through `Step.elimR`, whose reacting cases hand over exactly the `NodeStep` the helper
+    wants. Going through `Step.elim` instead costs a `nodeStep_iff_exists` wrap per case, and
     doing the case analysis by hand costs the eliminator — both land six lines longer. -/
 theorem justified (hj : Justifies Pr S H Just) {c : Config Node Msg NodeState}
     (h : Reachable Pr S c) : Justified H Just c := by
@@ -113,13 +113,13 @@ theorem justified (hj : Justifies Pr S H Just) {c : Config Node Msg NodeState}
         exact hJ sm hm hH
       -- the four reacting actions differ only in the configuration the reaction reads
       · intro d d' q t _ hr hJ
-        exact justified_reacts hj q .tick _ d' hr (justified_setClock q t d hJ)
+        exact justified_nodeStep hj q .tick _ d' hr (justified_setClock q t d hJ)
       · intro d d' q msg _ hr hJ
-        exact justified_reacts hj q (.recv msg) _ d' hr (justified_receive q msg d hJ)
+        exact justified_nodeStep hj q (.recv msg) _ d' hr (justified_receive q msg d hJ)
       · intro d d' q _ hr hJ
-        exact justified_reacts hj q .wake _ d' hr hJ
+        exact justified_nodeStep hj q .wake _ d' hr hJ
       · intro d d' q ev _ hr hJ
-        exact justified_reacts hj q (.custom ev) _ d' hr hJ
+        exact justified_nodeStep hj q (.custom ev) _ d' hr hJ
       -- adversarial: the new signature is not one of `H`'s, and no state moves
       · intro d q msg hen hJ sm hm hH
         rcases Multiset.mem_cons.1 hm with rfl | hold

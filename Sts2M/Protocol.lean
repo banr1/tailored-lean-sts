@@ -142,7 +142,7 @@ structure Config (Node Msg NodeState : Type) where
 
       A multiset rather than a set, and that single choice is what this attempt is about:
       `∪` is lossy, so a reaction that re-sends a message already in the log leaves no trace
-      and cannot be recovered from `(pre, post)`. That is what forces `Reacts` to be an
+      and cannot be recovered from `(pre, post)`. That is what forces `NodeStep` to be an
       existential in `Sts2` — the witness genuinely is not a function of the two
       configurations. With `+` it is, and `extract` below computes it.
 
@@ -258,7 +258,7 @@ theorem applyNodeStepResult_surjective (p : Node) (pre c' : Config Node Msg Node
   rw [Multiset.map_map, Function.comp_def, hid]
   exact (add_tsub_cancel_of_le hle).symm
 
-/-- `Reacts Pr p e pre c'` — `c'` is the configuration `p` reaches by reacting to `e` in
+/-- `NodeStep Pr p e pre c'` — `c'` is the configuration `p` reaches by reacting to `e` in
     `pre`.
 
     **No existential.** `Sts2` has to write `∃ res, Pr.step … res ∧ c' = …` because the
@@ -267,8 +267,8 @@ theorem applyNodeStepResult_surjective (p : Node) (pre c' : Config Node Msg Node
     is what applying it produces. The second conjunct is what rules out a `c'` that differs
     from `pre` in some way no reaction could have caused.
 
-    `reacts_iff_exists` below proves this is `Sts2`'s relation and not a different one. -/
-def Reacts (Pr : Protocol Node Msg NodeState Ev) (p : Node) (e : Event Node Msg Ev)
+    `nodeStep_iff_exists` below proves this is `Sts2`'s relation and not a different one. -/
+def NodeStep (Pr : Protocol Node Msg NodeState Ev) (p : Node) (e : Event Node Msg Ev)
     (pre c' : Config Node Msg NodeState) : Prop :=
   Pr.step p pre[p].clock pre[p].view pre[p].st e (extract p pre c') ∧
     c' = applyNodeStepResult p (extract p pre c') pre
@@ -276,9 +276,9 @@ def Reacts (Pr : Protocol Node Msg NodeState Ev) (p : Node) (e : Event Node Msg 
 /-- The same relation `Sts2` defines — so this attempt changes the *spelling* of the step
     relation, not the model. Only the multiset log is a real change, and it is one this
     equivalence does not paper over: it is what makes the right-hand side collapse. -/
-theorem reacts_iff_exists (Pr : Protocol Node Msg NodeState Ev) (p : Node)
+theorem nodeStep_iff_exists (Pr : Protocol Node Msg NodeState Ev) (p : Node)
     (e : Event Node Msg Ev) (pre c' : Config Node Msg NodeState) :
-    Reacts Pr p e pre c' ↔
+    NodeStep Pr p e pre c' ↔
       ∃ res, Pr.step p pre[p].clock pre[p].view pre[p].st e res ∧
         c' = applyNodeStepResult p res pre := by
   constructor
@@ -289,10 +289,10 @@ theorem reacts_iff_exists (Pr : Protocol Node Msg NodeState Ev) (p : Node)
 
 /-- Reacting is always possible, from `Protocol.total`. Every action whose effect is
     a reaction discharges its `feasible` with this. -/
-theorem reacts_total (Pr : Protocol Node Msg NodeState Ev) (p : Node) (e : Event Node Msg Ev)
-    (pre : Config Node Msg NodeState) : ∃ c', Reacts Pr p e pre c' := by
+theorem nodeStep_total (Pr : Protocol Node Msg NodeState Ev) (p : Node) (e : Event Node Msg Ev)
+    (pre : Config Node Msg NodeState) : ∃ c', NodeStep Pr p e pre c' := by
   obtain ⟨res, he⟩ := Pr.total p pre[p].clock pre[p].view pre[p].st e
-  exact ⟨_, (reacts_iff_exists Pr p e pre _).2 ⟨res, he, rfl⟩⟩
+  exact ⟨_, (nodeStep_iff_exists Pr p e pre _).2 ⟨res, he, rfl⟩⟩
 
 /-- Transition labels. -/
 inductive Action (Node Msg Ev : Type) where
@@ -353,28 +353,28 @@ def spec (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) :
   -- backwards — each an assumption, none a fact of the model.
   | .tick p t => {
       Enabled c := p ∈ S.awake (c.time : Int)
-      Effect c c' := Reacts Pr p .tick (setClock p t c) c'
-      feasible _ _ := reacts_total Pr p .tick _ }
+      Effect c c' := NodeStep Pr p .tick (setClock p t c) c'
+      feasible _ _ := nodeStep_total Pr p .tick _ }
   -- Any sent message may be delivered to any awake validator, at any time.
   -- Delivery to a sleeping validator is simply not enabled, which is how messages
   -- get queued: they stay in `sent` until it wakes. The message is filed before the
   -- reaction runs, so `step` sees it in the view too.
   | .deliver p m => {
       Enabled c := m ∈ c.sent ∧ p ∈ S.awake (c.time : Int)
-      Effect c c' := Reacts Pr p (.recv m) (receive p m c) c'
-      feasible _ _ := reacts_total Pr p (.recv m) _ }
+      Effect c c' := NodeStep Pr p (.recv m) (receive p m c) c'
+      feasible _ _ := nodeStep_total Pr p (.recv m) _ }
   -- Awake now, asleep in the previous round. Reported because a protocol cannot
   -- start a joining procedure it is not told about.
   | .wake p => {
       Enabled c := p ∈ S.awake (c.time : Int) ∧ p ∉ S.awake ((c.time : Int) - 1)
-      Effect c c' := Reacts Pr p .wake c c'
-      feasible _ _ := reacts_total Pr p .wake _ }
+      Effect c c' := NodeStep Pr p .wake c c'
+      feasible _ _ := nodeStep_total Pr p .wake _ }
   -- A protocol-specific event, if the protocol allows it at the validator's own
   -- clock reading.
   | .custom p ev => {
       Enabled c := p ∈ S.awake (c.time : Int) ∧ Pr.enabled c[p].clock c[p].st ev
-      Effect c c' := Reacts Pr p (.custom ev) c c'
-      feasible _ _ := reacts_total Pr p (.custom ev) _ }
+      Effect c c' := NodeStep Pr p (.custom ev) c c'
+      feasible _ _ := nodeStep_total Pr p (.custom ev) _ }
   -- An adversarial validator signs anything.
   | .adversarial p m => {
       Enabled c := p ∈ S.adv (c.time : Int)
@@ -431,38 +431,38 @@ theorem Step.elim {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
   | advance t => obtain ⟨-, rfl⟩ := h; exact advance c t
   | tick p t =>
       obtain ⟨he, hr⟩ := h
-      obtain ⟨res, hp, rfl⟩ := (reacts_iff_exists Pr p .tick _ _).1 hr
+      obtain ⟨res, hp, rfl⟩ := (nodeStep_iff_exists Pr p .tick _ _).1 hr
       exact tick c p t res he hp
   | deliver p m =>
       obtain ⟨he, hr⟩ := h
-      obtain ⟨res, hp, rfl⟩ := (reacts_iff_exists Pr p (.recv m) _ _).1 hr
+      obtain ⟨res, hp, rfl⟩ := (nodeStep_iff_exists Pr p (.recv m) _ _).1 hr
       exact deliver c p m res he hp
   | wake p =>
       obtain ⟨he, hr⟩ := h
-      obtain ⟨res, hp, rfl⟩ := (reacts_iff_exists Pr p .wake _ _).1 hr
+      obtain ⟨res, hp, rfl⟩ := (nodeStep_iff_exists Pr p .wake _ _).1 hr
       exact wake c p res he hp
   | custom p ev =>
       obtain ⟨he, hr⟩ := h
-      obtain ⟨res, hp, rfl⟩ := (reacts_iff_exists Pr p (.custom ev) _ _).1 hr
+      obtain ⟨res, hp, rfl⟩ := (nodeStep_iff_exists Pr p (.custom ev) _ _).1 hr
       exact custom c p ev res he hp
   | adversarial p m => obtain ⟨he, rfl⟩ := h; exact adversarial c p m he
 
 /-- Case analysis on a step, leaving the successor **abstract** and handing each reacting
-    case the `Reacts` that constrains it.
+    case the `NodeStep` that constrains it.
 
     The companion to `Step.elim`, and the reason both exist. This attempt has two equivalent
-    ways to say a reaction happened — `Reacts` as defined, and the existential
-    `reacts_iff_exists` proves it equal to — and they suit different proofs:
+    ways to say a reaction happened — `NodeStep` as defined, and the existential
+    `nodeStep_iff_exists` proves it equal to — and they suit different proofs:
 
     * `Step.elim` binds a reaction and gives a **concrete** successor. Use it when the goal
       is about that term: `sent_mono` needs `d.sent ≤ (applyNodeStepResult …).sent`, and a
       concrete successor is exactly what makes that immediate.
-    * `Step.elimR` leaves the successor as it is and gives a `Reacts` about it. Use it when
+    * `Step.elimR` leaves the successor as it is and gives a `NodeStep` about it. Use it when
       the goal is about an arbitrary `c'` and the frame lemmas are what the proof needs —
       `Justified` is the example, where replacing `c'` by a term buys nothing.
 
     Four of the six cases are one `exact` with no destructuring, because `Step` already *is*
-    `Enabled ∧ Reacts`. Going through the wrong eliminator costs a `reacts_iff_exists`
+    `Enabled ∧ NodeStep`. Going through the wrong eliminator costs a `nodeStep_iff_exists`
     conversion in every reacting case; that is the whole of the difference. -/
 theorem Step.elimR {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
     {motive : Action Node Msg Ev → Config Node Msg NodeState →
@@ -471,15 +471,15 @@ theorem Step.elimR {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
     (advance : ∀ (d : Config Node Msg NodeState) (t : Time),
       motive (.advance t) d { d with time := t })
     (tick : ∀ (d d' : Config Node Msg NodeState) (p : Node) (t : Time),
-      (spec Pr S (.tick p t)).Enabled d → Reacts Pr p .tick (setClock p t d) d' →
+      (spec Pr S (.tick p t)).Enabled d → NodeStep Pr p .tick (setClock p t d) d' →
       motive (.tick p t) d d')
     (deliver : ∀ (d d' : Config Node Msg NodeState) (p : Node) (m : SignedMsg Node Msg),
-      (spec Pr S (.deliver p m)).Enabled d → Reacts Pr p (.recv m) (receive p m d) d' →
+      (spec Pr S (.deliver p m)).Enabled d → NodeStep Pr p (.recv m) (receive p m d) d' →
       motive (.deliver p m) d d')
     (wake : ∀ (d d' : Config Node Msg NodeState) (p : Node),
-      (spec Pr S (.wake p)).Enabled d → Reacts Pr p .wake d d' → motive (.wake p) d d')
+      (spec Pr S (.wake p)).Enabled d → NodeStep Pr p .wake d d' → motive (.wake p) d d')
     (custom : ∀ (d d' : Config Node Msg NodeState) (p : Node) (ev : Ev),
-      (spec Pr S (.custom p ev)).Enabled d → Reacts Pr p (.custom ev) d d' →
+      (spec Pr S (.custom p ev)).Enabled d → NodeStep Pr p (.custom ev) d d' →
       motive (.custom p ev) d d')
     (adversarial : ∀ (d : Config Node Msg NodeState) (p : Node) (m : Msg),
       (spec Pr S (.adversarial p m)).Enabled d →
@@ -601,7 +601,7 @@ definition. Stating them this way keeps the frame problem away: a field added to
 not mention it either — whereas a frame *relation* would let the new field change arbitrarily
 until someone remembered a conjunct for it.
 
-`reacts_of_frame` closes the loop: the six are not merely necessary but sufficient. That is
+`nodeStep_of_frame` closes the loop: the six are not merely necessary but sufficient. That is
 what `NodeStepResult.send` being a multiset buys — with a `Finset` there, a successor whose
 log gained one message twice satisfies all six and is still unreachable, so a seventh
 condition (`Nodup` on the delta) would be needed. -/
@@ -620,33 +620,33 @@ theorem Config.ext' {c d : Config Node Msg NodeState} (ht : c.time = d.time)
   exact ⟨ht, funext hn, hs⟩
 
 /-- Real time is the environment's, not a reacting validator's. -/
-theorem Reacts.time (h : Reacts Pr p e pre c') : c'.time = pre.time := by
+theorem NodeStep.time (h : NodeStep Pr p e pre c') : c'.time = pre.time := by
   conv_lhs => rw [h.2]
   rfl
 
 /-- No other validator is touched. -/
-theorem Reacts.other (h : Reacts Pr p e pre c') (q : Node) (hq : q ≠ p) : c'[q] = pre[q] := by
+theorem NodeStep.other (h : NodeStep Pr p e pre c') (q : Node) (hq : q ≠ p) : c'[q] = pre[q] := by
   conv_lhs => rw [h.2]
   simp [applyNodeStepResult_getElem, Ne.symm hq]
 
 /-- `p`'s own clock is not touched: only a `tick` moves it, and it does so before the
     reaction runs. -/
-theorem Reacts.clock (h : Reacts Pr p e pre c') : c'[p].clock = pre[p].clock := by
+theorem NodeStep.clock (h : NodeStep Pr p e pre c') : c'[p].clock = pre[p].clock := by
   conv_lhs => rw [h.2]
   simp
 
 /-- Nor is `p`'s view: only a delivery adds to it, again before the reaction runs. -/
-theorem Reacts.view (h : Reacts Pr p e pre c') : c'[p].view = pre[p].view := by
+theorem NodeStep.view (h : NodeStep Pr p e pre c') : c'[p].view = pre[p].view := by
   conv_lhs => rw [h.2]
   simp
 
 /-- The log only grows. -/
-theorem Reacts.sent_le (h : Reacts Pr p e pre c') : pre.sent ≤ c'.sent := by
+theorem NodeStep.sent_le (h : NodeStep Pr p e pre c') : pre.sent ≤ c'.sent := by
   conv_rhs => rw [h.2]
   exact Multiset.le_iff_exists_add.mpr ⟨_, rfl⟩
 
 /-- And it grows only by messages `p` signed. -/
-theorem Reacts.sent_signed (h : Reacts Pr p e pre c') (m : SignedMsg Node Msg)
+theorem NodeStep.sent_signed (h : NodeStep Pr p e pre c') (m : SignedMsg Node Msg)
     (hm : m ∈ c'.sent - pre.sent) : m.sender = p := by
   have hdelta : c'.sent - pre.sent = (extract p pre c').send.map (SignedMsg.mk p) := by
     conv_lhs => rw [h.2]
@@ -656,12 +656,12 @@ theorem Reacts.sent_signed (h : Reacts Pr p e pre c') (m : SignedMsg Node Msg)
   rfl
 
 /-- The converse: the six conditions characterise a reaction completely. -/
-theorem reacts_of_frame
+theorem nodeStep_of_frame
     (hstep : Pr.step p pre[p].clock pre[p].view pre[p].st e (extract p pre c'))
     (htime : c'.time = pre.time) (hother : ∀ q, q ≠ p → c'[q] = pre[q])
     (hclock : c'[p].clock = pre[p].clock) (hview : c'[p].view = pre[p].view)
     (hle : pre.sent ≤ c'.sent) (hsigned : ∀ m ∈ c'.sent - pre.sent, m.sender = p) :
-    Reacts Pr p e pre c' := by
+    NodeStep Pr p e pre c' := by
   refine ⟨hstep, Config.ext' htime (fun q => ?_) ?_⟩
   -- both sides in bracket form, so the read-back lemmas match
   · show c'[q] = (applyNodeStepResult p (extract p pre c') pre)[q]

@@ -12,16 +12,16 @@ import Framework.Sts2M.CustomEvents
 # A framework for message-passing distributed protocols — multiset log
 
 `Framework.Sts2` with **one type changed**: `Config.sent` is a `Multiset` rather than a
-`Set`. That is enough to remove the existential from `Reacts`, and it does so without
+`Set`. That is enough to remove the existential from `NodeStep`, and it does so without
 touching the labels, so the fairness layer is untouched — the difference from `Sts2C`, which
 buys the same thing by putting the reaction in the label.
 
 Why the type is what matters: `∪` is lossy, so a reaction that re-sends a message already in
 the log leaves no trace, and two different reactions can produce the same successor. The
-witness in `Reacts` is therefore genuinely not a function of `(pre, c')`. Under `+` it is, and
+witness in `NodeStep` is therefore genuinely not a function of `(pre, c')`. Under `+` it is, and
 `extract` computes it: the state is what `p`'s protocol state became, the messages are
 `c'.sent - pre.sent`. `extract_applyNodeStepResult` is the round trip and
-`reacts_iff_exists` proves the resulting relation is `Sts2`'s.
+`nodeStep_iff_exists` proves the resulting relation is `Sts2`'s.
 
 `NodeStepResult.send` is a multiset for the same reason, and the two changes belong together.
 With a `Finset` there the types disagree — a log delta can hold a message twice, a reaction
@@ -79,8 +79,8 @@ claim is checked by the compiler rather than asserted.
 
 * **Almost no proofs.** `sent_mono` and `viewsSound` as in `Sts2`; the three that make this
   attempt's claim — `extract_applyNodeStepResult`, `applyNodeStepResult_surjective` and
-  `reacts_iff_exists`; and the frame lemmas (`Reacts.time`, `.other`, `.clock`, `.view`,
-  `.sent_le`, `.sent_signed`) with their converse `reacts_of_frame`, which say exactly what a
+  `nodeStep_iff_exists`; and the frame lemmas (`NodeStep.time`, `.other`, `.clock`, `.view`,
+  `.sent_le`, `.sent_signed`) with their converse `nodeStep_of_frame`, which say exactly what a
   reaction may and may not touch.
   What the framework *will* own once it settles: a reusable "everything a correct validator
   signed is justified by its state" schema.
