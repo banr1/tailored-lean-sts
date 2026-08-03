@@ -9,13 +9,89 @@ arXiv:2601.03862v1, and nothing else.** Supporting material lives in `Mfc.lean`
 5) and `Provenance2.lean` (execution-level, Algorithm 2); the paper's *theorems* are
 stated in `Theorems.lean` as `Prop`s awaiting proof.
 
-Nothing qualifies yet. The state of **Lemma 2**, the first target — a statement about
-**Algorithm 2** (Appendix A): its **propose-round half is fully proved** for Algorithm
-2's protocol — `Provenance2.le_mfc_at_propose2`: under `ActiveVotesExtend2` (the lemma's
-hypothesis, over the log), the fork-choice of any validator active in slot `t+1` returns
-an extension of `ch` at `propose(t+1)`, over any base `b ⪯ ch`. The vote-round half is
-in progress along the CONTEXT.md roadmap of 2026-08-03; the same-round-delivery problem
-that would have made it false was resolved by making `fil1Exp` an equality filter (keep
-exactly the previous slot's votes), so the voter counting is structural rather than
-timing-based.
+**Lemma 2** (`lemma2` below) is proved, for Algorithm 2 — the algorithm the lemma is
+about (Appendix A). The paper states three conclusions: `MFC^{propose(t+1)}_i ⪰ ch`
+(`Provenance2.le_mfc_at_propose2`), `MFC^{vote(t+1)}_i ⪰ ch`
+(`Provenance2.le_mfc_at_vote2`), and "which implies that, in slot `t+1`, all validators
+in `H_vote(t+1)` send vote messages for chains extending `ch`" — the operative clause,
+the one Lemma 3's induction consumes, and the statement of `lemma2`: the lemma's
+hypothesis `ActiveVotesExtend2`, reproduced one slot later.
 -/
+
+set_option autoImplicit false
+set_option synthInstance.maxSize 400
+
+namespace Majorum
+
+open the framework's flat multiset-log flavour
+
+variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx]
+  {Q : Params} {S : Schedule Node} {n kappa : Nat} {pool : Nat → Tx} {proposer : Nat → Node}
+
+local notation "Pr2" => protocol2 Q n kappa pool proposer
+
+/-- **Lemma 2** (`Lemma 2, arXiv:2601.03862v1 p.8`, for Algorithm 2). If, in slot `t`,
+    all validators in `H_vote(t)` send vote messages for chains extending `ch`, then, in
+    slot `t+1`, all validators in `H_vote(t+1)` send vote messages for chains extending
+    `ch`.
+
+    Hypotheses, besides the paper's Constraint (1) (`Sleepiness`) and resilience: GST at
+    `0` with `Synchrony`, the clock/schedule discipline (`SynchronizedClocks`,
+    `TimeStepwise`, `TimeDiverges`, `Diligent`, `WakePrecedesTick`, `OneTickPerReading`),
+    and monotone corruption. The proof: a validator active in slot `t+1` ticks at
+    `voting(t+1)` with the joining check open (`activeAt_le_voting` — the framework's
+    wake event fires only on sleep→awake transitions, so no wake inside the activity
+    window can close it), and the vote that tick sends extends this tick's fork-choice
+    (`handler2_vote_send`), which extends `ch` by `le_mfc_at_vote2`. -/
+theorem lemma2 [Fintype Node] {x : Exec Pr2 S}
+    (hsync : SynchronizedClocks x) (hstepw : TimeStepwise x) (hdiv : TimeDiverges x)
+    (hdil : Diligent x) (hwpt : WakePrecedesTick x) (hone : OneTickPerReading x)
+    (hmc : S.MonotoneCorruption) (hsyn : Synchrony 0 Q.delta x) (hslp : Sleepiness Q S)
+    (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < n) (hgst : Q.gst = 0)
+    {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx} (hvotes : ActiveVotesExtend2 x t ch) :
+    ActiveVotesExtend2 x (t + 1) ch := by
+  intro p hp0
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have hmono := hstepw.timeMonotone
+  have hvot1 : Q.voting ((t : Int) + 1)
+      = ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  have hp : p ∈ Active Q S ((t : Int) + 1) := by
+    have hcast : (((t + 1 : Nat)) : Int) = (t : Int) + 1 := by push_cast; omega
+    rw [← hcast]
+    exact hp0
+  -- the vote tick of `p` at `voting(t+1)` exists: time diverges, `p` is awake there,
+  -- and a diligent validator ticks every reading it is awake for
+  obtain ⟨i₁, hi₁⟩ := hdiv (Q.slotLength * (t + 1) + Q.delta)
+  obtain ⟨i₀, hi₀, hti₀⟩ := exists_time_eq hstepw hi₁
+  have hAw0 : x.Awake i₀ p := by
+    show p ∈ S.awake ((x[i₀].time : Int))
+    rw [hti₀]
+    refine mem_awakeThroughout.mp hp _ ?_ ?_ <;> rw [hvot1] <;> omega
+  obtain ⟨j, htj, hlblj⟩ := hdil (Q.slotLength * (t + 1) + Q.delta) p ⟨i₀, hti₀, hAw0⟩
+  -- the joining check is open at that tick
+  have hgate : x[j][p].st.activeAt ≤ Q.slotLength * (t + 1) + Q.delta := by
+    refine activeAt_le_voting hsync hmono (t1 := t + 1) ?_ (le_of_eq htj)
+    intro r h1 h2
+    refine mem_awakeThroughout.mp hp _ ?_ ?_ <;> rw [hvot1] <;> omega
+  -- so the tick votes, for an extension of its fork-choice
+  obtain ⟨chS, hsend, hchS⟩ :=
+    handler2_vote_send (Q := Q) (n := n) (kappa := kappa) (pool := pool)
+      (proposer := proposer) (p := p) (V := x[j][p].view) (s := x[j][p].st)
+      (voting_reading_mod Q (t + 1)) hgate
+  rw [voting_reading_div Q (t + 1)] at hsend hchS
+  -- and the fork-choice extends `ch`: the vote-round half
+  have hmfc := le_mfc_at_vote2 hsync hstepw hdil hwpt hone hmc hsyn hslp hcb hfn hgst
+    ht hvotes hp hlblj
+  have hchain : chainLe ch chS := chainLe_trans hmfc hchS
+  have hmem : (⟨p, Msg.vote chS dotCk dotCk (t + 1)⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[j + 1].sent := by
+    refine tick_emits hlblj ?_
+    rw [hsend]
+    exact Multiset.mem_singleton_self _
+  exact ⟨j + 1, chS, by rw [tick_time hlblj, htj], hmem, hchain⟩
+
+end Majorum
