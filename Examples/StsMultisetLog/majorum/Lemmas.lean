@@ -16,6 +16,10 @@ about (Appendix A). The paper states three conclusions: `MFC^{propose(t+1)}_i �
 in `H_vote(t+1)` send vote messages for chains extending `ch`" — the operative clause,
 the one Lemma 3's induction consumes, and the statement of `lemma2`: the lemma's
 hypothesis `ActiveVotesExtend2`, reproduced one slot later.
+
+**Lemma 3** (`lemma3` below) is proved: a fast confirmation in slot `t` makes every
+later slot's actives vote extensions of the confirmed chain — base case from the frozen
+fast-confirmation (no majority needed), inductive step `lemma2`.
 -/
 
 set_option autoImplicit false
@@ -49,49 +53,35 @@ theorem lemma2 {x : Exec Pr2 S} (H : SettingGA Q S x)
     ActiveVotesExtend2 x (t + 1) ch := by
   obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, -⟩, hslp,
     ⟨hcb, hfn⟩, hgst⟩ := H
-  intro p hp0
-  have hδ := Q.deltaPos
-  have hsl : Q.slotLength = 4 * Q.delta := rfl
-  have hmono := hstepw.timeMonotone
-  have hvot1 : Q.voting ((t : Int) + 1)
-      = ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int) := by
-    unfold Params.voting
-    push_cast
-    omega
-  have hp : p ∈ Active Q S ((t : Int) + 1) := by
-    have hcast : (((t + 1 : Nat)) : Int) = (t : Int) + 1 := by push_cast; omega
-    rw [← hcast]
-    exact hp0
-  -- the vote tick of `p` at `voting(t+1)` exists: time diverges, `p` is awake there,
-  -- and a diligent validator ticks every reading it is awake for
-  obtain ⟨i₁, hi₁⟩ := hdiv (Q.slotLength * (t + 1) + Q.delta)
-  obtain ⟨i₀, hi₀, hti₀⟩ := exists_time_eq hstepw hi₁
-  have hAw0 : x.Awake i₀ p := by
-    show p ∈ S.awake ((x[i₀].time : Int))
-    rw [hti₀]
-    refine mem_awakeThroughout.mp hp _ ?_ ?_ <;> rw [hvot1] <;> omega
-  obtain ⟨j, htj, hlblj⟩ := hdil (Q.slotLength * (t + 1) + Q.delta) p ⟨i₀, hti₀, hAw0⟩
-  -- the joining check is open at that tick
-  have hgate : x[j][p].st.activeAt ≤ Q.slotLength * (t + 1) + Q.delta := by
-    refine activeAt_le_voting hsync hmono (t1 := t + 1) ?_ (le_of_eq htj)
-    intro r h1 h2
-    refine mem_awakeThroughout.mp hp _ ?_ ?_ <;> rw [hvot1] <;> omega
-  -- so the tick votes — with whatever filler it chose — for an extension of its
-  -- fork-choice, which does not depend on the filler
-  obtain ⟨dotj, -, hemit⟩ := tick_effect hlblj
-  obtain ⟨chS, hsend, hchS⟩ :=
-    handler2_vote_send (Q := Q) (n := Fintype.card Node) (kappa := kappa) (pool := pool)
-      (proposer := proposer) (dot := dotj) (p := p) (V := x[j][p].view) (s := x[j][p].st)
-      (voting_reading_mod Q (t + 1)) hgate
-  rw [voting_reading_div Q (t + 1)] at hsend hchS
-  -- and the fork-choice extends `ch`: the vote-round half
-  have hmfc := le_mfc_at_vote2 hsync hstepw hdil hwpt hone hmc hsyn hslp hcb hfn hgst
-    ht hvotes hp hlblj
-  have hchain : chainLe ch chS := chainLe_trans hmfc hchS
-  have hmem : ⟪vote, chS, dotj, dotj, (t + 1), p⟫ ∈ x[j + 1].sent := by
-    refine hemit _ ?_
-    rw [hsend]
-    exact Multiset.mem_singleton_self _
-  exact ⟨j + 1, chS, dotj, dotj, by rw [tick_time hlblj, htj], hmem, hchain⟩
+  exact activeVotesExtend_of_le_mfc hsync hstepw hdiv hdil fun p hp j hj =>
+    le_mfc_at_vote2 hsync hstepw hdil hwpt hone hmc hsyn hslp hcb hfn hgst ht hvotes hp hj
+
+/-- **Lemma 3** (`Lemma 3, arXiv:2601.03862v1 p.15`, for Algorithm 2). If a validator
+    fast confirms a chain `ch` in slot `t` — its `fconf(t)` view holds a `2n/3` quorum
+    for `ch`, so `fastconfirmsimple` returns `(ch, Q)` with `Q ≠ ∅` — then, for any slot
+    `t' > t`, all validators in `H_vote(t')` send vote messages for chains extending
+    `ch`.
+
+    Stated without the paper's honesty of the confirmer: views are sound in this model
+    (everything in any view is in the log), so the hypothesis is only *stronger* without
+    it. Induction on `t'`: the base case is
+    `Provenance2.activeVotesExtend_of_fastconfirm` — the quorum reaches every active's
+    `merge(t)` view by synchrony, and the frozen chain rides through `processProposals2`
+    (monotone) into the fork-choice's base — and the inductive step is `lemma2`. -/
+theorem lemma3 {x : Exec Pr2 S} (H : SettingGA Q S x)
+    {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx}
+    (hconf : ∃ (i : Nat) (w : Node) (cert : QCert Node Tx),
+      x[i].time = Q.slotLength * t + 2 * Q.delta ∧
+      fastConfirmSimple (Fintype.card Node) (x[i][w].view) t = (ch, some cert))
+    {t' : Nat} (ht' : t < t') :
+    ActiveVotesExtend2 x t' ch := by
+  obtain ⟨iw, w, cert, htiw, hfc⟩ := hconf
+  induction t', ht' using Nat.le_induction with
+  | base =>
+      obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, -⟩, hslp,
+        ⟨hcb, hfn⟩, hgst⟩ := H
+      exact activeVotesExtend_of_fastconfirm hsync hstepw hdiv hdil hone hmc hsyn hcb hfn
+        (le_refl _) htiw hfc
+  | succ m hm ih => exact lemma2 H (by omega) ih
 
 end Majorum

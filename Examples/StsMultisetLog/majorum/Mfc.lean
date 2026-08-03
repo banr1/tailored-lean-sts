@@ -140,6 +140,14 @@ theorem majority_comparable {V V' : View Node (Msg (Chain Tx) QC)} {t : Nat}
   exact comparable_of_common_extension (votesFor_extends hma)
     (hchain ▸ votesFor_extends hmb)
 
+/-- **A chain some vote extends is a candidate** — the prefix closure of `candidates`,
+    on its own. -/
+theorem mem_candidates_of_extends {V : View Node (Msg (Chain Tx) QC)} {b ch : Chain Tx}
+    {sm : SignedMsg Node (Msg (Chain Tx) QC)} (hv : sm ∈ votes V)
+    (hle : chainLe ch (msgChain sm.msg)) : ch ∈ candidates V b := by
+  simp only [candidates, Finset.mem_insert, Finset.mem_biUnion]
+  exact Or.inr ⟨sm, hv, List.mem_toFinset.2 ((List.mem_inits _ _).2 (chainLe_iff_prefix.1 hle))⟩
+
 /-- **A majority chain is a candidate**: a strict majority forces at least one supporting
     vote, and a chain some vote extends is among that vote's prefixes — which is where the
     prefix closure of `candidates` earns its place. -/
