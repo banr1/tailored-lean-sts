@@ -69,12 +69,20 @@ structure NodeState2 (Node Tx : Type) [DecidableEq Node] [DecidableEq Tx] where
     in the receiver's own view — give `chC` at least `2n/3` distinct supporters from the
     previous slot. A certified vote counts **with any filler** in its blank fields,
     matching the sender side's nondeterministic choice. See the module docstring for why
-    the check runs against the view. -/
-def ValidProposal2 (n : Nat) (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
+    the check runs against the view.
+
+    **The proposal must be signed by its slot's proposer** (`sm.sender = proposer t'`).
+    The paper's `valid([propose, …])` is never defined; Lemma 4 is false without this
+    conjunct (a corrupt validator could have a certificate-backed `chC` processed, or —
+    at line 23 — its fabricated slot-`t` chain voted for), and the paper's own base-case
+    equalities need it. Structural signing makes it enforceable: nobody can forge the
+    proposer's sender field. Decision of 2026-08-04; third authors'-note finding. -/
+def ValidProposal2 (n : Nat) (proposer : Nat → Node)
+    (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     (sm : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) : Prop :=
   match sm.msg with
   | .propose chp chC qc _ t' =>
-      proposedAt chp = t' ∧ chainLe chC chp ∧
+      sm.sender = proposer t' ∧ proposedAt chp = t' ∧ chainLe chC chp ∧
         (chC = [] ∨ ∃ cert : QCert Node Tx, qc = some cert ∧
           2 * n ≤ 3 * (cert.image Prod.fst).card ∧
           ∀ e ∈ cert, chainLe chC e.2.1 ∧ e.2.2 = t' - 1 ∧
@@ -87,13 +95,13 @@ def ValidProposal2 (n : Nat) (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     the frozen one replaces it. Received during `[4Δt, 4Δt+Δ]`, processed at the vote
     reading, folded over the view — the same arrival-order caveat as Algorithm 5's
     `processProposals`. -/
-noncomputable def processProposals2 (n : Nat)
+noncomputable def processProposals2 (n : Nat) (proposer : Nat → Node)
     (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     (t : Nat) (s : NodeState2 Node Tx) : NodeState2 Node Tx :=
   V.toList.foldl (fun acc sm =>
     match sm.msg with
     | .propose _ chC _ _ t' =>
-        if t' = t ∧ ValidProposal2 n V sm ∧ chainLe acc.chFrozen chC then
+        if t' = t ∧ ValidProposal2 n proposer V sm ∧ chainLe acc.chFrozen chC then
           { acc with chFrozen := chC }
         else acc
     | .vote .. => acc) s
@@ -120,7 +128,7 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
       return { state := s, send := 0 }
   else if phase = Q.delta then
     let dot ← (Set.univ : Set (Checkpoint (Chain Tx)))
-    let s' := processProposals2 n V slot s
+    let s' := processProposals2 n proposer V slot s
     let chMFC := mfc s'.vFrozen V s'.chFrozen slot
     let chi :=
       [s'.chi, kappaPrefix kappa chMFC].foldl
@@ -129,7 +137,8 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     let proposedNow : Option (Chain Tx) :=
       V.toList.findSome? (fun sm => match sm.msg with
         | .propose chp _ _ _ t' =>
-            if t' == slot && proposedAt chp == slot && chainLe chMFC chp then some chp
+            if sm.sender == proposer slot && t' == slot && proposedAt chp == slot &&
+                chainLe chMFC chp then some chp
             else none
         | .vote .. => none)
     let ch := proposedNow.getD chMFC

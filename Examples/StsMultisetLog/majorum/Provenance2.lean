@@ -60,7 +60,7 @@ noncomputable def handler2Core (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     else { state := s, send := 0 }
   else if phase = Q.delta then
     -- Vote, lines 20–25, after the lines 33–36 proposal processing
-    let s' := processProposals2 n V slot s
+    let s' := processProposals2 n proposer V slot s
     let chMFC := mfc s'.vFrozen V s'.chFrozen slot
     -- line 22: `Ch_i ← max({ch ∈ {Ch_i, (chMFC)⌈κ} : ch ⪯ chMFC})`
     let chi :=
@@ -70,7 +70,8 @@ noncomputable def handler2Core (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     let proposedNow : Option (Chain Tx) :=
       V.toList.findSome? (fun sm => match sm.msg with
         | .propose chp _ _ _ t' =>
-            if t' == slot && proposedAt chp == slot && chainLe chMFC chp then some chp
+            if sm.sender == proposer slot && t' == slot && proposedAt chp == slot &&
+                chainLe chMFC chp then some chp
             else none
         | .vote .. => none)
     let ch := proposedNow.getD chMFC
@@ -344,7 +345,7 @@ theorem honest_vote_unique2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
 /-- `processProposals2` never writes `activeAt`. -/
 theorem processProposals2_activeAt (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     (t : Nat) (s : NodeState2 Node Tx) :
-    (processProposals2 n V t s).activeAt = s.activeAt := by
+    (processProposals2 n proposer V t s).activeAt = s.activeAt := by
   unfold processProposals2
   generalize V.toList = l
   induction l generalizing s with
@@ -681,7 +682,7 @@ theorem activationRound_le_voting (Q : Params) {r : Time} {t1 : Nat}
 /-- `processProposals2` never writes `vFrozen`. -/
 theorem processProposals2_vFrozen (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     (t : Nat) (s : NodeState2 Node Tx) :
-    (processProposals2 n V t s).vFrozen = s.vFrozen := by
+    (processProposals2 n proposer V t s).vFrozen = s.vFrozen := by
   unfold processProposals2
   generalize V.toList = l
   induction l generalizing s with
@@ -700,27 +701,27 @@ open Classical in
     the certificate check. The lines 33–36 provenance, as a fold invariant. -/
 theorem processProposals2_chFrozen (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     (t : Nat) (s : NodeState2 Node Tx) :
-    (processProposals2 n V t s).chFrozen = s.chFrozen ∨
+    (processProposals2 n proposer V t s).chFrozen = s.chFrozen ∨
       ∃ sm ∈ V, (∃ chp qc ck, sm.msg =
-          .propose chp ((processProposals2 n V t s).chFrozen) qc ck t) ∧
-        ValidProposal2 n V sm := by
+          .propose chp ((processProposals2 n proposer V t s).chFrozen) qc ck t) ∧
+        ValidProposal2 n proposer V sm := by
   unfold processProposals2
   have hgen : ∀ (l : List (SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))),
       (∀ a ∈ l, a ∈ V) → ∀ s₀ : NodeState2 Node Tx,
       (l.foldl (fun acc sm =>
         match sm.msg with
         | .propose _ chC _ _ t' =>
-            if t' = t ∧ ValidProposal2 n V sm ∧ chainLe acc.chFrozen chC then
+            if t' = t ∧ ValidProposal2 n proposer V sm ∧ chainLe acc.chFrozen chC then
               { acc with chFrozen := chC }
             else acc
         | .vote .. => acc) s₀).chFrozen = s₀.chFrozen ∨
       ∃ sm ∈ V, (∃ chp qc ck, sm.msg = .propose chp ((l.foldl (fun acc sm =>
         match sm.msg with
         | .propose _ chC _ _ t' =>
-            if t' = t ∧ ValidProposal2 n V sm ∧ chainLe acc.chFrozen chC then
+            if t' = t ∧ ValidProposal2 n proposer V sm ∧ chainLe acc.chFrozen chC then
               { acc with chFrozen := chC }
             else acc
-        | .vote .. => acc) s₀).chFrozen) qc ck t) ∧ ValidProposal2 n V sm := by
+        | .vote .. => acc) s₀).chFrozen) qc ck t) ∧ ValidProposal2 n proposer V sm := by
     intro l
     induction l with
     | nil => exact fun _ s₀ => Or.inl rfl
@@ -746,7 +747,7 @@ theorem processProposals2_chFrozen (V : View Node (Msg (Chain Tx) (QCert Node Tx
     the incoming fast-confirmed chain to extend the current one. -/
 theorem processProposals2_chFrozen_mono (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     (t : Nat) (s : NodeState2 Node Tx) :
-    chainLe s.chFrozen (processProposals2 n V t s).chFrozen := by
+    chainLe s.chFrozen (processProposals2 n proposer V t s).chFrozen := by
   unfold processProposals2
   generalize V.toList = l
   induction l generalizing s with
@@ -789,15 +790,17 @@ theorem handler2_merge {p : Node} {r : Time}
 /-- The chain the vote phase settles on extends this tick's fork-choice: `proposedNow`
     filters on exactly that, and its absence falls back to the fork-choice itself. -/
 theorem chainLe_getD_findSome (l : List (SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))))
-    (chMFC : Chain Tx) (slot : Nat) :
+    (chMFC : Chain Tx) (slot : Nat) (pr : Node) :
     chainLe chMFC ((l.findSome? (fun sm => match sm.msg with
       | .propose chp _ _ _ t' =>
-          if t' == slot && proposedAt chp == slot && chainLe chMFC chp then some chp
+          if sm.sender == pr && t' == slot && proposedAt chp == slot &&
+              chainLe chMFC chp then some chp
           else none
       | .vote .. => none)).getD chMFC) := by
   cases hfind : l.findSome? (fun sm => match sm.msg with
       | .propose chp _ _ _ t' =>
-          if t' == slot && proposedAt chp == slot && chainLe chMFC chp then some chp
+          if sm.sender == pr && t' == slot && proposedAt chp == slot &&
+              chainLe chMFC chp then some chp
           else none
       | .vote .. => none) with
   | none => simp [chainLe_refl]
@@ -825,15 +828,15 @@ theorem handler2_vote_send {p : Node} {r : Time}
     (hmod : r % Q.slotLength = Q.delta) (hgate : s.activeAt ≤ r) :
     ∃ ch, (handler2Core Q n kappa pool proposer dot p r V s).send
         = {Msg.vote ch dot dot (r / Q.slotLength)} ∧
-      chainLe (mfc (processProposals2 n V (r / Q.slotLength) s).vFrozen V
-        (processProposals2 n V (r / Q.slotLength) s).chFrozen (r / Q.slotLength)) ch := by
+      chainLe (mfc (processProposals2 n proposer V (r / Q.slotLength) s).vFrozen V
+        (processProposals2 n proposer V (r / Q.slotLength) s).chFrozen (r / Q.slotLength)) ch := by
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
   simp only [handler2Core, apply_ite NodeStepResult.send]
   split_ifs <;>
     first
       | omega
-      | exact ⟨_, rfl, chainLe_getD_findSome _ _ _⟩
+      | exact ⟨_, rfl, chainLe_getD_findSome _ _ _ _⟩
 
 /-! ### One tick, precisely: state, time, reading, emission -/
 
@@ -1568,9 +1571,9 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
     {p : Node} (hp : p ∈ Active Q S ((t : Int) + 1))
     {j : Nat} (hj : x.lbl j = .tick p (Q.slotLength * (t + 1) + Q.delta)) :
     chainLe ch
-      (mfc (processProposals2 n (x[j][p].view) (t + 1) (x[j][p].st)).vFrozen
+      (mfc (processProposals2 n proposer (x[j][p].view) (t + 1) (x[j][p].st)).vFrozen
         (x[j][p].view)
-        (processProposals2 n (x[j][p].view) (t + 1) (x[j][p].st)).chFrozen (t + 1)) := by
+        (processProposals2 n proposer (x[j][p].view) (t + 1) (x[j][p].st)).chFrozen (t + 1)) := by
   have hmono := hstepw.timeMonotone
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
@@ -1650,7 +1653,7 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
   have hmaj : Majority (x[im][p].view) (x[j][p].view) (t + 1) ch := by
     show (voters (x[j][p].view) (t + 1)).card < 2 * _
     omega
-  set s' := processProposals2 n (x[j][p].view) (t + 1) (x[j][p].st) with hs'def
+  set s' := processProposals2 n proposer (x[j][p].view) (t + 1) (x[j][p].st) with hs'def
   have hcomp : chainLe ch s'.chFrozen ∨ chainLe s'.chFrozen ch := by
     -- comparability of a quorum-supported chain in a view whose time is `≤ voting(t+1)`
     have hsupported : ∀ (iw : Nat) (chq : Chain Tx),
@@ -1714,13 +1717,14 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
       obtain ⟨sd, m0⟩ := sm
       have hm0 : m0 = Msg.propose chp s'.chFrozen qc ck (t + 1) := hsmmsg
       subst hm0
-      have hvp' : proposedAt chp = (t + 1) ∧ chainLe s'.chFrozen chp ∧
+      have hvp' : sd = proposer (t + 1) ∧ proposedAt chp = (t + 1) ∧
+          chainLe s'.chFrozen chp ∧
           (s'.chFrozen = [] ∨ ∃ cert : QCert Node Tx, qc = some cert ∧
             2 * n ≤ 3 * (cert.image Prod.fst).card ∧
             ∀ e ∈ cert, chainLe s'.chFrozen e.2.1 ∧ e.2.2 = (t + 1) - 1 ∧
               ∃ src tgt : Checkpoint (Chain Tx),
                 ⟪vote, e.2.1, src, tgt, e.2.2, e.1⟫ ∈ x[j][p].view) := hvp
-      rcases hvp'.2.2 with hgen0 | ⟨cert, hqc, hcard, hcert⟩
+      rcases hvp'.2.2.2 with hgen0 | ⟨cert, hqc, hcard, hcert⟩
       · rw [hgen0]
         exact Or.inr (chainLe_nil ch)
       · obtain ⟨q0, hq0mem, hq0hon⟩ :=
@@ -1772,9 +1776,9 @@ theorem activeVotesExtend_of_le_mfc {x : Exec Pr2 S}
     (hmfc : ∀ p ∈ Active Q S ((t : Int) + 1), ∀ j : Nat,
       x.lbl j = .tick p (Q.slotLength * (t + 1) + Q.delta) →
       chainLe ch
-        (mfc (processProposals2 n (x[j][p].view) (t + 1) (x[j][p].st)).vFrozen
+        (mfc (processProposals2 n proposer (x[j][p].view) (t + 1) (x[j][p].st)).vFrozen
           (x[j][p].view)
-          (processProposals2 n (x[j][p].view) (t + 1) (x[j][p].st)).chFrozen (t + 1))) :
+          (processProposals2 n proposer (x[j][p].view) (t + 1) (x[j][p].st)).chFrozen (t + 1))) :
     ActiveVotesExtend2 x (t + 1) ch := by
   intro p hp0
   have hδ := Q.deltaPos
