@@ -1,9 +1,9 @@
-import Examples.StsMultisetLog.majorum.Protocol
+import Examples.StsMultisetLog.majorum.Algorithm5
 
 /-!
 # The functions Algorithm 5 relies on
 
-`Protocol.lean` takes them as a `Components` record; here they are defined. Sources in
+`Algorithm5.lean` takes them as a `Components` record; here they are defined. Sources in
 arXiv:2601.03862v1: chains and the fork-choice in §2 and Algorithm 1 (`MFC`),
 fast confirmation in Algorithm 2, and justification, finalization, `GJ` and `GF` in §4.
 
@@ -25,7 +25,7 @@ is the smallest structure that supports what Algorithm 5 does with them.
 * **Justification is an inductive `Prop`, not a `Bool`.** "Reachable from `(B_genesis, 0)` by
   a chain of supermajority links" is a least fixed point, so it is an `inductive`. Deciding
   it is done classically, which is why everything here is `noncomputable` — as
-  `Protocol.lean` already was.
+  `Algorithm5.lean` already was.
 * **Ties are broken by list order.** `GJ` and `GF` take the justified or finalized checkpoint
   of largest slot, and the paper says "ties break arbitrarily". Folding over `Finset.toList`
   is one arbitrary choice; two checkpoints of the same slot with different chains means a
@@ -257,7 +257,7 @@ def validProposal (sm : SignedMsg Node (Msg (Chain Tx) QC)) : Bool :=
     confirmation depth, `pool` the transaction pool, and `proposer` the idealized election.
 
     Deciding `JustifiedIn` and `FinalizedIn` is classical, so this is noncomputable — as
-    `Protocol.lean` already was for an unrelated reason. -/
+    `Algorithm5.lean` already was for an unrelated reason. -/
 noncomputable def components (n kappa : Nat) (pool : Nat → Tx) (proposer : Nat → Node) :
     Components Node (Chain Tx) (QCert Node Tx) where
   genesis := []

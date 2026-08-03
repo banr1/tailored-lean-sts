@@ -1,7 +1,7 @@
 import Examples.StsMultisetLog.majorum.Assumptions
 import Examples.StsMultisetLog.majorum.Security
 import Examples.StsMultisetLog.majorum.Theorems
-import Examples.StsMultisetLog.majorum.Protocol
+import Examples.StsMultisetLog.majorum.Algorithm5
 import Examples.StsMultisetLog.majorum.Components
 import Examples.StsMultisetLog.majorum.Algorithm2
 import Examples.StsMultisetLog.majorum.Mfc
