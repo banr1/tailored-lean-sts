@@ -7,7 +7,8 @@ import Examples.StsMultisetLog.majorum.Lemmas
 
 All seven theorems of arXiv:2601.03862v1, rendered in the vocabulary of
 `Security.lean` as **statements** (`def … : Prop`), plus — at the end of the file —
-the theorems *proved* for Algorithm 2 concretely (`theorem1`, 2026-08-04), in the same
+the theorems *proved* for Algorithm 2 concretely (`theorem1` and `theorem2_safety`,
+2026-08-04), in the same
 direct style as `Lemmas.lean` rather than through the `Security.lean` renderings (which
 quantify differently: no probability layer, and a hypothesis row that predates
 `SettingGA`).
@@ -266,6 +267,83 @@ theorem theorem1 {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
   have h5 := (lemma5 (a := a) (vi := vi) (b := j) (vj := vj) H hκ hwin
     (show 1 ≤ s0 + 1 by omega) hact).2 hlblj hab
   exact comparable_of_common_extension h4 h5
+
+/-- **Theorem 2, the safety half** (`Theorem 2, arXiv:2601.03862v1 p.17`, for
+    Algorithm 2). Any two validators' confirmed chains, at any two points of the
+    execution, are comparable — the paper's "we now show safety" paragraph: pick a slot
+    `tk` past both rounds, Constraint (1) makes `H_vote(tk)` inhabited, and Lemma 5
+    bounds both confirmed chains by the same validator's fork choice there.
+
+    Stated (and named) as a *half*: the paper's Theorem 2 is dynamic availability,
+    safety **and liveness** with `Tconf = 8κΔ + Δ`. The liveness half is not stated —
+    see `CONTEXT.md` (2026-08-04): it needs the slot-indexed κ-deep prefix of the
+    paper's p.4 definition where this model currently renders line 22 with a
+    count-based one, a transaction-pool model for Property 1, and `GlobalAwake` woven
+    into the activity sets — three modelling decisions, not proof work. Honesty of
+    neither validator is assumed, as in Lemma 5. -/
+theorem theorem2_safety {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
+    (hwin : HonestProposalWindow x) (a : Nat) (vi : Node) (b : Nat) (vj : Node) :
+    chainLe (x[a][vi].st.chi) (x[b][vj].st.chi) ∨
+      chainLe (x[b][vj].st.chi) (x[a][vi].st.chi) := by
+  obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
+    ⟨hcb, hfn⟩, hgst⟩ := id H
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have hmono := hstepw.timeMonotone
+  have hSL0 : 0 < Q.slotLength := by omega
+  -- a slot past both rounds
+  set s0 := max (x[a].time / Q.slotLength) (x[b].time / Q.slotLength) with hs0def
+  have hs0a : x[a].time / Q.slotLength ≤ s0 := le_max_left _ _
+  have hs0b : x[b].time / Q.slotLength ≤ s0 := le_max_right _ _
+  clear_value s0
+  -- `H_vote(s0+1)` is inhabited
+  have hgstok : (Q.gst : Int) ≤ Q.proposing ((s0 : Int) + 1 + 1) := by
+    rw [hgst]
+    unfold Params.proposing
+    push_cast
+    exact mul_nonneg (Int.natCast_nonneg _) (by omega)
+  have hcount := hslp ((s0 : Int) + 1 + 1) hgstok
+  rw [show ((s0 : Int) + 1 + 1 - 1) = (s0 : Int) + 1 by omega] at hcount
+  have hpos : 0 < (Active Q S ((s0 : Int) + 1) \
+      S.adv (Q.voting ((s0 : Int) + 1 + 1))).card := by omega
+  obtain ⟨vk, hvkmem⟩ := Finset.card_pos.mp hpos
+  have hvk : vk ∈ Active Q S ((s0 : Int) + 1) := (Finset.mem_sdiff.mp hvkmem).1
+  -- its vote tick at `voting(s0+1)`
+  have hvot1 : Q.voting ((s0 : Int) + 1)
+      = ((Q.slotLength * (s0 + 1) + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  obtain ⟨i₁, hi₁⟩ := hdiv (Q.slotLength * (s0 + 1) + Q.delta)
+  obtain ⟨i₀, hi₀, hti₀⟩ := exists_time_eq hstepw hi₁
+  have hAw0 : x.Awake i₀ vk := by
+    show vk ∈ S.awake ((x[i₀].time : Int))
+    rw [hti₀]
+    refine mem_awakeThroughout.mp hvk _ ?_ ?_ <;> rw [hvot1] <;> omega
+  obtain ⟨j, htj, hlblj⟩ := hdil (Q.slotLength * (s0 + 1) + Q.delta) vk ⟨i₀, hti₀, hAw0⟩
+  have hact : vk ∈ Active Q S (((s0 + 1 : Nat)) : Int) := by
+    have hcast : (((s0 + 1 : Nat)) : Int) = (s0 : Int) + 1 := by push_cast; omega
+    rw [hcast]
+    exact hvk
+  -- both confirmed chains sit below `vk`'s fork choice there
+  have htime : ∀ c : Nat, c ∈ ({a, b} : Set Nat) →
+      x[c].time / Q.slotLength ≤ s0 → x[c].time ≤ Q.slotLength * (s0 + 1) + Q.delta := by
+    intro c _ hcs
+    have hdm := Nat.div_add_mod (x[c].time) Q.slotLength
+    have hml := Nat.mod_lt (x[c].time) hSL0
+    have hq1 : Q.slotLength * (x[c].time / Q.slotLength + 1)
+        ≤ Q.slotLength * (s0 + 1) :=
+      Nat.mul_le_mul_left _ (by omega)
+    have hexp : Q.slotLength * (x[c].time / Q.slotLength + 1)
+        = Q.slotLength * (x[c].time / Q.slotLength) + Q.slotLength := Nat.mul_succ ..
+    omega
+  have h5a := (lemma5 (a := a) (vi := vi) (b := j) (vj := vk) H hκ hwin
+    (show 1 ≤ s0 + 1 by omega) hact).2 hlblj
+    (htime a (Or.inl rfl) hs0a)
+  have h5b := (lemma5 (a := b) (vi := vj) (b := j) (vj := vk) H hκ hwin
+    (show 1 ≤ s0 + 1 by omega) hact).2 hlblj
+    (htime b (Or.inr rfl) hs0b)
+  exact comparable_of_common_extension h5a h5b
 
 end Algorithm2Proved
 
