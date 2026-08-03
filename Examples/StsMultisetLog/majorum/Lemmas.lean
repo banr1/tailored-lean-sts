@@ -27,9 +27,12 @@ open the framework's flat multiset-log flavour
 
 variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx] [Fintype Node]
   {Q : Params} {S : Schedule Node} {kappa : Nat} {pool : Nat → Tx} {proposer : Nat → Node}
+  {dot : Checkpoint (Chain Tx)}
 
-/-- Algorithm 2, its quorum threshold instantiated with the structural validator count. -/
-local notation "Pr2" => protocol2 Q (Fintype.card Node) kappa pool proposer
+/-- Algorithm 2, its quorum threshold instantiated with the structural validator count.
+    `dot` is the paper's "·", a parameter precisely so that every result is quantified
+    over it — the blank stands for any value. -/
+local notation "Pr2" => protocol2 Q (Fintype.card Node) kappa pool proposer dot
 
 /-- **Lemma 2** (`Lemma 2, arXiv:2601.03862v1 p.8`, for Algorithm 2). If, in slot `t`,
     all validators in `H_vote(t)` send vote messages for chains extending `ch`, then, in
@@ -77,14 +80,14 @@ theorem lemma2 {x : Exec Pr2 S} (H : SettingGA Q S x)
   -- so the tick votes, for an extension of its fork-choice
   obtain ⟨chS, hsend, hchS⟩ :=
     handler2_vote_send (Q := Q) (n := Fintype.card Node) (kappa := kappa) (pool := pool)
-      (proposer := proposer) (p := p) (V := x[j][p].view) (s := x[j][p].st)
+      (proposer := proposer) (dot := dot) (p := p) (V := x[j][p].view) (s := x[j][p].st)
       (voting_reading_mod Q (t + 1)) hgate
   rw [voting_reading_div Q (t + 1)] at hsend hchS
   -- and the fork-choice extends `ch`: the vote-round half
   have hmfc := le_mfc_at_vote2 hsync hstepw hdil hwpt hone hmc hsyn hslp hcb hfn hgst
     ht hvotes hp hlblj
   have hchain : chainLe ch chS := chainLe_trans hmfc hchS
-  have hmem : (⟨p, Msg.vote chS dotCk dotCk (t + 1)⟩ :
+  have hmem : (⟨p, Msg.vote chS dot dot (t + 1)⟩ :
       SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[j + 1].sent := by
     refine tick_emits hlblj ?_
     rw [hsend]

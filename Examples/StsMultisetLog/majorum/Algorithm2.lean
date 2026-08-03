@@ -17,11 +17,15 @@ Algorithm 2 calls.
 
 Algorithm 2's messages are Algorithm 5's with the finality fields left blank — the paper
 writes `[vote, ch, ·, t, vi]` and `[propose, chp, chC, QC, ·, t, vp]`, the `·` being the
-placeholder the fin-vote and checkpoint later fill. `dotCk` renders the placeholder, so the
-same `Msg` type serves both algorithms; that keeps every filter and fork-choice function
-applicable verbatim, and makes Appendix C's lifting ("honest validators send identical
-messages in both protocols except for the finality component") a literal statement about
-message values.
+placeholder the fin-vote and checkpoint later fill. The placeholder is a **parameter**
+`dot` of the algorithm, not a fixed value: the paper's `·` stands for any value, and
+parametricity is the formal rendering of that — every result about `protocol2` is
+∀-quantified over `dot`, so nothing can depend on which value fills the blank (user
+decision, 2026-08-03, replacing a fixed `dotCk := ⟨[], 0⟩`). The same `Msg` type then
+serves both algorithms; that keeps every filter and fork-choice function applicable
+verbatim, and makes Appendix C's lifting ("honest validators send identical messages in
+both protocols except for the finality component") a literal statement about message
+values.
 
 ## The certificate check
 
@@ -42,11 +46,6 @@ open the framework's flat multiset-log flavour Classical
 
 variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx]
 
-/-- The paper's "·": the placeholder checkpoint filling Algorithm 2's unused finality
-    fields. A fixed value, so two Algorithm-2 votes for the same chain and slot are the
-    same message. -/
-def dotCk : Checkpoint (Chain Tx) := ⟨[], 0⟩
-
 /-- Algorithm 2's per-validator state: the confirmed chain and the two merge-round
     snapshots, plus the activation round of the joining protocol (§2, shared by every
     protocol in this model). -/
@@ -64,7 +63,8 @@ structure NodeState2 (Node Tx : Type) [DecidableEq Node] [DecidableEq Tx] where
     slot and extends the carried fast-confirmed chain, and the certificate's votes — held
     in the receiver's own view — give `chC` at least `2n/3` distinct supporters from the
     previous slot. See the module docstring for why the check runs against the view. -/
-def ValidProposal2 (n : Nat) (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
+def ValidProposal2 (n : Nat) (dot : Checkpoint (Chain Tx))
+    (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     (sm : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) : Prop :=
   match sm.msg with
   | .propose chp chC qc _ t' =>
@@ -72,7 +72,7 @@ def ValidProposal2 (n : Nat) (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
         (chC = [] ∨ ∃ cert : QCert Node Tx, qc = some cert ∧
           2 * n ≤ 3 * (cert.image Prod.fst).card ∧
           ∀ e ∈ cert, chainLe chC e.2.1 ∧ e.2.2 = t' - 1 ∧
-            (⟨e.1, Msg.vote e.2.1 dotCk dotCk e.2.2⟩ :
+            (⟨e.1, Msg.vote e.2.1 dot dot e.2.2⟩ :
               SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ V)
   | .vote .. => False
 
@@ -80,12 +80,13 @@ def ValidProposal2 (n : Nat) (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     the frozen one replaces it. Received during `[4Δt, 4Δt+Δ]`, processed at the vote
     reading, folded over the view — the same arrival-order caveat as Algorithm 5's
     `processProposals`. -/
-noncomputable def processProposals2 (n : Nat) (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
+noncomputable def processProposals2 (n : Nat) (dot : Checkpoint (Chain Tx))
+    (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     (t : Nat) (s : NodeState2 Node Tx) : NodeState2 Node Tx :=
   V.toList.foldl (fun acc sm =>
     match sm.msg with
     | .propose _ chC _ _ t' =>
-        if t' = t ∧ ValidProposal2 n V sm ∧ chainLe acc.chFrozen chC then
+        if t' = t ∧ ValidProposal2 n dot V sm ∧ chainLe acc.chFrozen chC then
           { acc with chFrozen := chC }
         else acc
     | .vote .. => acc) s
@@ -93,12 +94,12 @@ noncomputable def processProposals2 (n : Nat) (V : View Node (Msg (Chain Tx) (QC
 /-- Algorithm 2's four phase actions.
 
     Differences from Algorithm 5's handler, all of them the *absence* of finality: no
-    `gjFrozen`, votes carry `dotCk` in the fin-vote fields, the propose message carries
-    `dotCk` for the checkpoint, fast confirmation is `fastconfirmsimple` unwrapped (line
+    `gjFrozen`, votes carry the placeholder `dot` in the fin-vote fields, the propose
+    message carries it for the checkpoint, fast confirmation is `fastconfirmsimple` unwrapped (line
     28 assigns whenever a quorum exists, with no greatest-justified floor), and the one
     output chain is `chi`. The joining gates are the same. -/
 noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
-    (proposer : Nat → Node) (p : Node) (r : Time)
+    (proposer : Nat → Node) (dot : Checkpoint (Chain Tx)) (p : Node) (r : Time)
     (V : View Node (Msg (Chain Tx) (QCert Node Tx))) (s : NodeState2 Node Tx) :
     NodeStepResult (NodeState2 Node Tx) (Msg (Chain Tx) (QCert Node Tx)) :=
   let slot : Nat := r / Q.slotLength
@@ -109,11 +110,11 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
       let cq := fastConfirmSimple n V (slot - 1)
       let chMFC := mfc V V cq.1 slot
       let chp := extend pool chMFC slot
-      { state := s, send := {.propose chp cq.1 cq.2 dotCk slot} }
+      { state := s, send := {.propose chp cq.1 cq.2 dot slot} }
     else { state := s, send := 0 }
   else if phase = Q.delta then
     -- Vote, lines 20–25, after the lines 33–36 proposal processing
-    let s' := processProposals2 n V slot s
+    let s' := processProposals2 n dot V slot s
     let chMFC := mfc s'.vFrozen V s'.chFrozen slot
     -- line 22: `Ch_i ← max({ch ∈ {Ch_i, (chMFC)⌈κ} : ch ⪯ chMFC})`
     let chi :=
@@ -129,7 +130,7 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     let ch := proposedNow.getD chMFC
     { state := { s' with chi := chi },
       -- a joining validator executes silently
-      send := if s.activeAt ≤ r then {.vote ch dotCk dotCk slot} else 0 }
+      send := if s.activeAt ≤ r then {.vote ch dot dot slot} else 0 }
   else if phase = 2 * Q.delta then
     -- Fast Confirm, lines 26–29: adopt whenever a quorum certificate exists
     let fq := fastConfirmSimple n V slot
@@ -144,11 +145,11 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     no protocol-specific events; the wake event runs the joining protocol, exactly as in
     Algorithm 5. -/
 noncomputable def protocol2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
-    (proposer : Nat → Node) :
+    (proposer : Nat → Node) (dot : Checkpoint (Chain Tx)) :
     Protocol Node (Msg (Chain Tx) (QCert Node Tx)) (NodeState2 Node Tx) Empty where
   init _ := { chi := [], vFrozen := ∅, chFrozen := [], activeAt := 0 }
   step p r V s e res := res = match e with
-    | .tick => handler2 Q n kappa pool proposer p r V s
+    | .tick => handler2 Q n kappa pool proposer dot p r V s
     | .recv _ => { state := s, send := 0 }
     | .wake => { state := { s with activeAt := activationRound Q r }, send := 0 }
     | .custom ev => ev.elim
