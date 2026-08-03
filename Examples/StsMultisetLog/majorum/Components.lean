@@ -113,10 +113,20 @@ noncomputable def filEq (V : View Node (Msg (Chain Tx) QC)) :
     sm'.sender = sm.sender ∧ msgSlot sm'.msg = msgSlot sm.msg ∧
       msgChain sm'.msg ≠ msgChain sm.msg)
 
-/-- `FIL_1-exp`: drop votes older than one slot. -/
+/-- `FIL_1-exp`: keep exactly the previous slot's votes.
+
+    Deliberately stricter than the paper's letter ("discards … votes older than one slot",
+    which also keeps current-slot votes): under the paper's lock-step rounds the two
+    readings coincide at every `MFC` call site — a slot-`t` vote cannot be *seen* at
+    `vote(t)` or earlier — but under this model's free adversarial scheduling the looser
+    reading lets same-slot votes into `S(V, t)`'s count and breaks Lemma 2 (a mass wake-up
+    of validators active in slot `t` but not `t−1` inflates the majority test's
+    denominator with votes its numerator can never contain, since `V_frozen` predates
+    them). Equality makes the voter counting structural instead of timing-based.
+    Decision of 2026-08-03, replacing a proposed `DeliveryLags` network assumption. -/
 def fil1Exp (V : Finset (SignedMsg Node (Msg (Chain Tx) QC))) (t : Nat) :
     Finset (SignedMsg Node (Msg (Chain Tx) QC)) :=
-  V.filter (fun sm => t ≤ msgSlot sm.msg + 1)
+  V.filter (fun sm => t = msgSlot sm.msg + 1)
 
 /-- `FIL_lmd`: keep only each validator's latest vote. -/
 noncomputable def filLmd (V : Finset (SignedMsg Node (Msg (Chain Tx) QC))) :

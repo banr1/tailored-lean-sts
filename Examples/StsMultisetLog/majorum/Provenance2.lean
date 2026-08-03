@@ -575,29 +575,16 @@ theorem le_mfc_at_propose2 {x : Exec Pr2 S}
         SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
         ∈ fil1Exp (filEq (x[ip][v].view)) (t + 1) := by
       simp only [fil1Exp, Finset.mem_filter]
-      exact ⟨hfeq, by show t + 1 ≤ t + 1; omega⟩
+      exact ⟨hfeq, rfl⟩
     have hflmd : (⟨p, Msg.vote e dotCk dotCk t⟩ :
         SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
         ∈ filLmd (fil1Exp (filEq (x[ip][v].view)) (t + 1)) := by
       simp only [filLmd, Finset.mem_filter]
       refine ⟨hfexp, ?_⟩
       rintro ⟨sm', hsm', hsend', hlt⟩
-      have hsm'v : sm' ∈ votes (x[ip][v].view) := by
-        simp only [fil1Exp, filEq, Finset.mem_filter] at hsm'
-        exact hsm'.1.1
-      have hsm'log : sm' ∈ x[ip].sent :=
-        views_sound x ip v _ (by simp only [votes, Finset.mem_filter] at hsm'v; exact hsm'v.1)
-      obtain ⟨e', src', tgt', s', hm'⟩ := exists_vote_of_mem_votes hsm'v
-      have hh' : sm'.sender ∉ S.adv ((x[ip].time : Int)) := by
-        rw [hsend']
-        exact hhon_ip
-      have hbound := voting_le_of_vote_mem2 hsync hmc hmono hsm'log hh' hm'
-      rw [hip] at hbound
-      have e2 : msgSlot sm'.msg = s' := by rw [hm']; exact rfl
-      rw [e2] at hlt
-      have hlt' : t < s' := hlt
-      have hmul : Q.slotLength * (t + 1) ≤ Q.slotLength * s' :=
-        Nat.mul_le_mul_left _ (by omega)
+      -- the equality filter pins `sm'`'s slot to `t`, against the strict inequality
+      have hexp' : t + 1 = msgSlot sm'.msg + 1 := (Finset.mem_filter.mp hsm').2
+      have hlt' : t < msgSlot sm'.msg := hlt
       omega
     simp only [votesFor, Finset.mem_filter]
     exact ⟨hflmd, hext⟩
@@ -629,15 +616,9 @@ theorem le_mfc_at_propose2 {x : Exec Pr2 S}
       refine hqa (hmc _ _ ?_ had)
       rw [hvot1]
       exact_mod_cast (by omega : Q.slotLength * (t + 1) ≤ Q.slotLength * (t + 1) + Q.delta)
-    have hbound := voting_le_of_vote_mem2 hsync hmc hmono hqlog hh' hm'
-    rw [hip] at hbound
     have e2 : msgSlot smq.msg = s' := by rw [hm']; exact rfl
     rw [e2] at hexp'
-    have hs' : s' = t := by
-      by_contra hne'
-      have hmul : Q.slotLength * (t + 1) ≤ Q.slotLength * s' :=
-        Nat.mul_le_mul_left _ (by omega)
-      omega
+    have hs' : s' = t := by omega
     subst hs'
     exact mem_active_of_honest_vote2 hsync hstepw hdil hwpt hmc ht hqlog hh' hm'
   -- Constraint (1) at slot `t + 1` turns the containment into the majority

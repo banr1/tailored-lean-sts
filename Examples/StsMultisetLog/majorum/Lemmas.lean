@@ -14,8 +14,8 @@ Nothing qualifies yet. The state of **Lemma 2**, the first target — a statemen
 2's protocol — `Provenance2.le_mfc_at_propose2`: under `ActiveVotesExtend2` (the lemma's
 hypothesis, over the log), the fork-choice of any validator active in slot `t+1` returns
 an extension of `ch` at `propose(t+1)`, over any base `b ⪯ ch`. The vote-round half is
-blocked on one model question — whether to add a `DeliveryLags` execution predicate
-("nothing is seen in the round it was sent"), without which a vote sent at `voting(t+1)`
-can reach a view at `voting(t+1)` and break the paper's own voter counting; see the
-CONTEXT.md roadmap entry of 2026-08-03.
+in progress along the CONTEXT.md roadmap of 2026-08-03; the same-round-delivery problem
+that would have made it false was resolved by making `fil1Exp` an equality filter (keep
+exactly the previous slot's votes), so the voter counting is structural rather than
+timing-based.
 -/
