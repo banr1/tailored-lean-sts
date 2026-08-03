@@ -243,6 +243,29 @@ theorem emitted_step2 {x : Exec Pr2 S} {k : Nat}
     subst hem'
     exact Or.inr hen
 
+/-- The propose phase's send, in full: only the slot's proposer, once active, and the
+    message's components are this tick's fork-choice over its own view. -/
+theorem handler2_propose_send {p : Node} {r : Time}
+    {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
+    {m : Msg (Chain Tx) (QCert Node Tx)}
+    (hmod : r % Q.slotLength = 0)
+    (h : m ∈ (handler2Core Q n kappa pool proposer dot p r V s).send) :
+    p = proposer (r / Q.slotLength) ∧ s.activeAt ≤ r ∧
+      m = .propose
+        (extend pool (mfc V V (fastConfirmSimple n V (r / Q.slotLength - 1)).1
+          (r / Q.slotLength)) (r / Q.slotLength))
+        (fastConfirmSimple n V (r / Q.slotLength - 1)).1
+        (fastConfirmSimple n V (r / Q.slotLength - 1)).2 dot (r / Q.slotLength) := by
+  have hδ := Q.deltaPos
+  simp only [handler2Core, apply_ite NodeStepResult.send] at h
+  split_ifs at h <;>
+    first
+      | omega
+      | (simp only [Multiset.mem_singleton] at h
+         exact ⟨‹p = proposer (r / Q.slotLength) ∧ s.activeAt ≤ r›.1,
+           ‹p = proposer (r / Q.slotLength) ∧ s.activeAt ≤ r›.2, h⟩)
+      | simp at h
+
 /-! ### Provenance of an honest vote -/
 
 /-- **An honest vote pins down its own history** — `vote_provenance`, against `handler2`.
@@ -298,6 +321,62 @@ theorem voting_le_of_vote_mem2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
   obtain ⟨k, hki, -, htimek, -, -⟩ := vote_provenance2 hsync hmc hmono hmem hhon hmsg
   rw [← htimek]
   exact time_le_of_le hmono (Nat.le_of_lt hki)
+
+/-- **An honest proposal pins down its own history**: a slot-`s` propose in the log,
+    whose sender is still honest, came from the slot proposer's tick at reading
+    `propose(s) = 4Δs`, at real time `4Δs`, and its chain is that tick's fork-choice over
+    the proposer's own view, extended by one block. -/
+theorem propose_provenance2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
+    (hmc : S.MonotoneCorruption) (hmono : TimeMonotone x) {i : Nat}
+    {sm : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))} {chp chC : Chain Tx}
+    {qc : Option (QCert Node Tx)} {ck : Checkpoint (Chain Tx)} {s : Nat}
+    (hmem : sm ∈ x[i].sent) (hhon : sm.sender ∉ S.adv ((x[i].time : Int)))
+    (hmsg : sm.msg = .propose chp chC qc ck s) :
+    sm.sender = proposer s ∧
+    ∃ k, k < i ∧ x.lbl k = .tick sm.sender (Q.slotLength * s) ∧
+      x[k].time = Q.slotLength * s ∧
+      sm ∈ x[k + 1].sent - x[k].sent ∧
+      chp = extend pool (mfc (x[k][sm.sender].view) (x[k][sm.sender].view)
+        (fastConfirmSimple n (x[k][sm.sender].view) (s - 1)).1 s) s ∧
+      chC = (fastConfirmSimple n (x[k][sm.sender].view) (s - 1)).1 ∧
+      qc = (fastConfirmSimple n (x[k][sm.sender].view) (s - 1)).2 := by
+  have hδ := Q.deltaPos
+  have hsl0 : 0 < Q.slotLength := by
+    have : Q.slotLength = 4 * Q.delta := rfl
+    omega
+  obtain ⟨k, hki, hem⟩ := emitted_of_mem_sent hmem
+  have hhonk : sm.sender ∉ S.adv ((x[k].time : Int)) := fun hadv =>
+    hhon (hmc _ _ (by exact_mod_cast time_le_of_le hmono (Nat.le_of_lt hki)) hadv)
+  rcases emitted_step2 hem with ⟨t, dt, hlbl, hawake, htime, hclock, hsend⟩ | hadv
+  · obtain ⟨hactive, hshape⟩ := mem_handler2_send hsend
+    have hmods : t % Q.slotLength = 0 ∧ t / Q.slotLength = s := by
+      rcases hshape with ⟨chp', chC', qc', heq, hmod0⟩ | ⟨ch', heq, -⟩
+      · rw [hmsg] at heq
+        injection heq with h1 h2 h3 h4 h5
+        exact ⟨hmod0, h5.symm⟩
+      · rw [hmsg] at heq
+        cases heq
+    have ht : t = Q.slotLength * s := by
+      have hdm := Nat.div_add_mod t Q.slotLength
+      rw [hmods.1, hmods.2] at hdm
+      omega
+    subst ht
+    have hdiv : Q.slotLength * s / Q.slotLength = s := by
+      rw [Nat.mul_div_cancel_left _ hsl0]
+    obtain ⟨hprop, -, hmeq⟩ := handler2_propose_send hmods.1 hsend
+    rw [hmsg, hdiv] at hmeq
+    injection hmeq with h1 h2 h3 h4 h5
+    rw [hdiv] at hprop
+    have htimek : x[k].time = Q.slotLength * s := by
+      have hawake' : x.Awake (k + 1) sm.sender := by
+        show sm.sender ∈ S.awake ((x[k + 1].time : Int))
+        rw [htime]
+        exact hawake
+      have := hsync (k + 1) sm.sender hawake'
+      rw [hclock] at this
+      omega
+    exact ⟨hprop, k, hki, hlbl, htimek, hem, h1, h2, h3⟩
+  · exact absurd hadv hhonk
 
 /-- One tick contributes at most one message to the log: its delta is the handler's
     sends, all signed by the ticker, and the handler sends at most one message —
@@ -762,6 +841,82 @@ theorem processProposals2_chFrozen_mono (V : View Node (Msg (Chain Tx) (QCert No
           split_ifs with hcond
           · exact chainLe_trans hcond.2.2 (ih { s with chFrozen := chC })
           · exact ih s
+
+open Classical in
+/-- **The fold's lower bound from a valid proposal in the view**: either the processed
+    frozen chain extends the proposal's `chC₀`, or at scan time the accumulator was
+    already not below `chC₀` — and then something not below `chC₀` survives into the
+    result (the fold only extends). -/
+theorem processProposals2_chFrozen_lb (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
+    (t : Nat) (s : NodeState2 Node Tx)
+    {sm : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))} (hsm : sm ∈ V)
+    {chp₀ chC₀ : Chain Tx} {qc₀ : Option (QCert Node Tx)} {ck₀ : Checkpoint (Chain Tx)}
+    (hmsg : sm.msg = .propose chp₀ chC₀ qc₀ ck₀ t)
+    (hvalid : ValidProposal2 n proposer V sm) :
+    chainLe chC₀ ((processProposals2 n proposer V t s).chFrozen) ∨
+      ∃ y : Chain Tx, ¬ chainLe y chC₀ ∧
+        chainLe y ((processProposals2 n proposer V t s).chFrozen) := by
+  obtain ⟨sd, m0⟩ := sm
+  have hm0 : m0 = Msg.propose chp₀ chC₀ qc₀ ck₀ t := hmsg
+  subst hm0
+  unfold processProposals2
+  have hmono' : ∀ (l : List (SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))))
+      (acc : NodeState2 Node Tx),
+      chainLe acc.chFrozen ((l.foldl (fun acc sm =>
+        match sm.msg with
+        | .propose _ chC _ _ t' =>
+            if t' = t ∧ ValidProposal2 n proposer V sm ∧ chainLe acc.chFrozen chC then
+              { acc with chFrozen := chC }
+            else acc
+        | .vote .. => acc) acc).chFrozen) := by
+    intro l
+    induction l with
+    | nil => exact fun acc => chainLe_refl _
+    | cons a l ih =>
+        intro acc
+        rw [List.foldl_cons]
+        obtain ⟨asd, amsg⟩ := a
+        cases amsg with
+        | vote ch src tgt t' => exact ih acc
+        | propose chp chC qc ck t' =>
+            dsimp only
+            split_ifs with hcond
+            · exact chainLe_trans hcond.2.2 (ih { acc with chFrozen := chC })
+            · exact ih acc
+  have hgen : ∀ (l : List (SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))),
+      (⟨sd, Msg.propose chp₀ chC₀ qc₀ ck₀ t⟩ :
+        SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ l →
+      ∀ acc : NodeState2 Node Tx,
+      chainLe chC₀ ((l.foldl (fun acc sm =>
+        match sm.msg with
+        | .propose _ chC _ _ t' =>
+            if t' = t ∧ ValidProposal2 n proposer V sm ∧ chainLe acc.chFrozen chC then
+              { acc with chFrozen := chC }
+            else acc
+        | .vote .. => acc) acc).chFrozen) ∨
+      ∃ y : Chain Tx, ¬ chainLe y chC₀ ∧
+        chainLe y ((l.foldl (fun acc sm =>
+        match sm.msg with
+        | .propose _ chC _ _ t' =>
+            if t' = t ∧ ValidProposal2 n proposer V sm ∧ chainLe acc.chFrozen chC then
+              { acc with chFrozen := chC }
+            else acc
+        | .vote .. => acc) acc).chFrozen) := by
+    intro l
+    induction l with
+    | nil => intro h; cases h
+    | cons a l ih =>
+        intro hmem acc
+        rw [List.foldl_cons]
+        rcases List.mem_cons.mp hmem with rfl | hmem'
+        · dsimp only
+          by_cases hg : chainLe acc.chFrozen chC₀
+          · rw [if_pos ⟨rfl, hvalid, hg⟩]
+            exact Or.inl (hmono' l { acc with chFrozen := chC₀ })
+          · rw [if_neg (fun hc => hg hc.2.2)]
+            exact Or.inr ⟨acc.chFrozen, hg, hmono' l acc⟩
+        · exact ih hmem' _
+  exact hgen V.toList (Finset.mem_toList.mpr hsm) s
 
 /-- Outside the vote and merge phases, no branch of `handler2` writes the frozen state. -/
 theorem handler2_frozen {p : Node} {r : Time}

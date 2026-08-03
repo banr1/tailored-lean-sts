@@ -249,6 +249,19 @@ private theorem foldl_base_or_majority (V V' : View Node (Msg (Chain Tx) QC)) (c
       · rename_i h; exact Or.inr h.2.1
       · exact hb
 
+/-- `Extend` appends a block, so its input is a prefix of its output. -/
+theorem chainLe_extend (pool : Nat → Tx) (ch : Chain Tx) (t : Nat) :
+    chainLe ch (extend pool ch t) := by
+  rw [chainLe_iff_prefix]
+  exact List.prefix_append _ _
+
+/-- **`MFC` returns its base or a majority-supported chain** — the dichotomy Lemma 4's
+    base case analyzes. -/
+theorem mfc_base_or_majority (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx)
+    (t : Nat) : mfc V V' chC t = chC ∨ Majority V V' t (mfc V V' chC t) := by
+  unfold mfc
+  exact foldl_base_or_majority V V' chC t _ chC (Or.inl rfl)
+
 /-- A prefix that is at least as long is the whole thing, so comparable chains are ordered
     by length. -/
 theorem chainLe_of_comparable (a b : Chain Tx) (hc : chainLe a b ∨ chainLe b a)
