@@ -39,8 +39,7 @@ the definition inside implicit type arguments and poison later goals. -/
 theorem protocol2_step_tick {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx} {res} :
     (protocol2 (Node := Node) Q n kappa pool proposer).step p r V s .tick res ↔
-      ∃ dot : Checkpoint (Chain Tx),
-        res = handler2 Q n kappa pool proposer dot p r V s := Iff.rfl
+      res ∈ handler2 Q n kappa pool proposer p r V s := Iff.rfl
 
 theorem protocol2_step_recv {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
@@ -61,13 +60,13 @@ theorem protocol2_step_wake {p : Node} {r : Time}
 theorem mem_handler2_send {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     {m : Msg (Chain Tx) (QCert Node Tx)}
-    (h : m ∈ (handler2 Q n kappa pool proposer dot p r V s).send) :
+    (h : m ∈ (handler2Core Q n kappa pool proposer dot p r V s).send) :
     s.activeAt ≤ r ∧
       ((∃ chp chC qc, m = .propose chp chC qc dot (r / Q.slotLength) ∧
           r % Q.slotLength = 0) ∨
         (∃ ch, m = .vote ch dot dot (r / Q.slotLength) ∧
           r % Q.slotLength = Q.delta)) := by
-  simp only [handler2, apply_ite NodeStepResult.send] at h
+  simp only [handler2Core, apply_ite NodeStepResult.send] at h
   split_ifs at h <;> simp at h <;> subst h <;>
     first
       | exact ⟨‹p = proposer (r / Q.slotLength) ∧ s.activeAt ≤ r›.2,
@@ -78,9 +77,9 @@ theorem mem_handler2_send {p : Node} {r : Time}
 theorem handler2_send_subsingleton {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     {m m' : Msg (Chain Tx) (QCert Node Tx)}
-    (h : m ∈ (handler2 Q n kappa pool proposer dot p r V s).send)
-    (h' : m' ∈ (handler2 Q n kappa pool proposer dot p r V s).send) : m = m' := by
-  simp only [handler2, apply_ite NodeStepResult.send] at h h'
+    (h : m ∈ (handler2Core Q n kappa pool proposer dot p r V s).send)
+    (h' : m' ∈ (handler2Core Q n kappa pool proposer dot p r V s).send) : m = m' := by
+  simp only [handler2Core, apply_ite NodeStepResult.send] at h h'
   split_ifs at h h' <;> simp_all
 
 /-! ### What one step can contribute -/
@@ -93,7 +92,7 @@ theorem emitted_step2 {x : Exec Pr2 S} {k : Nat}
     (∃ (t : Time) (dot : Checkpoint (Chain Tx)), x.lbl k = .tick sm.sender t ∧
         sm.sender ∈ S.awake ((x[k].time : Int)) ∧
         x[k + 1].time = x[k].time ∧ x[k + 1][sm.sender].clock = t ∧
-        sm.msg ∈ (handler2 Q n kappa pool proposer dot sm.sender t
+        sm.msg ∈ (handler2Core Q n kappa pool proposer dot sm.sender t
           x[k][sm.sender].view x[k][sm.sender].st).send) ∨
       sm.sender ∈ S.adv ((x[k].time : Int)) := by
   have hstep : Step Pr2 S (x.lbl k) x[k] x[k + 1] := x.step k
@@ -101,7 +100,7 @@ theorem emitted_step2 {x : Exec Pr2 S} {k : Nat}
       (∃ (t : Time) (dot : Checkpoint (Chain Tx)), a = Action.tick sm.sender t ∧
           sm.sender ∈ S.awake ((c.time : Int)) ∧ c'.time = c.time ∧
           c'[sm.sender].clock = t ∧
-          sm.msg ∈ (handler2 Q n kappa pool proposer dot sm.sender t
+          sm.msg ∈ (handler2Core Q n kappa pool proposer dot sm.sender t
             c[sm.sender].view c[sm.sender].st).send) ∨
         sm.sender ∈ S.adv ((c.time : Int)))
     ?_ ?_ ?_ ?_ ?_ ?_ hem
@@ -118,7 +117,7 @@ theorem emitted_step2 {x : Exec Pr2 S} {k : Nat}
     intro d d' q t hen hns hem'
     rw [nodeStep_iff_exists] at hns
     obtain ⟨res, hres, rfl⟩ := hns
-    rw [protocol2_step_tick] at hres
+    rw [protocol2_step_tick, mem_handler2_iff] at hres
     obtain ⟨dt, rfl⟩ := hres
     rw [← setClock_sent q t d, applyNodeStepResult_sent_sub] at hem'
     obtain ⟨mm, hmm, hsm⟩ := Multiset.mem_map.mp hem'
@@ -229,7 +228,7 @@ theorem tick_sends_subsingleton {x : Exec Pr2 S} {k : Nat} {p : Node} {t : Time}
   simp only [spec] at heff
   rw [nodeStep_iff_exists] at heff
   obtain ⟨res, hres, hpost⟩ := heff
-  rw [protocol2_step_tick] at hres
+  rw [protocol2_step_tick, mem_handler2_iff] at hres
   obtain ⟨dt, rfl⟩ := hres
   rw [hpost, ← setClock_sent p t x[k], applyNodeStepResult_sent_sub] at h h'
   obtain ⟨m, hm, rfl⟩ := Multiset.mem_map.mp h
@@ -277,8 +276,8 @@ theorem processProposals2_activeAt (V : View Node (Msg (Chain Tx) (QCert Node Tx
 /-- Neither does any branch of `handler2`: activation is written by wake events alone. -/
 theorem handler2_activeAt (p : Node) (r : Time)
     (V : View Node (Msg (Chain Tx) (QCert Node Tx))) (s : NodeState2 Node Tx) :
-    (handler2 Q n kappa pool proposer dot p r V s).state.activeAt = s.activeAt := by
-  simp only [handler2, apply_ite NodeStepResult.state]
+    (handler2Core Q n kappa pool proposer dot p r V s).state.activeAt = s.activeAt := by
+  simp only [handler2Core, apply_ite NodeStepResult.state]
   split_ifs <;> simp [processProposals2_activeAt]
 
 /-- A wake event writes the activation round of its own round. -/
@@ -316,7 +315,7 @@ theorem activeAt_lb_step2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x) {m : N
     intro d d' q t hen hns h _ _
     rw [nodeStep_iff_exists] at hns
     obtain ⟨res, hres, rfl⟩ := hns
-    rw [protocol2_step_tick] at hres
+    rw [protocol2_step_tick, mem_handler2_iff] at hres
     obtain ⟨dt, rfl⟩ := hres
     by_cases hq : q = p
     · subst hq
@@ -663,9 +662,9 @@ theorem processProposals2_chFrozen (V : View Node (Msg (Chain Tx) (QCert Node Tx
 theorem handler2_frozen {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     (h1 : r % Q.slotLength ≠ Q.delta) (h2 : r % Q.slotLength ≠ 3 * Q.delta) :
-    (handler2 Q n kappa pool proposer dot p r V s).state.vFrozen = s.vFrozen ∧
-      (handler2 Q n kappa pool proposer dot p r V s).state.chFrozen = s.chFrozen := by
-  simp only [handler2, apply_ite NodeStepResult.state]
+    (handler2Core Q n kappa pool proposer dot p r V s).state.vFrozen = s.vFrozen ∧
+      (handler2Core Q n kappa pool proposer dot p r V s).state.chFrozen = s.chFrozen := by
+  simp only [handler2Core, apply_ite NodeStepResult.state]
   split_ifs <;>
     first
       | exact ⟨rfl, rfl⟩
@@ -676,11 +675,11 @@ theorem handler2_frozen {p : Node} {r : Time}
 theorem handler2_merge {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     (hmod : r % Q.slotLength = 3 * Q.delta) :
-    (handler2 Q n kappa pool proposer dot p r V s).state =
+    (handler2Core Q n kappa pool proposer dot p r V s).state =
       { s with vFrozen := V, chFrozen := (fastConfirmSimple n V (r / Q.slotLength)).1 } := by
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
-  simp only [handler2, apply_ite NodeStepResult.state]
+  simp only [handler2Core, apply_ite NodeStepResult.state]
   split_ifs <;> first | rfl | omega
 
 /-- The chain the vote phase settles on extends this tick's fork-choice: `proposedNow`
@@ -720,13 +719,13 @@ theorem chainLe_getD_findSome (l : List (SignedMsg Node (Msg (Chain Tx) (QCert N
 theorem handler2_vote_send {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     (hmod : r % Q.slotLength = Q.delta) (hgate : s.activeAt ≤ r) :
-    ∃ ch, (handler2 Q n kappa pool proposer dot p r V s).send
+    ∃ ch, (handler2Core Q n kappa pool proposer dot p r V s).send
         = {Msg.vote ch dot dot (r / Q.slotLength)} ∧
       chainLe (mfc (processProposals2 n V (r / Q.slotLength) s).vFrozen V
         (processProposals2 n V (r / Q.slotLength) s).chFrozen (r / Q.slotLength)) ch := by
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
-  simp only [handler2, apply_ite NodeStepResult.send]
+  simp only [handler2Core, apply_ite NodeStepResult.send]
   split_ifs <;>
     first
       | omega
@@ -742,8 +741,8 @@ theorem tick_effect {x : Exec Pr2 S} {k : Nat} {p : Node} {t : Time}
     (hlbl : x.lbl k = .tick p t) :
     ∃ dt : Checkpoint (Chain Tx),
       x[k + 1][p].st =
-        (handler2 Q n kappa pool proposer dt p t x[k][p].view x[k][p].st).state ∧
-      ∀ m ∈ (handler2 Q n kappa pool proposer dt p t x[k][p].view x[k][p].st).send,
+        (handler2Core Q n kappa pool proposer dt p t x[k][p].view x[k][p].st).state ∧
+      ∀ m ∈ (handler2Core Q n kappa pool proposer dt p t x[k][p].view x[k][p].st).send,
         (⟨p, m⟩ : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[k + 1].sent := by
   have hstep : Step Pr2 S (x.lbl k) x[k] x[k + 1] := x.step k
   rw [hlbl] at hstep
@@ -751,7 +750,7 @@ theorem tick_effect {x : Exec Pr2 S} {k : Nat} {p : Node} {t : Time}
   simp only [spec] at hen heff
   rw [nodeStep_iff_exists] at heff
   obtain ⟨res, hres, hpost⟩ := heff
-  rw [protocol2_step_tick] at hres
+  rw [protocol2_step_tick, mem_handler2_iff] at hres
   obtain ⟨dt, rfl⟩ := hres
   refine ⟨dt, ?_, ?_⟩
   · rw [hpost, applyNodeStepResult_getElem, if_pos rfl]
@@ -817,7 +816,7 @@ theorem frozen_step2 {x : Exec Pr2 S} {m : Nat} {p : Node}
     intro d d' q t hen hns hc
     rw [nodeStep_iff_exists] at hns
     obtain ⟨res, hres, rfl⟩ := hns
-    rw [protocol2_step_tick] at hres
+    rw [protocol2_step_tick, mem_handler2_iff] at hres
     obtain ⟨dt, rfl⟩ := hres
     by_cases hq : q = p
     · subst hq
@@ -893,7 +892,7 @@ theorem activeAt_le_voting {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
         intro d d' q t hen hns h _ _
         rw [nodeStep_iff_exists] at hns
         obtain ⟨res, hres, rfl⟩ := hns
-        rw [protocol2_step_tick] at hres
+        rw [protocol2_step_tick, mem_handler2_iff] at hres
         obtain ⟨dt, rfl⟩ := hres
         by_cases hq : q = p
         · subst hq

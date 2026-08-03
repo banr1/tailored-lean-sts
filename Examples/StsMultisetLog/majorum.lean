@@ -8,9 +8,6 @@ import Examples.StsMultisetLog.majorum.Mfc
 import Examples.StsMultisetLog.majorum.Provenance
 import Examples.StsMultisetLog.majorum.Provenance2
 import Examples.StsMultisetLog.majorum.Lemmas
-import Examples.StsMultisetLog.majorum.Nda.Algorithm2
-import Examples.StsMultisetLog.majorum.Nda.Provenance2
-import Examples.StsMultisetLog.majorum.Nda.Lemmas
 
 /-!
 # Majorum, as an `Sts2`-framework specification
