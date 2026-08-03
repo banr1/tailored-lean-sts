@@ -118,6 +118,53 @@ theorem lemma4 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
         hslp hcb hfn (le_refl _) hgst ht hsent hhon_i hhon_t
   | succ m hm ih => exact lemma2 H (by omega) ih
 
+/-- **Lemma 5** (`Lemma 5, arXiv:2601.03862v1 p.16`, for Algorithm 2). Let `ri` be any
+    round and `rj ≥ ri` a propose or vote round. Then, for any validator `vi` honest in
+    `ri` and any `vj ∈ H_rj`, `Ch^{ri}_i ⪯ MFC^{rj}_j`.
+
+    Two hypotheses beyond `SettingGA`, and two strengthenings:
+
+    * **`HonestProposalWindow`** is Lemma 1's conclusion, de-probabilized: every slot
+      `t > κ` has an honestly proposed slot in `[t−κ, t)`. The paper's proof invokes
+      Lemma 1 ("with overwhelming probability") exactly here; this model takes the
+      conclusion as a hypothesis wherever the paper says w.o.p.
+    * **`1 ≤ κ`**: with `κ = 0` the κ-deep rule confirms the fork-choice tip itself and
+      the paper's own window `[t−κ, t)` is empty — its proof, too, needs `κ ≥ 1`.
+    * `vi`'s honesty is **not assumed**: every validator's state follows the handler
+      (the adversary acts by injecting messages), so the bound holds for corrupt `vi`
+      too. Nor is a round bound on `ri` beyond `ri ≤ rj` — `x[a].time ≤ rj` renders it.
+    * The conclusion covers both of the paper's round shapes as a conjunction: the
+      propose round needs only the time (any index at `propose(sj)`), the vote round
+      `vj`'s tick, whose state the fork choice reads.
+
+    The proof is `Provenance2.chi_le_mfc`, a strong induction on the index of the last
+    `chi` write in place of the paper's minimality contradiction — Case 1 (κ-deep write:
+    absorption through the window's proposal) and Case 2 (fast-confirm write: Lemma 3's
+    propagation, quorum-direct at the very next slot) are its step cases. -/
+theorem lemma5 {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
+    (hwin : HonestProposalWindow x)
+    {a : Nat} {vi : Node} {b : Nat} {vj : Node} {sj : Nat} (hsj : 1 ≤ sj)
+    (hact : vj ∈ Active Q S (sj : Int)) :
+    (x[b].time = Q.slotLength * sj → x[a].time ≤ Q.slotLength * sj →
+      chainLe (x[a][vi].st.chi) (mfc (x[b][vj].view) (x[b][vj].view)
+        (fastConfirmSimple (Fintype.card Node) (x[b][vj].view) (sj - 1)).1 sj)) ∧
+    (x.lbl b = .tick vj (Q.slotLength * sj + Q.delta) →
+      x[a].time ≤ Q.slotLength * sj + Q.delta →
+      chainLe (x[a][vi].st.chi)
+        (mfc (processProposals2 (Fintype.card Node) proposer (x[b][vj].view) sj
+            (x[b][vj].st)).vFrozen (x[b][vj].view)
+          (processProposals2 (Fintype.card Node) proposer (x[b][vj].view) sj
+            (x[b][vj].st)).chFrozen sj)) := by
+  obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
+    ⟨hcb, hfn⟩, hgst⟩ := H
+  obtain ⟨s0, rfl⟩ : ∃ s0, sj = s0 + 1 := ⟨sj - 1, by omega⟩
+  have hact' : vj ∈ Active Q S ((s0 : Int) + 1) := by
+    have hcast : (((s0 + 1 : Nat)) : Int) = (s0 : Int) + 1 := by push_cast; omega
+    rw [← hcast]
+    exact hact
+  simpa using chi_le_mfc hsync hstepw hdiv hdil hone hwpt hmc hsyn hrel hslp hcb hfn
+    (le_refl _) hgst hκ hwin a vi b vj s0 hact'
+
 /-- **Lemma 6** (`Lemma 6, arXiv:2601.03862v1 p.16`, for Algorithm 2). For any slot `t`
     and validator `vi ∈ H_propose(t)`, `MFC^{propose(t)}_i.p < t` — the propose-round
     fork-choice output was proposed *before* the current slot.
