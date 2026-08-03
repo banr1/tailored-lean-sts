@@ -249,6 +249,13 @@ private theorem foldl_base_or_majority (V V' : View Node (Msg (Chain Tx) QC)) (c
       · rename_i h; exact Or.inr h.2.1
       · exact hb
 
+/-- `Extend` stamps its slot: the appended block is the last. -/
+theorem proposedAt_extend (pool : Nat → Tx) (ch : Chain Tx) (t : Nat) :
+    proposedAt (extend pool ch t) = t := by
+  unfold proposedAt extend
+  rw [List.getLast?_concat]
+  rfl
+
 /-- `Extend` appends a block, so its input is a prefix of its output. -/
 theorem chainLe_extend (pool : Nat → Tx) (ch : Chain Tx) (t : Nat) :
     chainLe ch (extend pool ch t) := by

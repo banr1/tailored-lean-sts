@@ -993,6 +993,51 @@ theorem handler2_vote_send {p : Node} {r : Time}
       | omega
       | exact ⟨_, rfl, chainLe_getD_findSome _ _ _ _⟩
 
+/-- The vote phase's chain choice, named: the first slot-`slot` proposal from the slot's
+    proposer extending `chMFC`, or `chMFC`. Definitionally the term inside `handler2Core`'s
+    vote branch — a proof-layer name for it, so `handler2_vote_send_eq` can expose the sent
+    chain exactly. -/
+noncomputable def voteChoice (prop : Nat → Node)
+    (V : View Node (Msg (Chain Tx) (QCert Node Tx))) (slot : Nat) (chMFC : Chain Tx) :
+    Chain Tx :=
+  (V.toList.findSome? (fun sm => match sm.msg with
+    | .propose chp _ _ _ t' =>
+        if sm.sender == prop slot && t' == slot && proposedAt chp == slot &&
+            chainLe chMFC chp then some chp
+        else none
+    | .vote .. => none)).getD chMFC
+
+/-- The vote phase's send, exactly: one vote for `voteChoice`. -/
+theorem handler2_vote_send_eq {p : Node} {r : Time}
+    {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
+    (hmod : r % Q.slotLength = Q.delta) (hgate : s.activeAt ≤ r) :
+    (handler2Core Q n kappa pool proposer dot p r V s).send
+      = {Msg.vote (voteChoice proposer V (r / Q.slotLength)
+          (mfc (processProposals2 n proposer V (r / Q.slotLength) s).vFrozen V
+            (processProposals2 n proposer V (r / Q.slotLength) s).chFrozen
+            (r / Q.slotLength))) dot dot (r / Q.slotLength)} := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  simp only [handler2Core, voteChoice, apply_ite NodeStepResult.send]
+  split_ifs <;> first | rfl | omega
+
+/-- The certificate `fastconfirmsimple` attaches, in full: the support votes' contents. -/
+theorem fastConfirmSimple_snd_spec {V : View Node (Msg (Chain Tx) (QCert Node Tx))}
+    {t : Nat} {ch : Chain Tx} {cert : QCert Node Tx}
+    (h : fastConfirmSimple n V t = (ch, some cert)) :
+    cert = ((votes V).filter (fun sm => msgSlot sm.msg = t ∧
+      chainLe ch (msgChain sm.msg))).image
+        (fun sm => (sm.sender, msgChain sm.msg, msgSlot sm.msg)) := by
+  unfold fastConfirmSimple at h
+  dsimp only at h
+  split at h
+  · exact absurd (congrArg Prod.snd h) (by simp)
+  · have h1 := congrArg Prod.fst h
+    have h2 := congrArg Prod.snd h
+    simp only at h1 h2
+    rw [← h1]
+    exact (Option.some_injective _ h2).symm
+
 /-! ### One tick, precisely: state, time, reading, emission -/
 
 /-- A tick step, described whole: for the filler this tick chose, the ticking
@@ -1919,6 +1964,115 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
       exact hsj.1
     rw [hvf]
     exact le_mfc_of_majority _ _ _ _ ch hge hmaj
+
+/-- **A vote-round majority transfers into the proposer's propose-round views.** The
+    numerator's votes live in the voter's frozen (merge-round) view, which synchrony
+    delivers to the proposer by `propose(t0+1)`; the denominator's voters reach the voter
+    by synchrony the other way; and `filEq` survival transfers because `Relay` puts the
+    proposer's whole view inside the voter's — a conflicting vote that kills a sender at
+    the proposer would be relayed and kill it at the voter too. The paper's "Graded
+    Delivery" step of Lemma 4, and the first use of `Relay`. -/
+theorem majority_transfer {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
+    (hsyn : Synchrony 0 Q.delta x) (hrel : Relay 0 Q.delta x)
+    {t0 : Nat} {j : Nat} {vi : Node}
+    (hj : x.lbl j = .tick vi (Q.slotLength * (t0 + 1) + Q.delta))
+    {im : Nat} (htim : x[im].time = Q.slotLength * t0 + 3 * Q.delta)
+    {k : Nat} {vp : Node} (hk : x.lbl k = .tick vp (Q.slotLength * (t0 + 1)))
+    (htk : x[k].time = Q.slotLength * (t0 + 1))
+    {ch : Chain Tx}
+    (hmaj : Majority (x[im][vi].view) (x[j][vi].view) (t0 + 1) ch) :
+    Majority (x[k][vp].view) (x[k][vp].view) (t0 + 1) ch := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have hexp : Q.slotLength * (t0 + 1) = Q.slotLength * t0 + Q.slotLength := Nat.mul_succ ..
+  have htj : x[j].time = Q.slotLength * (t0 + 1) + Q.delta := tick_reading hsync hj
+  have hAwk : x.Awake k vp := by
+    have hstep := x.step k
+    rw [hk] at hstep
+    have h := hstep.1
+    simp only [spec] at h
+    exact h
+  have hAwj : x.Awake j vi := by
+    have hstep := x.step j
+    rw [hj] at hstep
+    have h := hstep.1
+    simp only [spec] at h
+    exact h
+  have hVp_sub : ∀ m, m ∈ x[k][vp].view → m ∈ x[j][vi].view := by
+    intro m hm
+    refine hrel k j vp vi m hAwk hm ?_ hAwj
+    rw [htk, htj]
+    omega
+  have hfz_sub : ∀ m, m ∈ x[im][vi].view → m ∈ x[k][vp].view := by
+    intro m hm
+    refine hsyn im k vp m (views_sound x im vi m hm) ?_ hAwk
+    rw [htim, htk]
+    omega
+  -- peeling chains for the voter's-side filter facts
+  have peel_j : votesFor (x[j][vi].view) ch (t0 + 1) ⊆ filEq (x[j][vi].view) := by
+    intro sm hsm
+    exact Finset.filter_subset _ _ (Finset.filter_subset _ _ (Finset.filter_subset _ _ hsm))
+  have peel1_j : votesFor (x[j][vi].view) ch (t0 + 1)
+      ⊆ fil1Exp (filEq (x[j][vi].view)) (t0 + 1) := by
+    intro sm hsm
+    exact Finset.filter_subset _ _ (Finset.filter_subset _ _ hsm)
+  -- the numerator transfers
+  have hnum : (votesFor (x[im][vi].view) ch (t0 + 1) ∩ votesFor (x[j][vi].view) ch (t0 + 1))
+      ⊆ votesFor (x[k][vp].view) ch (t0 + 1) := by
+    intro sm hsm
+    obtain ⟨hsm1, hsm2⟩ := Finset.mem_inter.mp hsm
+    have hv_im : sm ∈ votes (x[im][vi].view) := votesFor_subset_votes _ ch (t0 + 1) hsm1
+    have hview_im : sm ∈ x[im][vi].view := by
+      simp only [votes, Finset.mem_filter] at hv_im
+      exact hv_im.1
+    obtain ⟨e', src', tgt', s', hm'⟩ := exists_vote_of_mem_votes hv_im
+    have hvv_p : sm ∈ votes (x[k][vp].view) := by
+      simp only [votes, Finset.mem_filter]
+      refine ⟨hfz_sub sm hview_im, ?_⟩
+      rw [hm']
+      trivial
+    have hslot_j : t0 + 1 = msgSlot sm.msg + 1 :=
+      (Finset.mem_filter.mp (peel1_j hsm2)).2
+    have hfeq_p : sm ∈ filEq (x[k][vp].view) := by
+      simp only [filEq, Finset.mem_filter]
+      refine ⟨hvv_p, ?_⟩
+      rintro ⟨sm', hsm'v, hsend', hslot', hne⟩
+      have hsm'j : sm' ∈ votes (x[j][vi].view) := by
+        simp only [votes, Finset.mem_filter] at hsm'v ⊢
+        exact ⟨hVp_sub sm' hsm'v.1, hsm'v.2⟩
+      have hfeq_j := (Finset.mem_filter.mp (peel_j hsm2)).2
+      exact hfeq_j ⟨sm', hsm'j, hsend', hslot', hne⟩
+    have hexp_p : sm ∈ fil1Exp (filEq (x[k][vp].view)) (t0 + 1) := by
+      simp only [fil1Exp, Finset.mem_filter]
+      exact ⟨hfeq_p, hslot_j⟩
+    have hflmd_p : sm ∈ filLmd (fil1Exp (filEq (x[k][vp].view)) (t0 + 1)) := by
+      simp only [filLmd, Finset.mem_filter]
+      refine ⟨hexp_p, ?_⟩
+      rintro ⟨sm'', hsm'', -, hlt⟩
+      have h2 : t0 + 1 = msgSlot sm''.msg + 1 := (Finset.mem_filter.mp hsm'').2
+      omega
+    simp only [votesFor, Finset.mem_filter]
+    exact ⟨hflmd_p, votesFor_extends hsm1⟩
+  -- the denominator transfers the other way
+  have hden : voters (x[k][vp].view) (t0 + 1) ⊆ voters (x[j][vi].view) (t0 + 1) := by
+    intro q hq
+    simp only [voters, Finset.mem_image] at hq ⊢
+    obtain ⟨sm, hsm, rfl⟩ := hq
+    refine ⟨sm, ?_, rfl⟩
+    simp only [fil1Exp, Finset.mem_filter] at hsm ⊢
+    refine ⟨?_, hsm.2⟩
+    have hsv := hsm.1
+    simp only [votes, Finset.mem_filter] at hsv ⊢
+    exact ⟨hVp_sub sm hsv.1, hsv.2⟩
+  -- counting
+  show (voters (x[k][vp].view) (t0 + 1)).card < 2 * _
+  have h1 := Finset.card_le_card hden
+  have h2 := Finset.card_le_card (Finset.image_subset_image (f := SignedMsg.sender) hnum)
+  have hm' : (voters (x[j][vi].view) (t0 + 1)).card < 2 *
+      ((votesFor (x[im][vi].view) ch (t0 + 1) ∩
+        votesFor (x[j][vi].view) ch (t0 + 1)).image SignedMsg.sender).card := hmaj
+  rw [Finset.inter_self]
+  omega
 
 /-- **Active validators vote for whatever their fork-choice extends**: if at every vote
     tick of every slot-`t+1` active the fork-choice output extends `ch`, then every such
