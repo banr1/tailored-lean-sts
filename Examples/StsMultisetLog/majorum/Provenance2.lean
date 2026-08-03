@@ -682,6 +682,21 @@ theorem voting_reading_div (Q : Params) (t : Nat) :
   rw [Nat.mul_add_div (by omega), Nat.div_eq_of_lt (by omega)]
   omega
 
+/-- The fast-confirm reading of slot `t`, reduced. -/
+theorem fconf_reading_mod (Q : Params) (t : Nat) :
+    (Q.slotLength * t + 2 * Q.delta) % Q.slotLength = 2 * Q.delta := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  rw [Nat.mul_add_mod]
+  exact Nat.mod_eq_of_lt (by omega)
+
+theorem fconf_reading_div (Q : Params) (t : Nat) :
+    (Q.slotLength * t + 2 * Q.delta) / Q.slotLength = t := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  rw [Nat.mul_add_div (by omega), Nat.div_eq_of_lt (by omega)]
+  omega
+
 /-- The merge reading of slot `t`, reduced. -/
 theorem merge_reading_mod (Q : Params) (t : Nat) :
     (Q.slotLength * t + 3 * Q.delta) % Q.slotLength = 3 * Q.delta := by
@@ -937,6 +952,19 @@ theorem handler2_merge {p : Node} {r : Time}
     (hmod : r % Q.slotLength = 3 * Q.delta) :
     (handler2Core Q n kappa pool proposer dot p r V s).state =
       { s with vFrozen := V, chFrozen := (fastConfirmSimple n V (r / Q.slotLength)).1 } := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  simp only [handler2Core, apply_ite NodeStepResult.state]
+  split_ifs <;> first | rfl | omega
+
+/-- The fast-confirm phase, unfolded: adopt the fast-confirmed chain when a certificate
+    exists. -/
+theorem handler2_fastconfirm {p : Node} {r : Time}
+    {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
+    (hmod : r % Q.slotLength = 2 * Q.delta) :
+    (handler2Core Q n kappa pool proposer dot p r V s).state =
+      if (fastConfirmSimple n V (r / Q.slotLength)).2.isSome then
+        { s with chi := (fastConfirmSimple n V (r / Q.slotLength)).1 } else s := by
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
   simp only [handler2Core, apply_ite NodeStepResult.state]
@@ -2559,6 +2587,96 @@ theorem activeVotesExtend_of_propose {x : Exec Pr2 S}
     rw [hsend]
     exact Multiset.mem_singleton_self _
   exact ⟨j + 1, chp, dotj, dotj, by rw [tick_time hlblj, htj], hmem, chainLe_refl chp⟩
+
+/-- **Lemma 7's engine**: if every slot-`t` active voted an extension of `chp` and there
+    are at least `2n/3` actives, then any validator's fast-confirm tick of slot `t`
+    leaves its confirmed chain extending `chp` — the quorum is in its view by synchrony,
+    so `fastconfirmsimple` returns a certificate for a chain at least as long as `chp`
+    and comparable with it. No activity window needed: the tick's own enabling gives
+    awakeness. -/
+theorem le_chi_at_fconf {x : Exec Pr2 S}
+    (hsync : SynchronizedClocks x) (hstepw : TimeStepwise x)
+    (hone : OneTickPerReading x) (hmc : S.MonotoneCorruption)
+    (hsyn : Synchrony 0 Q.delta x)
+    (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < n) (hcard : Fintype.card Node ≤ n)
+    {t : Nat} {chp : Chain Tx} (hvotes : ActiveVotesExtend2 x t chp)
+    (hbig : 2 * n ≤ 3 * (Active Q S (t : Int)).card)
+    {vi : Node} {j : Nat} (hj : x.lbl j = .tick vi (Q.slotLength * t + 2 * Q.delta)) :
+    chainLe chp (x[j + 1][vi].st.chi) := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have hmono := hstepw.timeMonotone
+  have htj : x[j].time = Q.slotLength * t + 2 * Q.delta := tick_reading hsync hj
+  have hAwj : x.Awake j vi := by
+    have hstep := x.step j
+    rw [hj] at hstep
+    have h := hstep.1
+    simp only [spec] at h
+    exact h
+  -- the post-state chain
+  obtain ⟨dt, hst, -⟩ := tick_effect hj
+  rw [hst, handler2_fastconfirm (fconf_reading_mod Q t), fconf_reading_div Q t]
+  -- every active's vote is in the view, supporting `chp`
+  have hsub : Active Q S (t : Int) ⊆ (((votes (x[j][vi].view)).filter (fun sm =>
+      msgSlot sm.msg = t ∧ chainLe chp (msgChain sm.msg))).image SignedMsg.sender) := by
+    intro w hw
+    obtain ⟨iv, e, esrc, etgt, htiv, hsent, hext⟩ := hvotes w hw
+    have hview : (⟨w, Msg.vote e esrc etgt t⟩ :
+        SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[j][vi].view := by
+      refine hsyn iv j vi _ hsent ?_ hAwj
+      rw [htiv, htj]
+      omega
+    refine Finset.mem_image.mpr ⟨⟨w, Msg.vote e esrc etgt t⟩, ?_, rfl⟩
+    rw [Finset.mem_filter]
+    refine ⟨?_, rfl, hext⟩
+    simp only [votes, Finset.mem_filter]
+    exact ⟨hview, trivial⟩
+  have hsupp : 2 * n ≤ 3 * (((votes (x[j][vi].view)).filter (fun sm =>
+      msgSlot sm.msg = t ∧ chainLe chp (msgChain sm.msg))).image SignedMsg.sender).card := by
+    have h := Finset.card_le_card hsub
+    omega
+  by_cases hchp0 : chp = []
+  · subst hchp0
+    split_ifs <;> exact chainLe_nil _
+  · -- `chp` bounds the fast confirmation from below, and a certificate exists
+    have hcand : chp ∈ candidates (x[j][vi].view) ([] : Chain Tx) := by
+      have hpos : 0 < (((votes (x[j][vi].view)).filter (fun sm =>
+          msgSlot sm.msg = t ∧ chainLe chp (msgChain sm.msg))).image
+            SignedMsg.sender).card := by
+        omega
+      rw [Finset.card_pos] at hpos
+      obtain ⟨q, hq⟩ := hpos
+      obtain ⟨sm, hsm, -⟩ := Finset.mem_image.mp hq
+      rw [Finset.mem_filter] at hsm
+      exact mem_candidates_of_extends hsm.1 hsm.2.2
+    have hlen := fastConfirmSimple_length_ge (n := n) hchp0 hcand hsupp
+    have hle : chainLe chp ((fastConfirmSimple n (x[j][vi].view) t).1) := by
+      rcases fastConfirmSimple_fst_cases (n := n) (x[j][vi].view) t with h0 | hsuppF
+      · exfalso
+        have hpos : 0 < chp.length := by
+          cases hb : chp with
+          | nil => exact absurd hb hchp0
+          | cons _ _ => simp [hb]
+        rw [h0] at hlen
+        simp only [List.length_nil] at hlen
+        omega
+      · exact chainLe_of_comparable _ _
+          (supported_comparable hsync hone hmc hmono hcb hfn hcard hsupp hsuppF) hlen
+    have hsome : (fastConfirmSimple n (x[j][vi].view) t).2.isSome := by
+      cases hsnd : (fastConfirmSimple n (x[j][vi].view) t).2 with
+      | none =>
+          exfalso
+          have h0 := fastConfirmSimple_none_fst hsnd
+          have hpos : 0 < chp.length := by
+            cases hb : chp with
+            | nil => exact absurd hb hchp0
+            | cons _ _ => simp [hb]
+          rw [h0] at hlen
+          simp only [List.length_nil] at hlen
+          omega
+      | some _ => rfl
+    rw [if_pos hsome]
+    exact hle
 
 end Lemma2Vote
 

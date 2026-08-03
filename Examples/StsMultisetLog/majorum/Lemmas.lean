@@ -118,4 +118,27 @@ theorem lemma4 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
         (le_refl _) ht hsent hhon_i hhon_t
   | succ m hm ih => exact lemma2 H (by omega) ih
 
+/-- **Lemma 7** (`Lemma 7, arXiv:2601.03862v1 p.17`, Liveness of fast confirmations, for
+    Algorithm 2). Take a slot `t` in which `|H_vote(t)| ≥ 2n/3`. If in slot `t` an honest
+    validator sends a propose message for chain `chp`, then any validator's fast-confirm
+    tick of slot `t` leaves its confirmed chain `Ch` extending `chp`.
+
+    Stated for *any* validator ticking at `fconf(t)`, not only `H_fconf(t)`: the tick's
+    own enabling supplies awakeness, so the activity window adds nothing. -/
+theorem lemma7 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
+    (hbig : 2 * Fintype.card Node ≤ 3 * (Active Q S (t : Int)).card)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {ck : Checkpoint (Chain Tx)} {i : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc ck t⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[i].sent)
+    (hhon_i : vp ∉ S.adv ((x[i].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    {vi : Node} {j : Nat}
+    (hj : x.lbl j = .tick vi (Q.slotLength * t + 2 * Q.delta)) :
+    chainLe chp (x[j + 1][vi].st.chi) := by
+  have hvotes := lemma4 H ht hsent hhon_i hhon_t (le_refl t)
+  obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
+    ⟨hcb, hfn⟩, hgst⟩ := H
+  exact le_chi_at_fconf hsync hstepw hone hmc hsyn hcb hfn (le_refl _) hvotes hbig hj
+
 end Majorum
