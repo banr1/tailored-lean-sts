@@ -2694,6 +2694,159 @@ theorem fastConfirmSimple_none_fst {V : View Node (Msg (Chain Tx) (QCert Node Tx
   · simp at h
 
 set_option maxHeartbeats 3000000 in
+/-- **Lemma 6's engine**: the propose-round fork-choice of any awake validator is
+    slot-sorted and headed strictly before the slot — its output is genesis or a prefix
+    of an honest previous-slot vote's chain (quorum, or Constraint-(1) majority), and the
+    honest-chain invariant bounds those. -/
+theorem mfc_propose_ok {x : Exec Pr2 S}
+    (hsync : SynchronizedClocks x) (hstepw : TimeStepwise x) (hdiv : TimeDiverges x)
+    (hdil : Diligent x) (hone : OneTickPerReading x) (hwpt : WakePrecedesTick x)
+    (hmc : S.MonotoneCorruption) (hsyn : Synchrony 0 Q.delta x) (hslp : Sleepiness Q S)
+    (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < n) (hcard : Fintype.card Node ≤ n)
+    (hgst : Q.gst = 0)
+    {a : Nat} {w : Node} {t0 : Nat} (hta : x[a].time = Q.slotLength * (t0 + 1))
+    (hAwa : x.Awake a w) :
+    slotsIncreasing (mfc (x[a][w].view) (x[a][w].view)
+      (fastConfirmSimple n (x[a][w].view) t0).1 (t0 + 1)) ∧
+    proposedAt (mfc (x[a][w].view) (x[a][w].view)
+      (fastConfirmSimple n (x[a][w].view) t0).1 (t0 + 1)) ≤ t0 := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have hmono := hstepw.timeMonotone
+  have hexpm : Q.slotLength * (t0 + 1) = Q.slotLength * t0 + Q.slotLength := Nat.mul_succ ..
+  have hinv := honest_vote_chain hsync hstepw hdiv hdil hone hwpt hmc hsyn hslp hcb hfn
+    hcard hgst
+  have hvott1 : Q.voting ((t0 : Int) + 1)
+      = ((Q.slotLength * (t0 + 1) + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  have hprefix_ok : ∀ (sm' : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))),
+      sm' ∈ x[a].sent → sm'.sender ∉ S.adv ((x[a].time : Int)) →
+      (∃ e' src' tgt', sm'.msg = .vote e' src' tgt' t0) →
+      ∀ c : Chain Tx, chainLe c (msgChain sm'.msg) →
+      slotsIncreasing c ∧ proposedAt c ≤ t0 := by
+    rintro sm' hmem' hhon' ⟨e', src', tgt', hm'⟩ c hc
+    obtain ⟨hok, hle⟩ := hinv a sm' e' src' tgt' t0 hmem' hhon' hm'
+    have hch : msgChain sm'.msg = e' := by rw [hm']; exact rfl
+    rw [hch] at hc
+    exact ⟨slotsIncreasing_of_prefix hc hok,
+      le_trans (proposedAt_le_of_prefix hc hok) hle⟩
+  rcases mfc_base_or_majority (x[a][w].view) (x[a][w].view)
+      (fastConfirmSimple n (x[a][w].view) t0).1 (t0 + 1) with hb | hmaj
+  · rw [hb]
+    rcases fastConfirmSimple_fst_cases (n := n) (x[a][w].view) t0 with h0 | hsupp
+    · rw [h0]
+      exact ⟨slotsIncreasing_nil, by simp [proposedAt]⟩
+    · obtain ⟨q0, hq0mem, hq0hon⟩ :=
+        exists_honest_sender (r := ((x[a].time : Int))) hcb hfn hsupp
+      obtain ⟨sm'', hsm'', hs''⟩ := Finset.mem_image.mp hq0mem
+      rw [Finset.mem_filter] at hsm''
+      obtain ⟨hv'', hslot'', hch''⟩ := hsm''
+      have hlog'' : sm'' ∈ x[a].sent := views_sound x a w _
+        (by simp only [votes, Finset.mem_filter] at hv''; exact hv''.1)
+      have hhon'' : sm''.sender ∉ S.adv ((x[a].time : Int)) := by
+        rw [hs'']
+        exact hq0hon
+      obtain ⟨e'', s1'', t1'', s2'', hm''⟩ := exists_vote_of_mem_votes hv''
+      have hs2 : s2'' = t0 := by
+        have e2 : msgSlot sm''.msg = s2'' := by rw [hm'']; exact rfl
+        omega
+      subst hs2
+      exact hprefix_ok sm'' hlog'' hhon'' ⟨e'', s1'', t1'', hm''⟩ _ hch''
+  · -- a majority in the proposer's views has an honest supporter
+    have hAVE : ActiveVotesExtend2 x t0 ([] : Chain Tx) :=
+      activeVotesExtend_of_le_mfc' hsync hstepw hdiv hdil
+        (fun p hp j' hj' => chainLe_nil _)
+    have hsubS : Active Q S (t0 : Int) \ S.adv (Q.voting ((t0 : Int) + 1)) ⊆
+        voters (x[a][w].view) (t0 + 1) := by
+      intro u hu
+      obtain ⟨hwA, -⟩ := Finset.mem_sdiff.mp hu
+      obtain ⟨iv, ev, evs, evt, htiv, hsentv, -⟩ := hAVE u hwA
+      have hview : (⟨u, Msg.vote ev evs evt t0⟩ :
+          SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[a][w].view := by
+        refine hsyn iv a w _ hsentv ?_ hAwa
+        rw [htiv, hta]
+        omega
+      simp only [voters, Finset.mem_image]
+      refine ⟨⟨u, Msg.vote ev evs evt t0⟩, ?_, rfl⟩
+      simp only [fil1Exp, Finset.mem_filter]
+      refine ⟨?_, rfl⟩
+      simp only [votes, Finset.mem_filter]
+      exact ⟨hview, trivial⟩
+    obtain ⟨q0, hq0mem, hq0hon⟩ : ∃ q0 ∈ ((votesFor (x[a][w].view)
+        (mfc (x[a][w].view) (x[a][w].view)
+          (fastConfirmSimple n (x[a][w].view) t0).1 (t0 + 1)) (t0 + 1) ∩
+        votesFor (x[a][w].view) (mfc (x[a][w].view) (x[a][w].view)
+          (fastConfirmSimple n (x[a][w].view) t0).1 (t0 + 1)) (t0 + 1)).image
+          SignedMsg.sender), q0 ∉ S.adv (Q.voting ((t0 : Int) + 1)) := by
+      by_contra hno
+      have hsubA : ((votesFor (x[a][w].view) (mfc (x[a][w].view) (x[a][w].view)
+          (fastConfirmSimple n (x[a][w].view) t0).1 (t0 + 1)) (t0 + 1) ∩
+          votesFor (x[a][w].view) (mfc (x[a][w].view) (x[a][w].view)
+            (fastConfirmSimple n (x[a][w].view) t0).1 (t0 + 1)) (t0 + 1)).image
+            SignedMsg.sender) ⊆ S.adv (Q.voting ((t0 : Int) + 1)) := by
+        intro q hq
+        by_contra hq'
+        exact hno ⟨q, hq, hq'⟩
+      have himgvoters : ((votesFor (x[a][w].view) (mfc (x[a][w].view)
+          (x[a][w].view) (fastConfirmSimple n (x[a][w].view) t0).1 (t0 + 1))
+            (t0 + 1) ∩
+          votesFor (x[a][w].view) (mfc (x[a][w].view) (x[a][w].view)
+            (fastConfirmSimple n (x[a][w].view) t0).1 (t0 + 1)) (t0 + 1)).image
+            SignedMsg.sender) ⊆ voters (x[a][w].view) (t0 + 1) := by
+        intro q hq
+        obtain ⟨smq, hsmq, rfl⟩ := Finset.mem_image.mp hq
+        exact sender_mem_voters_of_votesFor (Finset.mem_inter.mp hsmq).2
+      have hdisj : Disjoint (Active Q S (t0 : Int) \
+          S.adv (Q.voting ((t0 : Int) + 1)))
+          ((votesFor (x[a][w].view) (mfc (x[a][w].view) (x[a][w].view)
+            (fastConfirmSimple n (x[a][w].view) t0).1 (t0 + 1)) (t0 + 1) ∩
+            votesFor (x[a][w].view) (mfc (x[a][w].view) (x[a][w].view)
+              (fastConfirmSimple n (x[a][w].view) t0).1 (t0 + 1)) (t0 + 1)).image
+              SignedMsg.sender) := by
+        rw [Finset.disjoint_left]
+        intro q hq1 hq2
+        exact (Finset.mem_sdiff.mp hq1).2 (hsubA hq2)
+      have hunion := Finset.card_le_card (Finset.union_subset hsubS himgvoters)
+      rw [Finset.card_union_of_disjoint hdisj] at hunion
+      have hgstok : (Q.gst : Int) ≤ Q.proposing ((t0 : Int) + 1) := by
+        rw [hgst]
+        unfold Params.proposing
+        push_cast
+        exact mul_nonneg (Int.natCast_nonneg _) (by omega)
+      have hslp' : (S.adv (Q.voting ((t0 : Int) + 1))).card <
+          (Active Q S (t0 : Int) \ S.adv (Q.voting ((t0 : Int) + 1))).card := by
+        have h := hslp ((t0 : Int) + 1) hgstok
+        simpa using h
+      have himgA := Finset.card_le_card hsubA
+      have hm2 := hmaj
+      omega
+    obtain ⟨smq, hsmq, hs0q⟩ := Finset.mem_image.mp hq0mem
+    have hsmq1 := (Finset.mem_inter.mp hsmq).1
+    have hv1 : smq ∈ votes (x[a][w].view) := votesFor_subset_votes _ _ (t0 + 1) hsmq1
+    have hlogq : smq ∈ x[a].sent := views_sound x a w _
+      (by simp only [votes, Finset.mem_filter] at hv1; exact hv1.1)
+    have hhonq : smq.sender ∉ S.adv ((x[a].time : Int)) := by
+      intro had
+      refine hq0hon ?_
+      rw [← hs0q]
+      refine hmc _ _ ?_ had
+      rw [hta, hvott1]
+      exact_mod_cast (by omega : Q.slotLength * (t0 + 1) ≤
+        Q.slotLength * (t0 + 1) + Q.delta)
+    obtain ⟨eq', sq1, tq1, sq2, hmq⟩ := exists_vote_of_mem_votes hv1
+    have hsq : sq2 = t0 := by
+      have h1 : smq ∈ fil1Exp (filEq (x[a][w].view)) (t0 + 1) :=
+        Finset.filter_subset _ _ (Finset.filter_subset _ _ hsmq1)
+      have h2 := (Finset.mem_filter.mp h1).2
+      have e2 : msgSlot smq.msg = sq2 := by rw [hmq]; exact rfl
+      omega
+    subst hsq
+    exact hprefix_ok smq hlogq hhonq ⟨eq', sq1, tq1, hmq⟩ _ (votesFor_extends hsmq1)
+
+
+set_option maxHeartbeats 3000000 in
 /-- **Lemma 4's base case**: an honest proposer's slot-`t` proposal is voted for by every
     validator active in slot `t` — the vote *is* `chp`. The fork-choice at each vote tick
     is bounded by `chp` (base-or-majority: the frozen chain is the merge value or, by the
@@ -2756,140 +2909,8 @@ theorem activeVotesExtend_of_propose {x : Exec Pr2 S}
     rw [hchp, hchC]
     exact chainLe_trans (base_le_mfc _ _ _ _) (chainLe_extend _ _ _)
   -- the proposer's fork-choice output is structurally sound, so `chp` is
-  have hinv := honest_vote_chain hsync hstepw hdiv hdil hone hwpt hmc hsyn hslp hcb hfn
-    hcard hgst
-  have hvott1 : Q.voting ((t0 : Int) + 1)
-      = ((Q.slotLength * (t0 + 1) + Q.delta : Nat) : Int) := by
-    unfold Params.voting
-    push_cast
-    omega
-  have hMFCpok : slotsIncreasing (mfc (x[k][vp].view) (x[k][vp].view)
-      (fastConfirmSimple n (x[k][vp].view) t0).1 (t0 + 1)) ∧
-      proposedAt (mfc (x[k][vp].view) (x[k][vp].view)
-        (fastConfirmSimple n (x[k][vp].view) t0).1 (t0 + 1)) ≤ t0 := by
-    have hprefix_ok : ∀ (sm' : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))),
-        sm' ∈ x[k].sent → sm'.sender ∉ S.adv ((x[k].time : Int)) →
-        (∃ e' src' tgt', sm'.msg = .vote e' src' tgt' t0) →
-        ∀ c : Chain Tx, chainLe c (msgChain sm'.msg) →
-        slotsIncreasing c ∧ proposedAt c ≤ t0 := by
-      rintro sm' hmem' hhon' ⟨e', src', tgt', hm'⟩ c hc
-      obtain ⟨hok, hle⟩ := hinv k sm' e' src' tgt' t0 hmem' hhon' hm'
-      have hch : msgChain sm'.msg = e' := by rw [hm']; exact rfl
-      rw [hch] at hc
-      exact ⟨slotsIncreasing_of_prefix hc hok,
-        le_trans (proposedAt_le_of_prefix hc hok) hle⟩
-    rcases mfc_base_or_majority (x[k][vp].view) (x[k][vp].view)
-        (fastConfirmSimple n (x[k][vp].view) t0).1 (t0 + 1) with hb | hmaj
-    · rw [hb]
-      rcases fastConfirmSimple_fst_cases (n := n) (x[k][vp].view) t0 with h0 | hsupp
-      · rw [h0]
-        exact ⟨slotsIncreasing_nil, by simp [proposedAt]⟩
-      · obtain ⟨q0, hq0mem, hq0hon⟩ :=
-          exists_honest_sender (r := ((x[k].time : Int))) hcb hfn hsupp
-        obtain ⟨sm'', hsm'', hs''⟩ := Finset.mem_image.mp hq0mem
-        rw [Finset.mem_filter] at hsm''
-        obtain ⟨hv'', hslot'', hch''⟩ := hsm''
-        have hlog'' : sm'' ∈ x[k].sent := views_sound x k vp _
-          (by simp only [votes, Finset.mem_filter] at hv''; exact hv''.1)
-        have hhon'' : sm''.sender ∉ S.adv ((x[k].time : Int)) := by
-          rw [hs'']
-          exact hq0hon
-        obtain ⟨e'', s1'', t1'', s2'', hm''⟩ := exists_vote_of_mem_votes hv''
-        have hs2 : s2'' = t0 := by
-          have e2 : msgSlot sm''.msg = s2'' := by rw [hm'']; exact rfl
-          omega
-        subst hs2
-        exact hprefix_ok sm'' hlog'' hhon'' ⟨e'', s1'', t1'', hm''⟩ _ hch''
-    · -- a majority in the proposer's views has an honest supporter
-      have hAVE : ActiveVotesExtend2 x t0 ([] : Chain Tx) :=
-        activeVotesExtend_of_le_mfc' hsync hstepw hdiv hdil
-          (fun p hp j' hj' => chainLe_nil _)
-      have hsubS : Active Q S (t0 : Int) \ S.adv (Q.voting ((t0 : Int) + 1)) ⊆
-          voters (x[k][vp].view) (t0 + 1) := by
-        intro w hw
-        obtain ⟨hwA, -⟩ := Finset.mem_sdiff.mp hw
-        obtain ⟨iv, ev, evs, evt, htiv, hsentv, -⟩ := hAVE w hwA
-        have hview : (⟨w, Msg.vote ev evs evt t0⟩ :
-            SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[k][vp].view := by
-          refine hsyn iv k vp _ hsentv ?_ hAwk
-          rw [htiv, htk]
-          omega
-        simp only [voters, Finset.mem_image]
-        refine ⟨⟨w, Msg.vote ev evs evt t0⟩, ?_, rfl⟩
-        simp only [fil1Exp, Finset.mem_filter]
-        refine ⟨?_, rfl⟩
-        simp only [votes, Finset.mem_filter]
-        exact ⟨hview, trivial⟩
-      obtain ⟨q0, hq0mem, hq0hon⟩ : ∃ q0 ∈ ((votesFor (x[k][vp].view)
-          (mfc (x[k][vp].view) (x[k][vp].view)
-            (fastConfirmSimple n (x[k][vp].view) t0).1 (t0 + 1)) (t0 + 1) ∩
-          votesFor (x[k][vp].view) (mfc (x[k][vp].view) (x[k][vp].view)
-            (fastConfirmSimple n (x[k][vp].view) t0).1 (t0 + 1)) (t0 + 1)).image
-            SignedMsg.sender), q0 ∉ S.adv (Q.voting ((t0 : Int) + 1)) := by
-        by_contra hno
-        have hsubA : ((votesFor (x[k][vp].view) (mfc (x[k][vp].view) (x[k][vp].view)
-            (fastConfirmSimple n (x[k][vp].view) t0).1 (t0 + 1)) (t0 + 1) ∩
-            votesFor (x[k][vp].view) (mfc (x[k][vp].view) (x[k][vp].view)
-              (fastConfirmSimple n (x[k][vp].view) t0).1 (t0 + 1)) (t0 + 1)).image
-              SignedMsg.sender) ⊆ S.adv (Q.voting ((t0 : Int) + 1)) := by
-          intro q hq
-          by_contra hq'
-          exact hno ⟨q, hq, hq'⟩
-        have himgvoters : ((votesFor (x[k][vp].view) (mfc (x[k][vp].view)
-            (x[k][vp].view) (fastConfirmSimple n (x[k][vp].view) t0).1 (t0 + 1))
-              (t0 + 1) ∩
-            votesFor (x[k][vp].view) (mfc (x[k][vp].view) (x[k][vp].view)
-              (fastConfirmSimple n (x[k][vp].view) t0).1 (t0 + 1)) (t0 + 1)).image
-              SignedMsg.sender) ⊆ voters (x[k][vp].view) (t0 + 1) := by
-          intro q hq
-          obtain ⟨smq, hsmq, rfl⟩ := Finset.mem_image.mp hq
-          exact sender_mem_voters_of_votesFor (Finset.mem_inter.mp hsmq).2
-        have hdisj : Disjoint (Active Q S (t0 : Int) \
-            S.adv (Q.voting ((t0 : Int) + 1)))
-            ((votesFor (x[k][vp].view) (mfc (x[k][vp].view) (x[k][vp].view)
-              (fastConfirmSimple n (x[k][vp].view) t0).1 (t0 + 1)) (t0 + 1) ∩
-              votesFor (x[k][vp].view) (mfc (x[k][vp].view) (x[k][vp].view)
-                (fastConfirmSimple n (x[k][vp].view) t0).1 (t0 + 1)) (t0 + 1)).image
-                SignedMsg.sender) := by
-          rw [Finset.disjoint_left]
-          intro q hq1 hq2
-          exact (Finset.mem_sdiff.mp hq1).2 (hsubA hq2)
-        have hunion := Finset.card_le_card (Finset.union_subset hsubS himgvoters)
-        rw [Finset.card_union_of_disjoint hdisj] at hunion
-        have hgstok : (Q.gst : Int) ≤ Q.proposing ((t0 : Int) + 1) := by
-          rw [hgst]
-          unfold Params.proposing
-          push_cast
-          exact mul_nonneg (Int.natCast_nonneg _) (by omega)
-        have hslp' : (S.adv (Q.voting ((t0 : Int) + 1))).card <
-            (Active Q S (t0 : Int) \ S.adv (Q.voting ((t0 : Int) + 1))).card := by
-          have h := hslp ((t0 : Int) + 1) hgstok
-          simpa using h
-        have himgA := Finset.card_le_card hsubA
-        have hm2 := hmaj
-        omega
-      obtain ⟨smq, hsmq, hs0q⟩ := Finset.mem_image.mp hq0mem
-      have hsmq1 := (Finset.mem_inter.mp hsmq).1
-      have hv1 : smq ∈ votes (x[k][vp].view) := votesFor_subset_votes _ _ (t0 + 1) hsmq1
-      have hlogq : smq ∈ x[k].sent := views_sound x k vp _
-        (by simp only [votes, Finset.mem_filter] at hv1; exact hv1.1)
-      have hhonq : smq.sender ∉ S.adv ((x[k].time : Int)) := by
-        intro had
-        refine hq0hon ?_
-        rw [← hs0q]
-        refine hmc _ _ ?_ had
-        rw [htk, hvott1]
-        exact_mod_cast (by omega : Q.slotLength * (t0 + 1) ≤
-          Q.slotLength * (t0 + 1) + Q.delta)
-      obtain ⟨eq', sq1, tq1, sq2, hmq⟩ := exists_vote_of_mem_votes hv1
-      have hsq : sq2 = t0 := by
-        have h1 : smq ∈ fil1Exp (filEq (x[k][vp].view)) (t0 + 1) :=
-          Finset.filter_subset _ _ (Finset.filter_subset _ _ hsmq1)
-        have h2 := (Finset.mem_filter.mp h1).2
-        have e2 : msgSlot smq.msg = sq2 := by rw [hmq]; exact rfl
-        omega
-      subst hsq
-      exact hprefix_ok smq hlogq hhonq ⟨eq', sq1, tq1, hmq⟩ _ (votesFor_extends hsmq1)
+  have hMFCpok := mfc_propose_ok hsync hstepw hdiv hdil hone hwpt hmc hsyn hslp hcb hfn
+    hcard hgst (a := k) (w := vp) (t0 := t0) htk hAwk
   have hSIchp : slotsIncreasing chp := by
     rw [hchp]
     exact slotsIncreasing_extend pool hMFCpok.1 (lt_of_le_of_lt hMFCpok.2 (by omega))

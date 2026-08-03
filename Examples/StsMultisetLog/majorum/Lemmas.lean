@@ -118,6 +118,34 @@ theorem lemma4 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
         hslp hcb hfn (le_refl _) hgst ht hsent hhon_i hhon_t
   | succ m hm ih => exact lemma2 H (by omega) ih
 
+/-- **Lemma 6** (`Lemma 6, arXiv:2601.03862v1 p.16`, for Algorithm 2). For any slot `t`
+    and validator `vi ∈ H_propose(t)`, `MFC^{propose(t)}_i.p < t` — the propose-round
+    fork-choice output was proposed *before* the current slot.
+
+    Two deliberate strengthenings/divergences from the paper's statement:
+
+    * **Any awake validator**, not only `H_propose(t)`: activity implies awakeness and the
+      proof needs no more, so the hypothesis is the weaker one.
+    * **Stated for `1 ≤ t`.** The paper has `B_genesis.p < 0` (a sentinel), so its claim
+      holds at `t = 0` too; here `proposedAt [] = 0`, which makes the `t = 0` instance
+      read `0 < 0`. The content of the lemma — the fork choice never returns a chain from
+      the current or a future slot — starts at slot 1 either way.
+
+    The proof is `Provenance2.mfc_propose_ok`: the fork-choice output is genesis or a
+    prefix of some slot-`t−1` honest vote's chain (its quorum case has an honest
+    supporter by `f < n/3`; its majority case by Constraint (1)), and the honest-chain
+    invariant `honest_vote_chain` bounds every such chain's `proposedAt` by `t−1`. -/
+theorem lemma6 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
+    {a : Nat} {w : Node} (hta : x[a].time = Q.slotLength * t) (hAwa : x.Awake a w) :
+    proposedAt (mfc (x[a][w].view) (x[a][w].view)
+      (fastConfirmSimple (Fintype.card Node) (x[a][w].view) (t - 1)).1 t) < t := by
+  obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, -⟩, hslp,
+    ⟨hcb, hfn⟩, hgst⟩ := H
+  obtain ⟨t0, rfl⟩ : ∃ t0, t = t0 + 1 := ⟨t - 1, by omega⟩
+  have h := (mfc_propose_ok hsync hstepw hdiv hdil hone hwpt hmc hsyn hslp hcb hfn
+    (le_refl _) hgst hta hAwa).2
+  simpa using Nat.lt_succ_of_le h
+
 /-- **Lemma 7** (`Lemma 7, arXiv:2601.03862v1 p.17`, Liveness of fast confirmations, for
     Algorithm 2). Take a slot `t` in which `|H_vote(t)| ≥ 2n/3`. If in slot `t` an honest
     validator sends a propose message for chain `chp`, then any validator's fast-confirm
