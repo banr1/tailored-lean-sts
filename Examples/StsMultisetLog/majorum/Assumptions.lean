@@ -177,4 +177,43 @@ def GlobalAwake (Q : Params) (S : Schedule Node) : Prop :=
 def Resilience (Q : Params) (S : Schedule Node) : Prop :=
   S.CorruptionBounded Q.f ∧ 3 * Q.f < Q.n
 
+/-- **The setting of the dynamic-availability analysis** (arXiv:2601.03862v1, Appendix A:
+    "throughout this part of the analysis, we assume `GST = 0`"): the standing model of
+    Lemmas 2–5 and Theorems 1–2, bundled because those results all take exactly this row
+    of hypotheses.
+
+    Composed from the named groups above — `Wellformed`, `Synchronous` (Δ from round 0,
+    relay included), `Sleepiness` (Constraint (1)), `Resilience` — plus the three
+    schedule/clock disciplines the provenance arguments rest on (`TimeStepwise`,
+    `WakePrecedesTick`, `OneTickPerReading`), the protocol's validator count agreeing
+    with the model's, and `GST = 0` itself (`Synchronous` fixes the bound from round 0
+    whatever `Q.gst` is; `Sleepiness` still reads `Q.gst`, so the analysis needs it to
+    *be* zero).
+
+    Deliberately the full setting rather than any one lemma's minimal row: `Relay` and
+    `AwakeHonest` ride along unused by Lemma 2, because Lemma 4's gossip argument and the
+    later counting need them, and the point of the bundle is that the Appendix's results
+    share their hypotheses. Accountable safety (Theorem 5) must **not** take this — it is
+    proved for `f ∈ [0,n]` with no synchrony; it keeps citing its own groups à la carte. -/
+structure SettingGA (Q : Params) (S : Schedule Node) (n : Nat) (x : Exec Pr S) : Prop where
+  /-- `Wellformed`: monotone corruption, honest-while-awake, synchronized clocks, and the
+      time/tick disciplines of any run worth analyzing. -/
+  wellformed : Wellformed x
+  /-- Real time moves by single rounds, so every round is some configuration's time. -/
+  stepwise : TimeStepwise x
+  /-- A validator's wake event precedes its first tick of a transition round. -/
+  wakePrecedesTick : WakePrecedesTick x
+  /-- Rounds are atomic: one tick per validator per clock reading. -/
+  oneTick : OneTickPerReading x
+  /-- The `Δ` bound and honest relay, from round `0`. -/
+  synchronous : Synchronous Q x
+  /-- Constraint (1). -/
+  sleepiness : Sleepiness Q S
+  /-- `f < n/3`, over the model's `n`. -/
+  resilience : Resilience Q S
+  /-- The protocol instance is run with the model's validator count. -/
+  validators : Q.n = n
+  /-- Appendix A's standing assumption. -/
+  gstZero : Q.gst = 0
+
 end Majorum

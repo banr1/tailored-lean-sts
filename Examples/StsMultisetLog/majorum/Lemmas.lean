@@ -35,21 +35,18 @@ local notation "Pr2" => protocol2 Q n kappa pool proposer
     slot `t+1`, all validators in `H_vote(t+1)` send vote messages for chains extending
     `ch`.
 
-    Hypotheses, besides the paper's Constraint (1) (`Sleepiness`) and resilience: GST at
-    `0` with `Synchrony`, the clock/schedule discipline (`SynchronizedClocks`,
-    `TimeStepwise`, `TimeDiverges`, `Diligent`, `WakePrecedesTick`, `OneTickPerReading`),
-    and monotone corruption. The proof: a validator active in slot `t+1` ticks at
-    `voting(t+1)` with the joining check open (`activeAt_le_voting` — the framework's
-    wake event fires only on sleep→awake transitions, so no wake inside the activity
-    window can close it), and the vote that tick sends extends this tick's fork-choice
-    (`handler2_vote_send`), which extends `ch` by `le_mfc_at_vote2`. -/
-theorem lemma2 [Fintype Node] {x : Exec Pr2 S}
-    (hsync : SynchronizedClocks x) (hstepw : TimeStepwise x) (hdiv : TimeDiverges x)
-    (hdil : Diligent x) (hwpt : WakePrecedesTick x) (hone : OneTickPerReading x)
-    (hmc : S.MonotoneCorruption) (hsyn : Synchrony 0 Q.delta x) (hslp : Sleepiness Q S)
-    (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < n) (hgst : Q.gst = 0)
+    Hypotheses: `SettingGA`, the bundled setting of the whole Appendix-A analysis. The
+    proof: a validator active in slot `t+1` ticks at `voting(t+1)` with the joining check
+    open (`activeAt_le_voting` — the framework's wake event fires only on sleep→awake
+    transitions, so no wake inside the activity window can close it), and the vote that
+    tick sends extends this tick's fork-choice (`handler2_vote_send`), which extends `ch`
+    by `le_mfc_at_vote2`. -/
+theorem lemma2 [Fintype Node] {x : Exec Pr2 S} (H : SettingGA Q S n x)
     {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx} (hvotes : ActiveVotesExtend2 x t ch) :
     ActiveVotesExtend2 x (t + 1) ch := by
+  obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, -⟩, hslp,
+    ⟨hcb, hfnQ⟩, hn, hgst⟩ := H
+  have hfn : 3 * Q.f < n := hn ▸ hfnQ
   intro p hp0
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
