@@ -20,6 +20,11 @@ hypothesis `ActiveVotesExtend2`, reproduced one slot later.
 **Lemma 3** (`lemma3` below) is proved: a fast confirmation in slot `t` makes every
 later slot's actives vote extensions of the confirmed chain — base case from the frozen
 fast-confirmation (no majority needed), inductive step `lemma2`.
+
+**Lemma 4** (`lemma4` below) is proved: an honest proposer's chain is voted for by every
+active of its own slot (the vote *is* `chp`) and extended by all later slots' actives —
+the base case is where the proposer-identity check earns its keep and `Relay` sees its
+first use; the step is `lemma2` again.
 -/
 
 set_option autoImplicit false
@@ -82,6 +87,35 @@ theorem lemma3 {x : Exec Pr2 S} (H : SettingGA Q S x)
         ⟨hcb, hfn⟩, hgst⟩ := H
       exact activeVotesExtend_of_fastconfirm hsync hstepw hdiv hdil hone hmc hsyn hcb hfn
         (le_refl _) htiw hfc
+  | succ m hm ih => exact lemma2 H (by omega) ih
+
+/-- **Lemma 4** (`Lemma 4, arXiv:2601.03862v1 p.15`, for Algorithm 2). Let `t` be a slot
+    with an honest proposer `vp`, and assume `vp` sends a
+    `[propose, chp, chC, QC, ·, t]` message. Then, for any slot `t' ≥ t`, all validators
+    in `H_vote(t')` send a vote message for a chain extending `chp`.
+
+    Honesty is taken at the message's log index and at `voting(t)` — what the base case
+    consumes; `vp = proposer t` is *derived* (provenance), not assumed. Induction: the
+    base case is `Provenance2.activeVotesExtend_of_propose` — every slot-`t` active's
+    fork-choice is bounded by `chp` (the frozen chain is the merge value or, by the
+    proposer-identity check, `vp`'s own `chC`; a majority transfers into `vp`'s views by
+    synchrony and `Relay`), so the proposal branch fires and the vote *is* `chp` — and
+    the step is `lemma2`. -/
+theorem lemma4 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {ck : Checkpoint (Chain Tx)} {i : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc ck t⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[i].sent)
+    (hhon_i : vp ∉ S.adv ((x[i].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    {t' : Nat} (ht' : t ≤ t') :
+    ActiveVotesExtend2 x t' chp := by
+  induction t', ht' using Nat.le_induction with
+  | base =>
+      obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
+        ⟨hcb, hfn⟩, hgst⟩ := H
+      exact activeVotesExtend_of_propose hsync hstepw hdiv hdil hone hmc hsyn hrel hcb hfn
+        (le_refl _) ht hsent hhon_i hhon_t
   | succ m hm ih => exact lemma2 H (by omega) ih
 
 end Majorum

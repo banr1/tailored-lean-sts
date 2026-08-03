@@ -2217,6 +2217,349 @@ theorem activeVotesExtend_of_fastconfirm {x : Exec Pr2 S}
   exact chainLe_trans (chainLe_trans hstep1 (processProposals2_chFrozen_mono _ _ _))
     (base_le_mfc _ _ _ _)
 
+/-- A `none` certificate only comes from the empty branch, whose chain is genesis. -/
+theorem fastConfirmSimple_none_fst {V : View Node (Msg (Chain Tx) (QCert Node Tx))}
+    {t : Nat} (h : (fastConfirmSimple n V t).2 = none) :
+    (fastConfirmSimple n V t).1 = [] := by
+  unfold fastConfirmSimple at h ⊢
+  dsimp only at h ⊢
+  split at h
+  · rename_i hc
+    rw [if_pos hc]
+  · simp at h
+
+set_option maxHeartbeats 3000000 in
+/-- **Lemma 4's base case**: an honest proposer's slot-`t` proposal is voted for by every
+    validator active in slot `t` — the vote *is* `chp`. The fork-choice at each vote tick
+    is bounded by `chp` (base-or-majority: the frozen chain is the merge value or, by the
+    sender check, the proposer's own `chC`, both `⪯ chp`; a majority transfers into the
+    proposer's views, where `chp` extends the longest majority chain), so the proposal
+    branch fires — and the sender check plus one-tick-per-reading pins the chosen chain
+    to the proposer's one message. -/
+theorem activeVotesExtend_of_propose {x : Exec Pr2 S}
+    (hsync : SynchronizedClocks x) (hstepw : TimeStepwise x) (hdiv : TimeDiverges x)
+    (hdil : Diligent x) (hone : OneTickPerReading x) (hmc : S.MonotoneCorruption)
+    (hsyn : Synchrony 0 Q.delta x) (hrel : Relay 0 Q.delta x)
+    (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < n) (hcard : Fintype.card Node ≤ n)
+    {t : Nat} (ht : 1 ≤ t) {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {ck : Checkpoint (Chain Tx)} {i : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc ck t⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[i].sent)
+    (hhon_i : vp ∉ S.adv ((x[i].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int))) :
+    ActiveVotesExtend2 x t chp := by
+  obtain ⟨t0, rfl⟩ : ∃ t0, t = t0 + 1 := ⟨t - 1, by omega⟩
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have hmono := hstepw.timeMonotone
+  have hexpm : Q.slotLength * (t0 + 1) = Q.slotLength * t0 + Q.slotLength := Nat.mul_succ ..
+  have hvott : Q.voting ((t0 + 1 : Nat) : Int)
+      = ((Q.slotLength * (t0 + 1) + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  -- the proposal's provenance: the proposer's tick at `propose(t0+1)`
+  obtain ⟨hvpprop, k, hki, hlblk, htk, hemk, hchp, hchC, hqc⟩ :=
+    propose_provenance2 hsync hmc hmono hsent hhon_i rfl
+  have hvp_prop : vp = proposer (t0 + 1) := hvpprop
+  simp only [Nat.add_sub_cancel] at hchp hchC hqc
+  have hAwk : x.Awake k vp := by
+    have hstep := x.step k
+    rw [hlblk] at hstep
+    have h := hstep.1
+    simp only [spec] at h
+    exact h
+  have hmemk : (⟨vp, Msg.propose chp chC qc ck (t0 + 1)⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[k + 1].sent := by
+    have h := hemk
+    rw [← Multiset.count_pos] at h ⊢
+    rw [Multiset.count_sub] at h
+    omega
+  have htk1 : x[k + 1].time = Q.slotLength * (t0 + 1) := by
+    rw [tick_time hlblk, htk]
+  -- honesty through `voting(t0+1)`
+  have hhon_le : ∀ r : Time, r ≤ Q.slotLength * (t0 + 1) + Q.delta →
+      vp ∉ S.adv ((r : Int)) := by
+    intro r hr had
+    refine hhon_t (hmc _ _ ?_ had)
+    rw [hvott]
+    exact_mod_cast hr
+  -- `chC ⪯ chp`
+  have hchCchp : chainLe chC chp := by
+    rw [hchp, hchC]
+    exact chainLe_trans (base_le_mfc _ _ _ _) (chainLe_extend _ _ _)
+  intro p hp
+  have hp' : p ∈ Active Q S ((t0 : Int) + 1) := by
+    have hcast : (((t0 + 1 : Nat)) : Int) = (t0 : Int) + 1 := by push_cast; omega
+    rw [← hcast]
+    exact hp
+  -- the vote tick of `p`
+  obtain ⟨i₁, hi₁⟩ := hdiv (Q.slotLength * (t0 + 1) + Q.delta)
+  obtain ⟨i₀, hi₀, hti₀⟩ := exists_time_eq hstepw hi₁
+  have hAw0 : x.Awake i₀ p := by
+    show p ∈ S.awake ((x[i₀].time : Int))
+    rw [hti₀]
+    refine mem_awakeThroughout.mp hp _ ?_ ?_ <;> rw [hvott] <;> omega
+  obtain ⟨j, htj, hlblj⟩ := hdil (Q.slotLength * (t0 + 1) + Q.delta) p ⟨i₀, hti₀, hAw0⟩
+  have hAwj : x.Awake j p := by
+    have hstep := x.step j
+    rw [hlblj] at hstep
+    have h := hstep.1
+    simp only [spec] at h
+    exact h
+  have hgate : x[j][p].st.activeAt ≤ Q.slotLength * (t0 + 1) + Q.delta := by
+    refine activeAt_le_voting hsync hmono (t1 := t0 + 1) ?_ (le_of_eq htj)
+    intro r h1 h2
+    refine mem_awakeThroughout.mp hp _ ?_ ?_ <;> rw [hvott] <;> omega
+  obtain ⟨dotj, -, hemit⟩ := tick_effect hlblj
+  have hsend := handler2_vote_send_eq (Q := Q) (n := n) (kappa := kappa) (pool := pool)
+    (proposer := proposer) (dot := dotj) (p := p) (V := x[j][p].view) (s := x[j][p].st)
+    (voting_reading_mod Q (t0 + 1)) hgate
+  rw [voting_reading_div Q (t0 + 1)] at hsend
+  -- the proposal reaches `p`'s vote view, valid
+  have hviewprop : (⟨vp, Msg.propose chp chC qc ck (t0 + 1)⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[j][p].view := by
+    refine hsyn (k + 1) j p _ hmemk ?_ hAwj
+    rw [htk1, htj]
+    omega
+  have hdeliver_kj : ∀ m, m ∈ x[k][vp].view → m ∈ x[j][p].view := by
+    intro m hm
+    refine hsyn k j p m (views_sound x k vp m hm) ?_ hAwj
+    rw [htk, htj]
+    omega
+  have hvalidprop : ValidProposal2 n proposer (x[j][p].view)
+      ⟨vp, Msg.propose chp chC qc ck (t0 + 1)⟩ := by
+    refine ⟨hvp_prop, by rw [hchp]; exact proposedAt_extend _ _ _, hchCchp, ?_⟩
+    by_cases hchC0 : chC = []
+    · exact Or.inl hchC0
+    · right
+      cases hsnd : (fastConfirmSimple n (x[k][vp].view) t0).2 with
+      | none =>
+          exact absurd (hchC.trans (fastConfirmSimple_none_fst hsnd)) hchC0
+      | some cert =>
+          have hfc : fastConfirmSimple n (x[k][vp].view) t0
+              = ((fastConfirmSimple n (x[k][vp].view) t0).1, some cert) := by
+            rw [← hsnd]
+          have hcert := fastConfirmSimple_snd_spec hfc
+          refine ⟨cert, by rw [hqc, hsnd], ?_, ?_⟩
+          · rcases fastConfirmSimple_fst_cases (n := n) (x[k][vp].view) t0 with h0 | hsupp
+            · exact absurd (hchC.trans h0) hchC0
+            · rw [hcert, Finset.image_image]
+              exact hsupp
+          · rintro e hemem
+            rw [hcert] at hemem
+            obtain ⟨sm, hsm_supp, rfl⟩ := Finset.mem_image.mp hemem
+            rw [Finset.mem_filter] at hsm_supp
+            obtain ⟨hsmv, hsmslot, hsmch⟩ := hsm_supp
+            have hsmview : sm ∈ x[k][vp].view := by
+              simp only [votes, Finset.mem_filter] at hsmv
+              exact hsmv.1
+            obtain ⟨e0, s0, t0', slot0, hm0⟩ := exists_vote_of_mem_votes hsmv
+            refine ⟨by rw [hchC]; exact hsmch,
+              (by show msgSlot sm.msg = t0 + 1 - 1; omega), s0, t0', ?_⟩
+            have heq : (⟨sm.sender, Msg.vote (msgChain sm.msg) s0 t0' (msgSlot sm.msg)⟩ :
+                SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) = sm := by
+              have h1 : msgChain sm.msg = e0 := by rw [hm0]; exact rfl
+              have h2 : msgSlot sm.msg = slot0 := by rw [hm0]; exact rfl
+              rw [h1, h2, ← hm0]
+            rw [heq]
+            exact hdeliver_kj sm hsmview
+  -- the frozen state entering `p`'s vote tick
+  obtain ⟨im, himj, htim, hvfj, hcfj⟩ := frozen_at_vote_tick hsync hstepw hdil hone hp' hlblj
+  -- the merge value is below `chC`
+  have hbmchC : chainLe ((fastConfirmSimple n (x[im][p].view) t0).1) chC := by
+    by_cases hbm0 : (fastConfirmSimple n (x[im][p].view) t0).1 = []
+    · rw [hbm0]
+      exact chainLe_nil _
+    · rcases fastConfirmSimple_fst_cases (n := n) (x[im][p].view) t0 with h0 | hsuppm
+      · exact absurd h0 hbm0
+      · have hsubm : ((votes (x[im][p].view)).filter (fun sm => msgSlot sm.msg = t0 ∧
+              chainLe ((fastConfirmSimple n (x[im][p].view) t0).1) (msgChain sm.msg))) ⊆
+            ((votes (x[k][vp].view)).filter (fun sm => msgSlot sm.msg = t0 ∧
+              chainLe ((fastConfirmSimple n (x[im][p].view) t0).1) (msgChain sm.msg))) := by
+          intro sm hsm
+          rw [Finset.mem_filter] at hsm ⊢
+          obtain ⟨hv, hcond⟩ := hsm
+          simp only [votes, Finset.mem_filter] at hv ⊢
+          refine ⟨⟨?_, hv.2⟩, hcond⟩
+          refine hsyn im k vp _ (views_sound x im p _ hv.1) ?_ hAwk
+          rw [htim, htk]
+          omega
+        have hsuppp : 2 * n ≤ 3 * (((votes (x[k][vp].view)).filter (fun sm =>
+            msgSlot sm.msg = t0 ∧ chainLe ((fastConfirmSimple n (x[im][p].view) t0).1)
+              (msgChain sm.msg))).image SignedMsg.sender).card := by
+          refine le_trans hsuppm ?_
+          have h3 := Finset.card_le_card
+            (Finset.image_subset_image (f := SignedMsg.sender) hsubm)
+          omega
+        have hcand : (fastConfirmSimple n (x[im][p].view) t0).1
+            ∈ candidates (x[k][vp].view) ([] : Chain Tx) := by
+          have hpos : 0 < (((votes (x[k][vp].view)).filter (fun sm =>
+              msgSlot sm.msg = t0 ∧ chainLe ((fastConfirmSimple n (x[im][p].view) t0).1)
+                (msgChain sm.msg))).image SignedMsg.sender).card := by
+            omega
+          rw [Finset.card_pos] at hpos
+          obtain ⟨q, hq⟩ := hpos
+          obtain ⟨sm, hsm, -⟩ := Finset.mem_image.mp hq
+          rw [Finset.mem_filter] at hsm
+          exact mem_candidates_of_extends hsm.1 hsm.2.2
+        have hlen := fastConfirmSimple_length_ge (n := n) hbm0 hcand hsuppp
+        rcases fastConfirmSimple_fst_cases (n := n) (x[k][vp].view) t0 with h0p | hsuppP
+        · exfalso
+          have hpos : 0 < ((fastConfirmSimple n (x[im][p].view) t0).1).length := by
+            cases hb : (fastConfirmSimple n (x[im][p].view) t0).1 with
+            | nil => exact absurd hb hbm0
+            | cons _ _ => simp [hb]
+          rw [h0p] at hlen
+          simp only [List.length_nil] at hlen
+          omega
+        · rw [← hchC] at hlen hsuppP
+          exact chainLe_of_comparable _ _
+            (supported_comparable hsync hone hmc hmono hcb hfn hcard hsuppp hsuppP) hlen
+  -- the processed frozen chain: the merge value or, sender-pinned, the proposer's `chC`
+  have hfz : ((processProposals2 n proposer (x[j][p].view) (t0 + 1) (x[j][p].st)).chFrozen
+        = (fastConfirmSimple n (x[im][p].view) t0).1 ∨
+      (processProposals2 n proposer (x[j][p].view) (t0 + 1) (x[j][p].st)).chFrozen
+        = chC) := by
+    rcases processProposals2_chFrozen (n := n) (x[j][p].view) (t0 + 1) (x[j][p].st)
+      with hfz0 | ⟨sm', hsm'V, ⟨chp', qc', ck', hsm'msg⟩, hsm'valid⟩
+    · rw [hfz0, hcfj]
+      exact Or.inl rfl
+    · obtain ⟨sd', m0'⟩ := sm'
+      have hm0' : m0' = Msg.propose chp' ((processProposals2 n proposer (x[j][p].view)
+          (t0 + 1) (x[j][p].st)).chFrozen) qc' ck' (t0 + 1) := hsm'msg
+      subst hm0'
+      have hsd' : sd' = proposer (t0 + 1) := hsm'valid.1
+      have hhon_j : sd' ∉ S.adv ((x[j].time : Int)) := by
+        rw [hsd', ← hvp_prop]
+        refine hhon_le _ ?_
+        rw [htj]
+      obtain ⟨-, k', hk'j, hlblk', htk', hem', -, -, -⟩ :=
+        propose_provenance2 hsync hmc hmono (views_sound x j p _ hsm'V) hhon_j rfl
+      have hlblk'' : x.lbl k' = .tick vp (Q.slotLength * (t0 + 1)) := by
+        rw [hlblk']
+        simp only [hsd', ← hvp_prop]
+      have hkk : k' = k := hone k' k vp _ hlblk'' hlblk
+      subst hkk
+      have heqmsg := tick_sends_subsingleton hlblk hem' hemk
+      have hinj := congrArg SignedMsg.msg heqmsg
+      injection hinj with h1 h2 h3 h4 h5
+      exact Or.inr h2
+  have hfz_le_chp : chainLe ((processProposals2 n proposer (x[j][p].view) (t0 + 1)
+      (x[j][p].st)).chFrozen) chp := by
+    rcases hfz with heq | heq
+    · rw [heq]
+      exact chainLe_trans hbmchC hchCchp
+    · rw [heq]
+      exact hchCchp
+  -- `chC` is below the processed frozen chain
+  have hbase : chainLe chC ((processProposals2 n proposer (x[j][p].view) (t0 + 1)
+      (x[j][p].st)).chFrozen) := by
+    have hlb := processProposals2_chFrozen_lb (n := n) (x[j][p].view) (t0 + 1)
+      (x[j][p].st) hviewprop rfl hvalidprop
+    rcases hlb with h | ⟨y, hy1, hy2⟩
+    · exact h
+    · exfalso
+      rcases hfz with heq | heq
+      · exact hy1 (chainLe_trans hy2 (heq ▸ hbmchC))
+      · exact hy1 (heq ▸ hy2)
+  -- the fork-choice is bounded by `chp`
+  have hchMFCchp : chainLe (mfc (processProposals2 n proposer (x[j][p].view) (t0 + 1)
+      (x[j][p].st)).vFrozen (x[j][p].view)
+      (processProposals2 n proposer (x[j][p].view) (t0 + 1) (x[j][p].st)).chFrozen
+      (t0 + 1)) chp := by
+    rcases mfc_base_or_majority (processProposals2 n proposer (x[j][p].view) (t0 + 1)
+        (x[j][p].st)).vFrozen (x[j][p].view)
+        (processProposals2 n proposer (x[j][p].view) (t0 + 1) (x[j][p].st)).chFrozen
+        (t0 + 1) with hmfcb | hmfcm
+    · rw [hmfcb]
+      exact hfz_le_chp
+    · have hvf : (processProposals2 n proposer (x[j][p].view) (t0 + 1)
+          (x[j][p].st)).vFrozen = x[im][p].view := by
+        rw [processProposals2_vFrozen]
+        exact hvfj
+      rw [hvf] at hmfcm ⊢
+      have hmajp := majority_transfer hsync hsyn hrel hlblj htim hlblk htk hmfcm
+      have hle := le_mfc_of_majority (x[k][vp].view) (x[k][vp].view) chC (t0 + 1) _
+        (chainLe_trans hbase (base_le_mfc _ _ _ _)) hmajp
+      refine chainLe_trans hle ?_
+      rw [hchp, hchC]
+      exact chainLe_extend _ _ _
+  -- the vote is the proposal itself
+  have hvote_eq : voteChoice proposer (x[j][p].view) (t0 + 1)
+      (mfc (processProposals2 n proposer (x[j][p].view) (t0 + 1) (x[j][p].st)).vFrozen
+        (x[j][p].view)
+        (processProposals2 n proposer (x[j][p].view) (t0 + 1) (x[j][p].st)).chFrozen
+        (t0 + 1)) = chp := by
+    unfold voteChoice
+    have hcondtrue : ((⟨vp, Msg.propose chp chC qc ck (t0 + 1)⟩ :
+          SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))).sender == proposer (t0 + 1)
+        && ((t0 + 1 : Nat) == (t0 + 1)) && (proposedAt chp == (t0 + 1))
+        && chainLe (mfc (processProposals2 n proposer (x[j][p].view) (t0 + 1)
+          (x[j][p].st)).vFrozen (x[j][p].view)
+          (processProposals2 n proposer (x[j][p].view) (t0 + 1) (x[j][p].st)).chFrozen
+          (t0 + 1)) chp) = true := by
+      simp only [Bool.and_eq_true, beq_iff_eq]
+      exact ⟨⟨⟨hvp_prop, trivial⟩, by rw [hchp]; exact proposedAt_extend _ _ _⟩, hchMFCchp⟩
+    cases hfind : (x[j][p].view).toList.findSome? (fun sm => match sm.msg with
+        | .propose chp' _ _ _ t' =>
+            if sm.sender == proposer (t0 + 1) && t' == (t0 + 1) &&
+                proposedAt chp' == (t0 + 1) &&
+                chainLe (mfc (processProposals2 n proposer (x[j][p].view) (t0 + 1)
+                  (x[j][p].st)).vFrozen (x[j][p].view)
+                  (processProposals2 n proposer (x[j][p].view) (t0 + 1)
+                    (x[j][p].st)).chFrozen (t0 + 1)) chp' then some chp'
+            else none
+        | .vote .. => none) with
+    | none =>
+        exfalso
+        have hall := List.findSome?_eq_none_iff.mp hfind
+          (⟨vp, Msg.propose chp chC qc ck (t0 + 1)⟩ :
+            SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
+          (Finset.mem_toList.mpr hviewprop)
+        dsimp only at hall
+        rw [if_pos hcondtrue] at hall
+        cases hall
+    | some c =>
+        simp only [Option.getD_some]
+        obtain ⟨a, haV, hfa⟩ := List.exists_of_findSome?_eq_some hfind
+        obtain ⟨asd, am⟩ := a
+        revert hfa
+        cases am with
+        | vote e src tgt s₁ => intro h; cases h
+        | propose chpa chca qca cka ta =>
+            dsimp only
+            split_ifs with hcnd
+            · intro h
+              injection h with h
+              subst h
+              simp only [Bool.and_eq_true, beq_iff_eq] at hcnd
+              obtain ⟨⟨⟨hsda, hta⟩, -⟩, -⟩ := hcnd
+              subst hta
+              have hhon_a : asd ∉ S.adv ((x[j].time : Int)) := by
+                rw [hsda, ← hvp_prop]
+                refine hhon_le _ ?_
+                rw [htj]
+              obtain ⟨-, k', hk'j, hlblk', htk', hem', -, -, -⟩ :=
+                propose_provenance2 hsync hmc hmono
+                  (views_sound x j p _ (Finset.mem_toList.mp haV)) hhon_a rfl
+              have hlblk'' : x.lbl k' = .tick vp (Q.slotLength * (t0 + 1)) := by
+                rw [hlblk']
+                simp only [hsda, ← hvp_prop]
+              have hkk : k' = k := hone k' k vp _ hlblk'' hlblk
+              subst hkk
+              have heqmsg := tick_sends_subsingleton hlblk hem' hemk
+              have hinj := congrArg SignedMsg.msg heqmsg
+              injection hinj with h1 h2 h3 h4 h5
+            · intro h
+              cases h
+  rw [hvote_eq] at hsend
+  have hmem : ⟪vote, chp, dotj, dotj, (t0 + 1), p⟫ ∈ x[j + 1].sent := by
+    refine hemit _ ?_
+    rw [hsend]
+    exact Multiset.mem_singleton_self _
+  exact ⟨j + 1, chp, dotj, dotj, by rw [tick_time hlblj, htj], hmem, chainLe_refl chp⟩
+
 end Lemma2Vote
 
 end Majorum
