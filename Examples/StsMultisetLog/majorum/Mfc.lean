@@ -249,6 +249,168 @@ private theorem foldl_base_or_majority (V V' : View Node (Msg (Chain Tx) QC)) (c
       · rename_i h; exact Or.inr h.2.1
       · exact hb
 
+/-- A `votesFor` member's sender is a voter. -/
+theorem sender_mem_voters_of_votesFor {V : View Node (Msg (Chain Tx) QC)} {ch : Chain Tx}
+    {t : Nat} {sm : SignedMsg Node (Msg (Chain Tx) QC)} (h : sm ∈ votesFor V ch t) :
+    sm.sender ∈ voters V t := by
+  have h1 : sm ∈ fil1Exp (filEq V) t :=
+    Finset.filter_subset _ _ (Finset.filter_subset _ _ h)
+  have h2 := Finset.mem_filter.mp h1
+  simp only [voters, Finset.mem_image]
+  refine ⟨sm, ?_, rfl⟩
+  simp only [fil1Exp, Finset.mem_filter]
+  exact ⟨Finset.filter_subset _ _ h2.1, h2.2⟩
+
+/-! ### Structural chain validity
+
+`slotsIncreasing` renders the paper's chain model — blocks in slot order — as a check.
+The lemmas here are what Lemmas 5 and 6 consume: prefixes inherit it, `proposedAt` is
+monotone along prefixes, and block counts are bounded by slot spans. -/
+
+/-- Peeling `slotsIncreasing` off a two-or-more chain. -/
+theorem slotsIncreasing_tail {a b : Block Tx} {m : Chain Tx}
+    (h : slotsIncreasing (a :: b :: m)) :
+    a.slot < b.slot ∧ slotsIncreasing (b :: m) := by
+  have h' : (decide (a.slot < b.slot) && slotsIncreasing (b :: m)) = true := h
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at h'
+  exact h'
+
+/-- Peeling `proposedAt` off a two-or-more chain. -/
+theorem proposedAt_cons_cons (x y : Block Tx) (m : Chain Tx) :
+    proposedAt (x :: y :: m) = proposedAt (y :: m) := by
+  simp [proposedAt, List.getLast?_cons_cons]
+
+/-- The head's slot bounds `proposedAt` from below on a sorted chain. -/
+theorem head_slot_le_proposedAt {x : Block Tx} {l : Chain Tx}
+    (h : slotsIncreasing (x :: l)) : x.slot ≤ proposedAt (x :: l) := by
+  induction l generalizing x with
+  | nil => simp [proposedAt]
+  | cons y m ih =>
+      simp only [slotsIncreasing, Bool.and_eq_true, decide_eq_true_eq] at h
+      rw [proposedAt_cons_cons]
+      exact le_trans (le_of_lt h.1) (ih h.2)
+
+/-- A prefix of a slot-sorted chain is slot-sorted. -/
+theorem slotsIncreasing_of_prefix {a b : Chain Tx} (hle : chainLe a b)
+    (hb : slotsIncreasing b) : slotsIncreasing a := by
+  rw [chainLe_iff_prefix] at hle
+  obtain ⟨c, rfl⟩ := hle
+  induction a with
+  | nil => simp [slotsIncreasing]
+  | cons x l ih =>
+      cases l with
+      | nil => simp [slotsIncreasing]
+      | cons y m =>
+          simp only [List.cons_append, slotsIncreasing, Bool.and_eq_true,
+            decide_eq_true_eq] at hb ⊢
+          exact ⟨hb.1, ih hb.2⟩
+
+/-- Along a slot-sorted chain, `proposedAt` is monotone under prefixes. -/
+theorem proposedAt_le_of_prefix {a b : Chain Tx} (hle : chainLe a b)
+    (hb : slotsIncreasing b) : proposedAt a ≤ proposedAt b := by
+  rw [chainLe_iff_prefix] at hle
+  obtain ⟨c, rfl⟩ := hle
+  induction a generalizing c with
+  | nil => simp [proposedAt]
+  | cons x l ih =>
+      cases l with
+      | nil =>
+          cases c with
+          | nil => simp
+          | cons z w =>
+              show proposedAt [x] ≤ proposedAt (x :: z :: w)
+              have hb' : slotsIncreasing (x :: z :: w) := hb
+              rw [proposedAt_cons_cons]
+              simp only [slotsIncreasing, Bool.and_eq_true, decide_eq_true_eq] at hb'
+              have hx : proposedAt [x] = x.slot := by simp [proposedAt]
+              rw [hx]
+              exact le_trans (le_of_lt hb'.1) (head_slot_le_proposedAt hb'.2)
+      | cons y m =>
+          show proposedAt (x :: y :: m) ≤ proposedAt (x :: (y :: m ++ c))
+          rw [proposedAt_cons_cons,
+            show proposedAt (x :: (y :: m ++ c)) = proposedAt (y :: m ++ c) from
+              proposedAt_cons_cons x y (m ++ c)]
+          have hb' : slotsIncreasing (x :: y :: (m ++ c)) := hb
+          exact ih c (slotsIncreasing_tail hb').2
+
+/-- The last block of a nonempty prefix precedes the first appended block, on a sorted
+    chain. -/
+theorem proposedAt_lt_head_append {l : Chain Tx} {z : Block Tx} {w : Chain Tx}
+    (h : slotsIncreasing (l ++ z :: w)) (hl : l ≠ []) : proposedAt l < z.slot := by
+  induction l with
+  | nil => exact absurd rfl hl
+  | cons x l' ih =>
+      cases l' with
+      | nil =>
+          simp only [List.singleton_append, slotsIncreasing, Bool.and_eq_true,
+            decide_eq_true_eq] at h
+          simpa [proposedAt] using h.1
+      | cons y m =>
+          simp only [List.cons_append, slotsIncreasing, Bool.and_eq_true,
+            decide_eq_true_eq] at h
+          rw [proposedAt_cons_cons]
+          exact ih h.2 (by simp)
+
+/-- **One block per slot**: on a slot-sorted chain, the block count above a nonempty
+    prefix is bounded by the slot span. -/
+theorem length_sub_le_span {pre ch : Chain Tx} (hle : chainLe pre ch)
+    (hch : slotsIncreasing ch) (hpre : pre ≠ []) :
+    ch.length - pre.length ≤ proposedAt ch - proposedAt pre := by
+  rw [chainLe_iff_prefix] at hle
+  obtain ⟨c, rfl⟩ := hle
+  induction c generalizing pre with
+  | nil => simp
+  | cons z w ih =>
+      have hlt : proposedAt pre < z.slot := proposedAt_lt_head_append hch hpre
+      have hassoc : pre ++ z :: w = (pre ++ [z]) ++ w := by simp
+      rw [hassoc] at hch ⊢
+      have hz : proposedAt (pre ++ [z]) = z.slot := by
+        simp [proposedAt, List.getLast?_concat]
+      have hih := ih (pre := pre ++ [z]) (by simp) hch
+      have hmono : proposedAt (pre ++ [z]) ≤ proposedAt ((pre ++ [z]) ++ w) :=
+        proposedAt_le_of_prefix (by rw [chainLe_iff_prefix]; exact ⟨w, rfl⟩) hch
+      simp only [List.length_append, List.length_cons, List.length_nil] at hih ⊢
+      omega
+
+/-- **The `κ`-deep step of Lemma 5**: a nonempty prefix within `κ` slots of a slot-sorted
+    chain's head absorbs the `κ`-deep prefix. -/
+theorem kappaPrefix_le_of_close {pre ch : Chain Tx} {kappa : Nat}
+    (hle : chainLe pre ch) (hch : slotsIncreasing ch) (hpre : pre ≠ [])
+    (hclose : proposedAt ch ≤ proposedAt pre + kappa) :
+    chainLe (kappaPrefix kappa ch) pre := by
+  have hspan := length_sub_le_span hle hch hpre
+  rw [chainLe_iff_prefix] at hle ⊢
+  unfold kappaPrefix
+  refine List.prefix_of_prefix_length_le (List.take_prefix _ _) hle ?_
+  simp only [List.length_take]
+  omega
+
+/-- Appending a fresh block keeps a chain slot-sorted. -/
+theorem slotsIncreasing_extend (pool : Nat → Tx) {ch : Chain Tx} {t : Nat}
+    (hch : slotsIncreasing ch) (hlt : proposedAt ch < t) :
+    slotsIncreasing (extend pool ch t) := by
+  unfold extend
+  induction ch with
+  | nil => simp [slotsIncreasing]
+  | cons a l ih =>
+      cases l with
+      | nil =>
+          simp only [proposedAt, List.getLast?_singleton, Option.elim] at hlt
+          simp only [List.singleton_append, slotsIncreasing, Bool.and_eq_true,
+            decide_eq_true_eq]
+          refine ⟨hlt, ?_⟩
+          simp [slotsIncreasing]
+      | cons b m =>
+          simp only [slotsIncreasing, Bool.and_eq_true, decide_eq_true_eq,
+            List.cons_append] at hch ⊢
+          refine ⟨hch.1, ?_⟩
+          refine ih hch.2 ?_
+          rwa [proposedAt_cons_cons] at hlt
+
+/-- Genesis is slot-sorted. -/
+theorem slotsIncreasing_nil : slotsIncreasing ([] : Chain Tx) := by
+  simp [slotsIncreasing]
+
 /-- `Extend` stamps its slot: the appended block is the last. -/
 theorem proposedAt_extend (pool : Nat → Tx) (ch : Chain Tx) (t : Nat) :
     proposedAt (extend pool ch t) = t := by

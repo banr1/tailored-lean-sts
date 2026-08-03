@@ -138,7 +138,7 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
       V.toList.findSome? (fun sm => match sm.msg with
         | .propose chp _ _ _ t' =>
             if sm.sender == proposer slot && t' == slot && proposedAt chp == slot &&
-                chainLe chMFC chp then some chp
+                slotsIncreasing chp && chainLe chMFC chp then some chp
             else none
         | .vote .. => none)
     let ch := proposedNow.getD chMFC

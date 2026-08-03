@@ -70,6 +70,19 @@ def chainLe (a b : Chain Tx) : Bool := a.isPrefixOf b
     genesis. -/
 def proposedAt (ch : Chain Tx) : Nat := (ch.getLast?).elim 0 Block.slot
 
+/-- Structural chain validity: block slots strictly increase along the chain. The
+    paper's chain model has this built in (chains grow one block per slot, so `⪯`,
+    lengths and `ch.p` all track slots); with chains as free block lists it must be
+    *checked* where the protocol accepts a foreign chain — the vote phase's proposal
+    check — or Lemma 5's `κ`-deep arithmetic and Lemma 6 are false (a corrupt proposer
+    could smuggle a slot-garbled chain into honest votes). Decision of 2026-08-04,
+    fourth authors'-note finding: proposal validity is undefined in the paper and needs
+    both the proposer identity and this structural check. -/
+def slotsIncreasing : Chain Tx → Bool
+  | [] => true
+  | [_] => true
+  | a :: b :: rest => a.slot < b.slot && slotsIncreasing (b :: rest)
+
 /-- The `κ`-deep prefix `(ch)⌈κ`: drop the most recent `κ` blocks. -/
 def kappaPrefix (kappa : Nat) (ch : Chain Tx) : Chain Tx := ch.take (ch.length - kappa)
 

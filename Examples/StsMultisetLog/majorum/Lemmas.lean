@@ -114,8 +114,8 @@ theorem lemma4 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
   | base =>
       obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
         ⟨hcb, hfn⟩, hgst⟩ := H
-      exact activeVotesExtend_of_propose hsync hstepw hdiv hdil hone hmc hsyn hrel hcb hfn
-        (le_refl _) ht hsent hhon_i hhon_t
+      exact activeVotesExtend_of_propose hsync hstepw hdiv hdil hone hwpt hmc hsyn hrel
+        hslp hcb hfn (le_refl _) hgst ht hsent hhon_i hhon_t
   | succ m hm ih => exact lemma2 H (by omega) ih
 
 /-- **Lemma 7** (`Lemma 7, arXiv:2601.03862v1 p.17`, Liveness of fast confirmations, for
