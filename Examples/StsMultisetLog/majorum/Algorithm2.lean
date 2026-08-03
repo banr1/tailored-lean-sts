@@ -148,7 +148,7 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
 /-- Algorithm 2 as a framework protocol. The tick step is **nondeterministic**: it
     relates the state to the handler's result for *some* filler of the blank fields —
     each tick chooses one freely. Everything else is deterministic; no protocol-specific
-    events; the wake event runs the joining protocol, exactly as in Algorithm 5. -/
+    events; the wake event runs the joining protocol, exactl6y as in Algorithm 5. -/
 noncomputable def protocol2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     (proposer : Nat → Node) :
     Protocol Node (Msg (Chain Tx) (QCert Node Tx)) (NodeState2 Node Tx) Empty where
