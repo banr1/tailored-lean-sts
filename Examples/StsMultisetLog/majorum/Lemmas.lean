@@ -88,8 +88,7 @@ theorem lemma2 {x : Exec Pr2 S} (H : SettingGA Q S x)
   have hmfc := le_mfc_at_vote2 hsync hstepw hdil hwpt hone hmc hsyn hslp hcb hfn hgst
     ht hvotes hp hlblj
   have hchain : chainLe ch chS := chainLe_trans hmfc hchS
-  have hmem : (⟨p, Msg.vote chS dotj dotj (t + 1)⟩ :
-      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[j + 1].sent := by
+  have hmem : ⟪vote, chS, dotj, dotj, (t + 1), p⟫ ∈ x[j + 1].sent := by
     refine hemit _ ?_
     rw [hsend]
     exact Multiset.mem_singleton_self _

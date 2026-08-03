@@ -632,7 +632,7 @@ variable [Fintype Node]
 def ActiveVotesExtend (x : Exec Pr S) (t : Nat) (ch : Chain Tx) : Prop :=
   ∀ p ∈ Active Q S (t : Int), ∃ (i : Nat) (e : Chain Tx) (src tgt : Checkpoint (Chain Tx)),
     x[i].time = Q.slotLength * t + Q.delta ∧
-    (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) QC)) ∈ x[i].sent ∧
+    ⟪vote, e, src, tgt, t, p⟫ ∈ x[i].sent ∧
     chainLe ch e
 
 /-- **The propose-round half of Lemma 2**: if every validator active in slot `t` voted for
@@ -679,23 +679,23 @@ theorem le_mfc_at_propose {x : Exec Pr S}
       rw [hvot1]
       exact_mod_cast hr
     -- delivery: sent at `voting(t)`, in the view by `propose(t+1)`
-    have hview : (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) QC))
+    have hview : ⟪vote, e, src, tgt, t, p⟫
         ∈ x[ip][v].view := by
       refine hsyn iv ip v _ hsent ?_ hvAw
       rw [htiv, hip]
       omega
-    have hsent_ip : (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) QC))
+    have hsent_ip : ⟪vote, e, src, tgt, t, p⟫
         ∈ x[ip].sent := views_sound x ip v _ hview
     have hhon_ip : p ∉ S.adv ((x[ip].time : Int)) := by
       rw [hip]
       exact hhon _ (by omega)
     refine ⟨⟨p, Msg.vote e src tgt t⟩, ?_, rfl⟩
     -- build the filter membership inside out
-    have hvv : (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) QC))
+    have hvv : ⟪vote, e, src, tgt, t, p⟫
         ∈ votes (x[ip][v].view) := by
       simp only [votes, Finset.mem_filter]
       exact ⟨hview, trivial⟩
-    have hfeq : (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) QC))
+    have hfeq : ⟪vote, e, src, tgt, t, p⟫
         ∈ filEq (x[ip][v].view) := by
       simp only [filEq, Finset.mem_filter]
       refine ⟨hvv, ?_⟩
@@ -714,11 +714,11 @@ theorem le_mfc_at_propose {x : Exec Pr S}
       have heq := honest_vote_unique hsync hone hmc hmono hsent_ip hsm'log hhon_ip hh'
         hsend' rfl hm'
       exact hne (by rw [heq])
-    have hfexp : (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) QC))
+    have hfexp : ⟪vote, e, src, tgt, t, p⟫
         ∈ fil1Exp (filEq (x[ip][v].view)) (t + 1) := by
       simp only [fil1Exp, Finset.mem_filter]
       exact ⟨hfeq, rfl⟩
-    have hflmd : (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) QC))
+    have hflmd : ⟪vote, e, src, tgt, t, p⟫
         ∈ filLmd (fil1Exp (filEq (x[ip][v].view)) (t + 1)) := by
       simp only [filLmd, Finset.mem_filter]
       refine ⟨hfexp, ?_⟩

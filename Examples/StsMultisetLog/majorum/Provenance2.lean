@@ -1090,7 +1090,7 @@ def ActiveVotesExtend2 (x : Exec Pr2 S) (t : Nat) (ch : Chain Tx) : Prop :=
   ∀ p ∈ Active Q S (t : Int),
     ∃ (i : Nat) (e : Chain Tx) (src tgt : Checkpoint (Chain Tx)),
     x[i].time = Q.slotLength * t + Q.delta ∧
-    (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
+    ⟪vote, e, src, tgt, t, p⟫
       ∈ x[i].sent ∧
     chainLe ch e
 
@@ -1138,25 +1138,21 @@ theorem le_mfc_at_propose2 {x : Exec Pr2 S}
       rw [hvot1]
       exact_mod_cast hr
     -- delivery: sent at `voting(t)`, in the view by `propose(t+1)`
-    have hview : (⟨p, Msg.vote e esrc etgt t⟩ :
-        SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[ip][v].view := by
+    have hview : ⟪vote, e, esrc, etgt, t, p⟫ ∈ x[ip][v].view := by
       refine hsyn iv ip v _ hsent ?_ hvAw
       rw [htiv, hip]
       omega
-    have hsent_ip : (⟨p, Msg.vote e esrc etgt t⟩ :
-        SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[ip].sent :=
+    have hsent_ip : ⟪vote, e, esrc, etgt, t, p⟫ ∈ x[ip].sent :=
       views_sound x ip v _ hview
     have hhon_ip : p ∉ S.adv ((x[ip].time : Int)) := by
       rw [hip]
       exact hhon _ (by omega)
     refine ⟨⟨p, Msg.vote e esrc etgt t⟩, ?_, rfl⟩
     -- build the filter membership inside out
-    have hvv : (⟨p, Msg.vote e esrc etgt t⟩ :
-        SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ votes (x[ip][v].view) := by
+    have hvv : ⟪vote, e, esrc, etgt, t, p⟫ ∈ votes (x[ip][v].view) := by
       simp only [votes, Finset.mem_filter]
       exact ⟨hview, trivial⟩
-    have hfeq : (⟨p, Msg.vote e esrc etgt t⟩ :
-        SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ filEq (x[ip][v].view) := by
+    have hfeq : ⟪vote, e, esrc, etgt, t, p⟫ ∈ filEq (x[ip][v].view) := by
       simp only [filEq, Finset.mem_filter]
       refine ⟨hvv, ?_⟩
       rintro ⟨sm', hsm', hsend', hslot', hne⟩
@@ -1174,13 +1170,11 @@ theorem le_mfc_at_propose2 {x : Exec Pr2 S}
       have heq := honest_vote_unique2 hsync hone hmc hmono hsent_ip hsm'log hhon_ip hh'
         hsend' rfl hm'
       exact hne (by rw [heq])
-    have hfexp : (⟨p, Msg.vote e esrc etgt t⟩ :
-        SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
+    have hfexp : ⟪vote, e, esrc, etgt, t, p⟫
         ∈ fil1Exp (filEq (x[ip][v].view)) (t + 1) := by
       simp only [fil1Exp, Finset.mem_filter]
       exact ⟨hfeq, rfl⟩
-    have hflmd : (⟨p, Msg.vote e esrc etgt t⟩ :
-        SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
+    have hflmd : ⟪vote, e, esrc, etgt, t, p⟫
         ∈ filLmd (fil1Exp (filEq (x[ip][v].view)) (t + 1)) := by
       simp only [filLmd, Finset.mem_filter]
       refine ⟨hfexp, ?_⟩
@@ -1257,20 +1251,16 @@ theorem chainLe_nil (ch : Chain Tx) : chainLe [] ch := by
 theorem mem_votesFor_of_official {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
     (hone : OneTickPerReading x) (hmc : S.MonotoneCorruption) (hmono : TimeMonotone x)
     {iw : Nat} {w q : Node} {e : Chain Tx} {src tgt : Checkpoint (Chain Tx)} {t : Nat}
-    (hview : (⟨q, Msg.vote e src tgt t⟩ :
-      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[iw][w].view)
+    (hview : ⟪vote, e, src, tgt, t, q⟫ ∈ x[iw][w].view)
     (hhq : q ∉ S.adv ((x[iw].time : Int))) {ch : Chain Tx} (hext : chainLe ch e) :
-    (⟨q, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
+    ⟪vote, e, src, tgt, t, q⟫
       ∈ votesFor (x[iw][w].view) ch (t + 1) := by
-  have hlog : (⟨q, Msg.vote e src tgt t⟩ :
-      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[iw].sent :=
+  have hlog : ⟪vote, e, src, tgt, t, q⟫ ∈ x[iw].sent :=
     views_sound x iw w _ hview
-  have hvv : (⟨q, Msg.vote e src tgt t⟩ :
-      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ votes (x[iw][w].view) := by
+  have hvv : ⟪vote, e, src, tgt, t, q⟫ ∈ votes (x[iw][w].view) := by
     simp only [votes, Finset.mem_filter]
     exact ⟨hview, trivial⟩
-  have hfeq : (⟨q, Msg.vote e src tgt t⟩ :
-      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ filEq (x[iw][w].view) := by
+  have hfeq : ⟪vote, e, src, tgt, t, q⟫ ∈ filEq (x[iw][w].view) := by
     simp only [filEq, Finset.mem_filter]
     refine ⟨hvv, ?_⟩
     rintro ⟨sm', hsm', hsend', hslot', hne⟩
@@ -1287,13 +1277,11 @@ theorem mem_votesFor_of_official {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
     have heq := honest_vote_unique2 hsync hone hmc hmono hlog hsm'log hhq hh'
       hsend' rfl hm'
     exact hne (by rw [heq])
-  have hfexp : (⟨q, Msg.vote e src tgt t⟩ :
-      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
+  have hfexp : ⟪vote, e, src, tgt, t, q⟫
       ∈ fil1Exp (filEq (x[iw][w].view)) (t + 1) := by
     simp only [fil1Exp, Finset.mem_filter]
     exact ⟨hfeq, rfl⟩
-  have hflmd : (⟨q, Msg.vote e src tgt t⟩ :
-      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
+  have hflmd : ⟪vote, e, src, tgt, t, q⟫
       ∈ filLmd (fil1Exp (filEq (x[iw][w].view)) (t + 1)) := by
     simp only [filLmd, Finset.mem_filter]
     refine ⟨hfexp, ?_⟩
@@ -1458,13 +1446,11 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
     have hhon : ∀ i2 : Nat, (x[i2].time : Int) ≤ Q.voting ((t : Int) + 1) →
         w ∉ S.adv ((x[i2].time : Int)) :=
       fun i2 hle2 had => hwH (hmc _ _ hle2 had)
-    have hviewm : (⟨w, Msg.vote e esrc etgt t⟩ :
-        SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[im][p].view := by
+    have hviewm : ⟪vote, e, esrc, etgt, t, w⟫ ∈ x[im][p].view := by
       refine hsyn iv im p _ hsent ?_ hAwm
       rw [htiv, htim]
       omega
-    have hviewj : (⟨w, Msg.vote e esrc etgt t⟩ :
-        SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[j][p].view := by
+    have hviewj : ⟪vote, e, esrc, etgt, t, w⟫ ∈ x[j][p].view := by
       refine hsyn iv j p _ hsent ?_ hAwj
       rw [htiv, htj]
       omega
@@ -1571,8 +1557,7 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
             2 * n ≤ 3 * (cert.image Prod.fst).card ∧
             ∀ e ∈ cert, chainLe s'.chFrozen e.2.1 ∧ e.2.2 = (t + 1) - 1 ∧
               ∃ src tgt : Checkpoint (Chain Tx),
-                (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ :
-                  SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[j][p].view) := hvp
+                ⟪vote, e.2.1, src, tgt, e.2.2, e.1⟫ ∈ x[j][p].view) := hvp
       rcases hvp'.2.2 with hgen0 | ⟨cert, hqc, hcard, hcert⟩
       · rw [hgen0]
         exact Or.inr (chainLe_nil ch)
@@ -1583,8 +1568,7 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
         have hslotE' : entry.2.2 = t := by omega
         rw [hslotE'] at hinV
         obtain ⟨esrc, etgt, hinV⟩ := hinV
-        have hlogE : (⟨entry.1, Msg.vote entry.2.1 esrc etgt t⟩ :
-            SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[j].sent :=
+        have hlogE : ⟪vote, entry.2.1, esrc, etgt, t, entry.1⟫ ∈ x[j].sent :=
           views_sound x j p _ hinV
         have hhonE : entry.1 ∉ S.adv ((x[j].time : Int)) := by
           rw [hfst]

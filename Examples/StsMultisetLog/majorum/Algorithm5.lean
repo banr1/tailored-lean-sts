@@ -71,6 +71,13 @@ inductive Msg (Chain QC : Type) where
   | vote (ch : Chain) (source target : Checkpoint Chain) (t : Nat)
   deriving DecidableEq
 
+/-- The paper's `[vote, ch, src → tgt, t, vᵢ]`, as notation for the signed message —
+    the last component is the signer, as in the paper, where it stands for the
+    signature. Purely sugar: elaborates to `⟨p, Msg.vote e src tgt t⟩` and prints back
+    the same way. -/
+scoped notation "⟪vote, " e ", " src ", " tgt ", " t ", " p "⟫" =>
+  the framework's flat multiset-log flavour.SignedMsg.mk p (Msg.vote e src tgt t)
+
 /-- Everything a validator keeps: Algorithm 4's outputs and state.
 
     `V_i`, the view, is *not* here — the framework maintains it and hands it to `step`. -/
