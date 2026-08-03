@@ -36,25 +36,26 @@ open the framework's flat multiset-log flavour
 
 variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx]
 
-/-- Algorithm 2's four phase actions, with the blank finality fields **assigned
-    nondeterministically where they occur**: `let dot ← Set.univ` in the propose and vote
-    branches. The deterministic branches are `pure`. Compare `Majorum.handler2`,
-    which takes the filler as a parameter instead. -/
+/-- Algorithm 2's four phase actions, as one `do` block: `←` is a nondeterministic
+    assignment (the blank finality fields, in the propose and vote branches), `return`
+    marks each branch's outcome. Compare `Majorum.handler2`, which takes the
+    filler as a parameter instead. -/
 noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     (proposer : Nat → Node) (p : Node) (r : Time)
     (V : View Node (Msg (Chain Tx) (QCert Node Tx))) (s : NodeState2 Node Tx) :
-    Set (NodeStepResult (NodeState2 Node Tx) (Msg (Chain Tx) (QCert Node Tx))) :=
+    Set (NodeStepResult (NodeState2 Node Tx) (Msg (Chain Tx) (QCert Node Tx))) := do
   let slot : Nat := r / Q.slotLength
   let phase : Nat := r % Q.slotLength
   if phase = 0 then
-    if p = proposer slot ∧ s.activeAt ≤ r then do
+    if p = proposer slot ∧ s.activeAt ≤ r then
       let dot ← (Set.univ : Set (Checkpoint (Chain Tx)))
       let cq := fastConfirmSimple n V (slot - 1)
       let chMFC := mfc V V cq.1 slot
       let chp := extend pool chMFC slot
-      pure { state := s, send := {.propose chp cq.1 cq.2 dot slot} }
-    else pure { state := s, send := 0 }
-  else if phase = Q.delta then do
+      return { state := s, send := {.propose chp cq.1 cq.2 dot slot} }
+    else
+      return { state := s, send := 0 }
+  else if phase = Q.delta then
     let dot ← (Set.univ : Set (Checkpoint (Chain Tx)))
     let s' := processProposals2 n V slot s
     let chMFC := mfc s'.vFrozen V s'.chFrozen slot
@@ -69,16 +70,16 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
             else none
         | .vote .. => none)
     let ch := proposedNow.getD chMFC
-    pure { state := { s' with chi := chi },
-           send := if s.activeAt ≤ r then {.vote ch dot dot slot} else 0 }
+    return { state := { s' with chi := chi },
+             send := if s.activeAt ≤ r then {.vote ch dot dot slot} else 0 }
   else if phase = 2 * Q.delta then
     let fq := fastConfirmSimple n V slot
-    pure { state := if fq.2.isSome then { s with chi := fq.1 } else s, send := 0 }
+    return { state := if fq.2.isSome then { s with chi := fq.1 } else s, send := 0 }
   else if phase = 3 * Q.delta then
-    pure { state := { s with vFrozen := V, chFrozen := (fastConfirmSimple n V slot).1 },
-           send := 0 }
+    return { state := { s with vFrozen := V, chFrozen := (fastConfirmSimple n V slot).1 },
+             send := 0 }
   else
-    pure { state := s, send := 0 }
+    return { state := s, send := 0 }
 
 /-- Membership in a nondeterministic assignment followed by a deterministic
     continuation — Event-B's `x :∈ S; y := f(x)`, inverted. -/
