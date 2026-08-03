@@ -1,12 +1,16 @@
 import Examples.StsMultisetLog.majorum.Assumptions
 import Examples.StsMultisetLog.majorum.Security
+import Examples.StsMultisetLog.majorum.Lemmas
 
 /-!
 # Majorum's theorems, as statements
 
 All seven theorems of arXiv:2601.03862v1, rendered in the vocabulary of
-`Security.lean`. **Statements only** — nothing here is proved, and nothing
-here is a `theorem`.
+`Security.lean` as **statements** (`def … : Prop`), plus — at the end of the file —
+the theorems *proved* for Algorithm 2 concretely (`theorem1`, 2026-08-04), in the same
+direct style as `Lemmas.lean` rather than through the `Security.lean` renderings (which
+quantify differently: no probability layer, and a hypothesis row that predates
+`SettingGA`).
 
 ## Why these are `def … : Prop` and not `theorem`
 
@@ -157,5 +161,112 @@ def ThmEbbAndFlow (available finalized : Node → Config Node Msg NodeState → 
     (Pre : Out → Out → Prop) (mem : Tx → Out → Prop) (pool : Time → Set Tx)
     (gst gat slack tconf : Time) (x : Exec Pr S) : Prop :=
   SecureEbbAndFlow available finalized Pre mem pool gst gat slack tconf x
+
+end Majorum
+
+/-! ### Proved: Algorithm 2, concretely
+
+In a fresh namespace scope: the statement block above declares `Msg` as a *type
+variable* (the abstract renderings range over any message type), which would shadow
+Algorithm 5's `Msg` inductive here. -/
+
+namespace Majorum
+
+open the framework's flat multiset-log flavour
+
+section Algorithm2Proved
+
+variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx] [Fintype Node]
+  {Q : Params} {S : Schedule Node} {kappa : Nat} {pool : Nat → Tx}
+  {proposer : Nat → Node}
+
+/-- Algorithm 2, its quorum threshold instantiated with the structural validator count —
+    the same protocol `Lemmas.lean` states the lemmas over. -/
+local notation "Pr2" => protocol2 Q (Fintype.card Node) kappa pool proposer
+
+/-- **Theorem 1** (`Theorem 1, arXiv:2601.03862v1 p.16`, Reorg Resilience, for
+    Algorithm 2). An honestly proposed chain never conflicts with any validator's
+    confirmed chain: `chp` and `Ch^{ri}_i` are comparable, at every index.
+
+    The paper's proof, followed exactly: pick a slot `tj` past both `tp` and `ri`'s
+    slot; `Sleepiness` makes `H_vote(tj)` inhabited, `TimeDiverges`/`Diligent` produce
+    an active validator's vote tick there; Lemma 4's machinery puts `chp` below that
+    tick's fork choice, Lemma 5 puts `Ch^{ri}_i` below the same fork choice, and two
+    prefixes of one chain are comparable.
+
+    Hypotheses as in `lemma5`: `SettingGA`, `1 ≤ κ`, and `HonestProposalWindow` (the
+    de-probabilized Lemma 1) — the paper's "w.o.p." qualifier lives in the latter. The
+    conclusion is `¬ Conflicts` unfolded (`Security.Conflicts`: neither is a prefix of
+    the other); `vi`'s honesty is not needed, as in Lemma 5. -/
+theorem theorem1 {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
+    (hwin : HonestProposalWindow x)
+    {tp : Nat} (htp : 1 ≤ tp) {vp : Node} {chp chC : Chain Tx}
+    {qc : Option (QCert Node Tx)} {ck : Checkpoint (Chain Tx)} {i : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc ck tp⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[i].sent)
+    (hhon_i : vp ∉ S.adv ((x[i].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (tp : Int)))
+    (a : Nat) (vi : Node) :
+    chainLe chp (x[a][vi].st.chi) ∨ chainLe (x[a][vi].st.chi) chp := by
+  obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
+    ⟨hcb, hfn⟩, hgst⟩ := id H
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have hmono := hstepw.timeMonotone
+  have hSL0 : 0 < Q.slotLength := by omega
+  -- a slot past both the proposal and `ri`
+  set s0 := max tp (x[a].time / Q.slotLength) with hs0def
+  have htps0 : tp ≤ s0 := le_max_left _ _
+  have hs01 : 1 ≤ s0 := le_trans htp htps0
+  -- `H_vote(s0+1)` is inhabited
+  have hgstok : (Q.gst : Int) ≤ Q.proposing ((s0 : Int) + 1 + 1) := by
+    rw [hgst]
+    unfold Params.proposing
+    push_cast
+    exact mul_nonneg (Int.natCast_nonneg _) (by omega)
+  have hcount := hslp ((s0 : Int) + 1 + 1) hgstok
+  rw [show ((s0 : Int) + 1 + 1 - 1) = (s0 : Int) + 1 by omega] at hcount
+  have hpos : 0 < (Active Q S ((s0 : Int) + 1) \
+      S.adv (Q.voting ((s0 : Int) + 1 + 1))).card := by omega
+  obtain ⟨vj, hvjmem⟩ := Finset.card_pos.mp hpos
+  have hvj : vj ∈ Active Q S ((s0 : Int) + 1) := (Finset.mem_sdiff.mp hvjmem).1
+  -- its vote tick at `voting(s0+1)`
+  have hvot1 : Q.voting ((s0 : Int) + 1)
+      = ((Q.slotLength * (s0 + 1) + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  obtain ⟨i₁, hi₁⟩ := hdiv (Q.slotLength * (s0 + 1) + Q.delta)
+  obtain ⟨i₀, hi₀, hti₀⟩ := exists_time_eq hstepw hi₁
+  have hAw0 : x.Awake i₀ vj := by
+    show vj ∈ S.awake ((x[i₀].time : Int))
+    rw [hti₀]
+    refine mem_awakeThroughout.mp hvj _ ?_ ?_ <;> rw [hvot1] <;> omega
+  obtain ⟨j, htj, hlblj⟩ := hdil (Q.slotLength * (s0 + 1) + Q.delta) vj ⟨i₀, hti₀, hAw0⟩
+  -- Lemma 4's side: the proposal is below the tick's fork choice
+  have hAVE : ActiveVotesExtend2 x s0 chp :=
+    ave_of_honest_proposal hsync hstepw hdiv hdil hone hwpt hmc hsyn hrel hslp hcb hfn
+      (le_refl _) hgst htp hsent hhon_i hhon_t htps0
+  have h4 := le_mfc_at_vote2 hsync hstepw hdil hwpt hone hmc hsyn hslp hcb hfn hgst
+    hs01 hAVE hvj hlblj
+  -- Lemma 5's side: the confirmed chain is below the same fork choice
+  have hact : vj ∈ Active Q S (((s0 + 1 : Nat)) : Int) := by
+    have hcast : (((s0 + 1 : Nat)) : Int) = (s0 : Int) + 1 := by push_cast; omega
+    rw [hcast]
+    exact hvj
+  have hab : x[a].time ≤ Q.slotLength * (s0 + 1) + Q.delta := by
+    have hdm := Nat.div_add_mod (x[a].time) Q.slotLength
+    have hml := Nat.mod_lt (x[a].time) hSL0
+    have hq1 : Q.slotLength * (x[a].time / Q.slotLength + 1)
+        ≤ Q.slotLength * (s0 + 1) :=
+      Nat.mul_le_mul_left _ (by omega)
+    have hexp : Q.slotLength * (x[a].time / Q.slotLength + 1)
+        = Q.slotLength * (x[a].time / Q.slotLength) + Q.slotLength := Nat.mul_succ ..
+    omega
+  have h5 := (lemma5 (a := a) (vi := vi) (b := j) (vj := vj) H hκ hwin
+    (show 1 ≤ s0 + 1 by omega) hact).2 hlblj hab
+  exact comparable_of_common_extension h4 h5
+
+end Algorithm2Proved
 
 end Majorum
