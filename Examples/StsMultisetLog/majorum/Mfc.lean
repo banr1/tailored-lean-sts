@@ -372,6 +372,33 @@ theorem length_sub_le_span {pre ch : Chain Tx} (hle : chainLe pre ch)
       simp only [List.length_append, List.length_cons, List.length_nil] at hih ⊢
       omega
 
+/-- **One block per slot, from genesis**: a slot-sorted chain's length is bounded by its
+    head slot's distance from `0` — at most `proposedAt + 1` blocks. -/
+theorem slotsIncreasing_length_le {ch : Chain Tx} (hch : slotsIncreasing ch) :
+    ch.length ≤ proposedAt ch + 1 := by
+  cases ch with
+  | nil => simp
+  | cons x l =>
+      have hle : chainLe [x] (x :: l) := by
+        rw [chainLe_iff_prefix]
+        exact ⟨l, rfl⟩
+      have hspan := length_sub_le_span hle hch (by simp)
+      have hx : proposedAt [x] = x.slot := rfl
+      simp only [List.length_cons, List.length_nil] at hspan ⊢
+      rw [hx] at hspan
+      omega
+
+/-- A chain of at most `κ` blocks has an empty `κ`-deep prefix. -/
+theorem kappaPrefix_nil_of_short {ch : Chain Tx} {kappa : Nat}
+    (h : ch.length ≤ kappa) : kappaPrefix kappa ch = [] := by
+  simp [kappaPrefix, Nat.sub_eq_zero_of_le h]
+
+/-- The `κ`-deep prefix is a prefix. -/
+theorem kappaPrefix_le_self (kappa : Nat) (ch : Chain Tx) :
+    chainLe (kappaPrefix kappa ch) ch := by
+  rw [chainLe_iff_prefix]
+  exact List.take_prefix _ _
+
 /-- **The `κ`-deep step of Lemma 5**: a nonempty prefix within `κ` slots of a slot-sorted
     chain's head absorbs the `κ`-deep prefix. -/
 theorem kappaPrefix_le_of_close {pre ch : Chain Tx} {kappa : Nat}
