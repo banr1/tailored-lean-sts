@@ -17,15 +17,17 @@ Algorithm 2 calls.
 
 Algorithm 2's messages are Algorithm 5's with the finality fields left blank — the paper
 writes `[vote, ch, ·, t, vi]` and `[propose, chp, chC, QC, ·, t, vp]`, the `·` being the
-placeholder the fin-vote and checkpoint later fill. The placeholder is a **parameter**
-`dot` of the algorithm, not a fixed value: the paper's `·` stands for any value, and
-parametricity is the formal rendering of that — every result about `protocol2` is
-∀-quantified over `dot`, so nothing can depend on which value fills the blank (user
-decision, 2026-08-03, replacing a fixed `dotCk := ⟨[], 0⟩`). The same `Msg` type then
+placeholder the fin-vote and checkpoint later fill. The blank is **nondeterministic**:
+`protocol2`'s tick step relates the state to the handler's result *for some* filler
+`dot`, chosen freely at every tick — the framework's `step` is a relation exactly so
+this is expressible — and on the receiving side `ValidProposal2` accepts certified votes
+with *any* filler. So nothing anywhere can depend on what fills the blank, which is the
+paper's `·` taken literally (user decision, 2026-08-03; this replaced a `dot` parameter
+of the protocol, which itself replaced a fixed `dotCk := ⟨[], 0⟩`). The same `Msg` type
 serves both algorithms; that keeps every filter and fork-choice function applicable
 verbatim, and makes Appendix C's lifting ("honest validators send identical messages in
-both protocols except for the finality component") a literal statement about message
-values.
+both protocols except for the finality component") a statement about message values up
+to the blank fields.
 
 ## The certificate check
 
@@ -62,9 +64,10 @@ structure NodeState2 (Node Tx : Type) [DecidableEq Node] [DecidableEq Tx] where
 /-- Proposal validity, certificate included: the proposed chain belongs to the proposal's
     slot and extends the carried fast-confirmed chain, and the certificate's votes — held
     in the receiver's own view — give `chC` at least `2n/3` distinct supporters from the
-    previous slot. See the module docstring for why the check runs against the view. -/
-def ValidProposal2 (n : Nat) (dot : Checkpoint (Chain Tx))
-    (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
+    previous slot. A certified vote counts **with any filler** in its blank fields,
+    matching the sender side's nondeterministic choice. See the module docstring for why
+    the check runs against the view. -/
+def ValidProposal2 (n : Nat) (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     (sm : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) : Prop :=
   match sm.msg with
   | .propose chp chC qc _ t' =>
@@ -72,21 +75,22 @@ def ValidProposal2 (n : Nat) (dot : Checkpoint (Chain Tx))
         (chC = [] ∨ ∃ cert : QCert Node Tx, qc = some cert ∧
           2 * n ≤ 3 * (cert.image Prod.fst).card ∧
           ∀ e ∈ cert, chainLe chC e.2.1 ∧ e.2.2 = t' - 1 ∧
-            (⟨e.1, Msg.vote e.2.1 dot dot e.2.2⟩ :
-              SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ V)
+            ∃ src tgt : Checkpoint (Chain Tx),
+              (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ :
+                SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ V)
   | .vote .. => False
 
 /-- Algorithm 2 lines 33–36: a valid slot-`t` proposal whose fast-confirmed chain extends
     the frozen one replaces it. Received during `[4Δt, 4Δt+Δ]`, processed at the vote
     reading, folded over the view — the same arrival-order caveat as Algorithm 5's
     `processProposals`. -/
-noncomputable def processProposals2 (n : Nat) (dot : Checkpoint (Chain Tx))
+noncomputable def processProposals2 (n : Nat)
     (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     (t : Nat) (s : NodeState2 Node Tx) : NodeState2 Node Tx :=
   V.toList.foldl (fun acc sm =>
     match sm.msg with
     | .propose _ chC _ _ t' =>
-        if t' = t ∧ ValidProposal2 n dot V sm ∧ chainLe acc.chFrozen chC then
+        if t' = t ∧ ValidProposal2 n V sm ∧ chainLe acc.chFrozen chC then
           { acc with chFrozen := chC }
         else acc
     | .vote .. => acc) s
@@ -114,7 +118,7 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     else { state := s, send := 0 }
   else if phase = Q.delta then
     -- Vote, lines 20–25, after the lines 33–36 proposal processing
-    let s' := processProposals2 n dot V slot s
+    let s' := processProposals2 n V slot s
     let chMFC := mfc s'.vFrozen V s'.chFrozen slot
     -- line 22: `Ch_i ← max({ch ∈ {Ch_i, (chMFC)⌈κ} : ch ⪯ chMFC})`
     let chi :=
@@ -141,19 +145,25 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
   else
     { state := s, send := 0 }
 
-/-- Algorithm 2 as a framework protocol: deterministic, so `step` is the handler's graph;
-    no protocol-specific events; the wake event runs the joining protocol, exactly as in
-    Algorithm 5. -/
+/-- Algorithm 2 as a framework protocol. The tick step is **nondeterministic**: it
+    relates the state to the handler's result for *some* filler of the blank fields —
+    each tick chooses one freely. Everything else is deterministic; no protocol-specific
+    events; the wake event runs the joining protocol, exactly as in Algorithm 5. -/
 noncomputable def protocol2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
-    (proposer : Nat → Node) (dot : Checkpoint (Chain Tx)) :
+    (proposer : Nat → Node) :
     Protocol Node (Msg (Chain Tx) (QCert Node Tx)) (NodeState2 Node Tx) Empty where
   init _ := { chi := [], vFrozen := ∅, chFrozen := [], activeAt := 0 }
-  step p r V s e res := res = match e with
-    | .tick => handler2 Q n kappa pool proposer dot p r V s
-    | .recv _ => { state := s, send := 0 }
-    | .wake => { state := { s with activeAt := activationRound Q r }, send := 0 }
+  step p r V s e res := match e with
+    | .tick => ∃ dot : Checkpoint (Chain Tx),
+        res = handler2 Q n kappa pool proposer dot p r V s
+    | .recv _ => res = { state := s, send := 0 }
+    | .wake => res = { state := { s with activeAt := activationRound Q r }, send := 0 }
     | .custom ev => ev.elim
-  total _ _ _ _ _ := ⟨_, rfl⟩
+  total p r V s e := match e with
+    | .tick => ⟨handler2 Q n kappa pool proposer ⟨[], 0⟩ p r V s, ⟨[], 0⟩, rfl⟩
+    | .recv _ => ⟨_, rfl⟩
+    | .wake => ⟨_, rfl⟩
+    | .custom ev => ev.elim
   enabled _ _ ev := ev.elim
 
 end Majorum

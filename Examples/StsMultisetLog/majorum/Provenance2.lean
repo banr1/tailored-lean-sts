@@ -29,7 +29,7 @@ variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx]
   {Q : Params} {S : Schedule Node} {n kappa : Nat} {pool : Nat → Tx} {proposer : Nat → Node}
   {dot : Checkpoint (Chain Tx)}
 
-local notation "Pr2" => protocol2 Q n kappa pool proposer dot
+local notation "Pr2" => protocol2 Q n kappa pool proposer
 
 /-! ### Reducing `protocol2`'s step, projection-precisely
 
@@ -38,18 +38,19 @@ the definition inside implicit type arguments and poison later goals. -/
 
 theorem protocol2_step_tick {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx} {res} :
-    (protocol2 (Node := Node) Q n kappa pool proposer dot).step p r V s .tick res ↔
-      res = handler2 Q n kappa pool proposer dot p r V s := Iff.rfl
+    (protocol2 (Node := Node) Q n kappa pool proposer).step p r V s .tick res ↔
+      ∃ dot : Checkpoint (Chain Tx),
+        res = handler2 Q n kappa pool proposer dot p r V s := Iff.rfl
 
 theorem protocol2_step_recv {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     {m : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))} {res} :
-    (protocol2 (Node := Node) Q n kappa pool proposer dot).step p r V s (.recv m) res ↔
+    (protocol2 (Node := Node) Q n kappa pool proposer).step p r V s (.recv m) res ↔
       res = { state := s, send := 0 } := Iff.rfl
 
 theorem protocol2_step_wake {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx} {res} :
-    (protocol2 (Node := Node) Q n kappa pool proposer dot).step p r V s .wake res ↔
+    (protocol2 (Node := Node) Q n kappa pool proposer).step p r V s .wake res ↔
       res = { state := { s with activeAt := activationRound Q r }, send := 0 } := Iff.rfl
 
 /-! ### What `handler2` can send -/
@@ -89,7 +90,7 @@ theorem handler2_send_subsingleton {p : Node} {r : Time}
 theorem emitted_step2 {x : Exec Pr2 S} {k : Nat}
     {sm : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))}
     (hem : sm ∈ x[k + 1].sent - x[k].sent) :
-    (∃ t : Time, x.lbl k = .tick sm.sender t ∧
+    (∃ (t : Time) (dot : Checkpoint (Chain Tx)), x.lbl k = .tick sm.sender t ∧
         sm.sender ∈ S.awake ((x[k].time : Int)) ∧
         x[k + 1].time = x[k].time ∧ x[k + 1][sm.sender].clock = t ∧
         sm.msg ∈ (handler2 Q n kappa pool proposer dot sm.sender t
@@ -97,7 +98,7 @@ theorem emitted_step2 {x : Exec Pr2 S} {k : Nat}
       sm.sender ∈ S.adv ((x[k].time : Int)) := by
   have hstep : Step Pr2 S (x.lbl k) x[k] x[k + 1] := x.step k
   refine hstep.elimR (motive := fun a c c' => sm ∈ c'.sent - c.sent →
-      (∃ t : Time, a = Action.tick sm.sender t ∧
+      (∃ (t : Time) (dot : Checkpoint (Chain Tx)), a = Action.tick sm.sender t ∧
           sm.sender ∈ S.awake ((c.time : Int)) ∧ c'.time = c.time ∧
           c'[sm.sender].clock = t ∧
           sm.msg ∈ (handler2 Q n kappa pool proposer dot sm.sender t
@@ -113,17 +114,17 @@ theorem emitted_step2 {x : Exec Pr2 S} {k : Nat}
       simp [Multiset.count_sub]
     rw [hz] at hem'
     simp at hem'
-  · -- tick: the graph of `handler2`
+  · -- tick: the graph of `handler2`, for the filler this tick chose
     intro d d' q t hen hns hem'
     rw [nodeStep_iff_exists] at hns
     obtain ⟨res, hres, rfl⟩ := hns
     rw [protocol2_step_tick] at hres
-    subst hres
+    obtain ⟨dt, rfl⟩ := hres
     rw [← setClock_sent q t d, applyNodeStepResult_sent_sub] at hem'
     obtain ⟨mm, hmm, hsm⟩ := Multiset.mem_map.mp hem'
     subst hsm
     simp only [spec] at hen
-    refine Or.inl ⟨t, rfl, hen, rfl, ?_, ?_⟩
+    refine Or.inl ⟨t, dt, rfl, hen, rfl, ?_, ?_⟩
     · simp [setClock_getElem]
     · simpa [setClock_getElem] using hmm
   · -- deliver: the recv reaction sends nothing
@@ -163,7 +164,8 @@ theorem emitted_step2 {x : Exec Pr2 S} {k : Nat}
 /-- **An honest vote pins down its own history** — `vote_provenance`, against `handler2`.
     A vote for slot `s` in the log, whose sender is still honest, was sent by that
     sender's tick at reading `voting(s)`, at real time `voting(s)`, with the joining gate
-    open, and with the message among that one tick's handler sends. -/
+    open — and it is among that one step's contribution to the log, which is what
+    uniqueness consumes now that each tick chooses its own blank filler. -/
 theorem vote_provenance2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
     (hmc : S.MonotoneCorruption) (hmono : TimeMonotone x) {i : Nat}
     {sm : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))} {e : Chain Tx}
@@ -173,12 +175,11 @@ theorem vote_provenance2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
     ∃ k, k < i ∧ x.lbl k = .tick sm.sender (Q.slotLength * s + Q.delta) ∧
       x[k].time = Q.slotLength * s + Q.delta ∧
       x[k][sm.sender].st.activeAt ≤ Q.slotLength * s + Q.delta ∧
-      sm.msg ∈ (handler2 Q n kappa pool proposer dot sm.sender (Q.slotLength * s + Q.delta)
-        x[k][sm.sender].view x[k][sm.sender].st).send := by
+      sm ∈ x[k + 1].sent - x[k].sent := by
   obtain ⟨k, hki, hem⟩ := emitted_of_mem_sent hmem
   have hhonk : sm.sender ∉ S.adv ((x[k].time : Int)) := fun hadv =>
     hhon (hmc _ _ (by exact_mod_cast time_le_of_le hmono (Nat.le_of_lt hki)) hadv)
-  rcases emitted_step2 hem with ⟨t, hlbl, hawake, htime, hclock, hsend⟩ | hadv
+  rcases emitted_step2 hem with ⟨t, dt, hlbl, hawake, htime, hclock, hsend⟩ | hadv
   · obtain ⟨hactive, hshape⟩ := mem_handler2_send hsend
     -- the vote's slot pins the reading: `t = 4Δs + Δ`
     have ht : t = Q.slotLength * s + Q.delta := by
@@ -199,7 +200,7 @@ theorem vote_provenance2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
       have := hsync (k + 1) sm.sender hawake'
       rw [hclock] at this
       omega
-    exact ⟨k, hki, hlbl, htimek, hactive, hsend⟩
+    exact ⟨k, hki, hlbl, htimek, hactive, hem⟩
   · exact absurd hadv hhonk
 
 /-- An honest vote for slot `s` cannot be in the log before `voting(s)`. -/
@@ -214,7 +215,30 @@ theorem voting_le_of_vote_mem2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
   rw [← htimek]
   exact time_le_of_le hmono (Nat.le_of_lt hki)
 
-/-- **One honest validator, one slot, one vote** — for Algorithm 2. -/
+/-- One tick contributes at most one message to the log: its delta is the handler's
+    sends, all signed by the ticker, and the handler sends at most one message —
+    whatever filler this tick chose. -/
+theorem tick_sends_subsingleton {x : Exec Pr2 S} {k : Nat} {p : Node} {t : Time}
+    (hlbl : x.lbl k = .tick p t)
+    {sm sm' : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))}
+    (h : sm ∈ x[k + 1].sent - x[k].sent) (h' : sm' ∈ x[k + 1].sent - x[k].sent) :
+    sm = sm' := by
+  have hstep : Step Pr2 S (x.lbl k) x[k] x[k + 1] := x.step k
+  rw [hlbl] at hstep
+  obtain ⟨hen, heff⟩ := hstep
+  simp only [spec] at heff
+  rw [nodeStep_iff_exists] at heff
+  obtain ⟨res, hres, hpost⟩ := heff
+  rw [protocol2_step_tick] at hres
+  obtain ⟨dt, rfl⟩ := hres
+  rw [hpost, ← setClock_sent p t x[k], applyNodeStepResult_sent_sub] at h h'
+  obtain ⟨m, hm, rfl⟩ := Multiset.mem_map.mp h
+  obtain ⟨m', hm', heq'⟩ := Multiset.mem_map.mp h'
+  rw [← heq', handler2_send_subsingleton hm hm']
+
+/-- **One honest validator, one slot, one vote** — for Algorithm 2. Both votes come from
+    ticks at the same reading, hence from the *same* tick (`OneTickPerReading`), whose
+    one log contribution they both are. -/
 theorem honest_vote_unique2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
     (hone : OneTickPerReading x) (hmc : S.MonotoneCorruption) (hmono : TimeMonotone x)
     {i j : Nat} {sm sm' : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))}
@@ -225,23 +249,19 @@ theorem honest_vote_unique2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
     (hs : sm'.sender = sm.sender)
     (hmsg : sm.msg = .vote e src tgt s) (hmsg' : sm'.msg = .vote e' src' tgt' s) :
     sm' = sm := by
-  obtain ⟨k, -, hlbl, -, -, hsend⟩ := vote_provenance2 hsync hmc hmono hm hh hmsg
-  obtain ⟨k', -, hlbl', -, -, hsend'⟩ := vote_provenance2 hsync hmc hmono hm' hh' hmsg'
+  obtain ⟨k, -, hlbl, -, -, hem⟩ := vote_provenance2 hsync hmc hmono hm hh hmsg
+  obtain ⟨k', -, hlbl', -, -, hem'⟩ := vote_provenance2 hsync hmc hmono hm' hh' hmsg'
   rw [hs] at hlbl'
   have hk : k' = k := hone k' k sm.sender _ hlbl' hlbl
   subst hk
-  rw [hs] at hsend'
-  have hmm : sm.msg = sm'.msg := handler2_send_subsingleton hsend hsend'
-  cases sm
-  cases sm'
-  simp_all
+  exact tick_sends_subsingleton hlbl hem' hem
 
 /-! ### The activation round is trustworthy — Algorithm 2's copies -/
 
 /-- `processProposals2` never writes `activeAt`. -/
 theorem processProposals2_activeAt (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     (t : Nat) (s : NodeState2 Node Tx) :
-    (processProposals2 n dot V t s).activeAt = s.activeAt := by
+    (processProposals2 n V t s).activeAt = s.activeAt := by
   unfold processProposals2
   generalize V.toList = l
   induction l generalizing s with
@@ -297,7 +317,7 @@ theorem activeAt_lb_step2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x) {m : N
     rw [nodeStep_iff_exists] at hns
     obtain ⟨res, hres, rfl⟩ := hns
     rw [protocol2_step_tick] at hres
-    subst hres
+    obtain ⟨dt, rfl⟩ := hres
     by_cases hq : q = p
     · subst hq
       simpa [applyNodeStepResult_getElem, handler2_activeAt, setClock_getElem] using h
@@ -578,7 +598,7 @@ theorem activationRound_le_voting (Q : Params) {r : Time} {t1 : Nat}
 /-- `processProposals2` never writes `vFrozen`. -/
 theorem processProposals2_vFrozen (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     (t : Nat) (s : NodeState2 Node Tx) :
-    (processProposals2 n dot V t s).vFrozen = s.vFrozen := by
+    (processProposals2 n V t s).vFrozen = s.vFrozen := by
   unfold processProposals2
   generalize V.toList = l
   induction l generalizing s with
@@ -597,27 +617,27 @@ open Classical in
     the certificate check. The lines 33–36 provenance, as a fold invariant. -/
 theorem processProposals2_chFrozen (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     (t : Nat) (s : NodeState2 Node Tx) :
-    (processProposals2 n dot V t s).chFrozen = s.chFrozen ∨
+    (processProposals2 n V t s).chFrozen = s.chFrozen ∨
       ∃ sm ∈ V, (∃ chp qc ck, sm.msg =
-          .propose chp ((processProposals2 n dot V t s).chFrozen) qc ck t) ∧
-        ValidProposal2 n dot V sm := by
+          .propose chp ((processProposals2 n V t s).chFrozen) qc ck t) ∧
+        ValidProposal2 n V sm := by
   unfold processProposals2
   have hgen : ∀ (l : List (SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))),
       (∀ a ∈ l, a ∈ V) → ∀ s₀ : NodeState2 Node Tx,
       (l.foldl (fun acc sm =>
         match sm.msg with
         | .propose _ chC _ _ t' =>
-            if t' = t ∧ ValidProposal2 n dot V sm ∧ chainLe acc.chFrozen chC then
+            if t' = t ∧ ValidProposal2 n V sm ∧ chainLe acc.chFrozen chC then
               { acc with chFrozen := chC }
             else acc
         | .vote .. => acc) s₀).chFrozen = s₀.chFrozen ∨
       ∃ sm ∈ V, (∃ chp qc ck, sm.msg = .propose chp ((l.foldl (fun acc sm =>
         match sm.msg with
         | .propose _ chC _ _ t' =>
-            if t' = t ∧ ValidProposal2 n dot V sm ∧ chainLe acc.chFrozen chC then
+            if t' = t ∧ ValidProposal2 n V sm ∧ chainLe acc.chFrozen chC then
               { acc with chFrozen := chC }
             else acc
-        | .vote .. => acc) s₀).chFrozen) qc ck t) ∧ ValidProposal2 n dot V sm := by
+        | .vote .. => acc) s₀).chFrozen) qc ck t) ∧ ValidProposal2 n V sm := by
     intro l
     induction l with
     | nil => exact fun _ s₀ => Or.inl rfl
@@ -702,8 +722,8 @@ theorem handler2_vote_send {p : Node} {r : Time}
     (hmod : r % Q.slotLength = Q.delta) (hgate : s.activeAt ≤ r) :
     ∃ ch, (handler2 Q n kappa pool proposer dot p r V s).send
         = {Msg.vote ch dot dot (r / Q.slotLength)} ∧
-      chainLe (mfc (processProposals2 n dot V (r / Q.slotLength) s).vFrozen V
-        (processProposals2 n dot V (r / Q.slotLength) s).chFrozen (r / Q.slotLength)) ch := by
+      chainLe (mfc (processProposals2 n V (r / Q.slotLength) s).vFrozen V
+        (processProposals2 n V (r / Q.slotLength) s).chFrozen (r / Q.slotLength)) ch := by
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
   simp only [handler2, apply_ite NodeStepResult.send]
@@ -714,12 +734,17 @@ theorem handler2_vote_send {p : Node} {r : Time}
 
 /-! ### One tick, precisely: state, time, reading, emission -/
 
-/-- A tick step's successor state at the ticking validator: the handler's, at the tick's
-    reading, over the pre-state view and state. -/
-theorem tick_state {x : Exec Pr2 S} {k : Nat} {p : Node} {t : Time}
+/-- A tick step, described whole: for the filler this tick chose, the ticking
+    validator's successor state is the handler's, and every handler send is in the next
+    log. One existential, so state facts and emissions about the same tick agree on the
+    filler. -/
+theorem tick_effect {x : Exec Pr2 S} {k : Nat} {p : Node} {t : Time}
     (hlbl : x.lbl k = .tick p t) :
-    x[k + 1][p].st =
-      (handler2 Q n kappa pool proposer dot p t x[k][p].view x[k][p].st).state := by
+    ∃ dt : Checkpoint (Chain Tx),
+      x[k + 1][p].st =
+        (handler2 Q n kappa pool proposer dt p t x[k][p].view x[k][p].st).state ∧
+      ∀ m ∈ (handler2 Q n kappa pool proposer dt p t x[k][p].view x[k][p].st).send,
+        (⟨p, m⟩ : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[k + 1].sent := by
   have hstep : Step Pr2 S (x.lbl k) x[k] x[k + 1] := x.step k
   rw [hlbl] at hstep
   obtain ⟨hen, heff⟩ := hstep
@@ -727,10 +752,15 @@ theorem tick_state {x : Exec Pr2 S} {k : Nat} {p : Node} {t : Time}
   rw [nodeStep_iff_exists] at heff
   obtain ⟨res, hres, hpost⟩ := heff
   rw [protocol2_step_tick] at hres
-  subst hres
-  rw [hpost, applyNodeStepResult_getElem, if_pos rfl]
-  dsimp only
-  simp [setClock_getElem]
+  obtain ⟨dt, rfl⟩ := hres
+  refine ⟨dt, ?_, ?_⟩
+  · rw [hpost, applyNodeStepResult_getElem, if_pos rfl]
+    dsimp only
+    simp [setClock_getElem]
+  · intro m hm
+    rw [hpost, applyNodeStepResult_sent, setClock_sent]
+    refine Multiset.mem_add.mpr (Or.inr (Multiset.mem_map.mpr ⟨m, ?_, rfl⟩))
+    simpa [setClock_getElem] using hm
 
 /-- A tick does not move real time. -/
 theorem tick_time {x : Exec Pr2 S} {k : Nat} {p : Node} {t : Time}
@@ -767,24 +797,6 @@ theorem tick_reading {x : Exec Pr2 S} (hsync : SynchronizedClocks x) {k : Nat} {
   rw [hclock, htime] at this
   omega
 
-/-- What a tick's handler sends is in the next configuration's log, signed by the ticking
-    validator. -/
-theorem tick_emits {x : Exec Pr2 S} {k : Nat} {p : Node} {t : Time}
-    (hlbl : x.lbl k = .tick p t) {m : Msg (Chain Tx) (QCert Node Tx)}
-    (hm : m ∈ (handler2 Q n kappa pool proposer dot p t x[k][p].view x[k][p].st).send) :
-    (⟨p, m⟩ : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[k + 1].sent := by
-  have hstep : Step Pr2 S (x.lbl k) x[k] x[k + 1] := x.step k
-  rw [hlbl] at hstep
-  obtain ⟨hen, heff⟩ := hstep
-  simp only [spec] at heff
-  rw [nodeStep_iff_exists] at heff
-  obtain ⟨res, hres, hpost⟩ := heff
-  rw [protocol2_step_tick] at hres
-  subst hres
-  rw [hpost, applyNodeStepResult_sent, setClock_sent]
-  refine Multiset.mem_add.mpr (Or.inr (Multiset.mem_map.mpr ⟨m, ?_, rfl⟩))
-  simpa [setClock_getElem] using hm
-
 /-- Outside the vote and merge phases, one step preserves a validator's frozen state —
     whoever moves. -/
 theorem frozen_step2 {x : Exec Pr2 S} {m : Nat} {p : Node}
@@ -806,12 +818,12 @@ theorem frozen_step2 {x : Exec Pr2 S} {m : Nat} {p : Node}
     rw [nodeStep_iff_exists] at hns
     obtain ⟨res, hres, rfl⟩ := hns
     rw [protocol2_step_tick] at hres
-    subst hres
+    obtain ⟨dt, rfl⟩ := hres
     by_cases hq : q = p
     · subst hq
       have hph := hc t rfl
       have hfr := handler2_frozen (Q := Q) (n := n) (kappa := kappa) (pool := pool)
-        (proposer := proposer) (dot := dot) (p := q) (r := t)
+        (proposer := proposer) (dot := dt) (p := q) (r := t)
         (V := (setClock q t d)[q].view) (s := (setClock q t d)[q].st) hph.1 hph.2
       constructor
       · simpa [applyNodeStepResult_getElem, setClock_getElem] using hfr.1
@@ -882,7 +894,7 @@ theorem activeAt_le_voting {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
         rw [nodeStep_iff_exists] at hns
         obtain ⟨res, hres, rfl⟩ := hns
         rw [protocol2_step_tick] at hres
-        subst hres
+        obtain ⟨dt, rfl⟩ := hres
         by_cases hq : q = p
         · subst hq
           simpa [applyNodeStepResult_getElem, handler2_activeAt, setClock_getElem] using h
@@ -989,12 +1001,13 @@ section Lemma2Propose
 variable [Fintype Node]
 
 /-- **Lemma 2's hypothesis, over the log**: every validator active in slot `t` has, by the
-    end of `voting(t)`, sent a slot-`t` vote for a chain extending `ch`. Algorithm 2's
-    honest votes carry `dot` in the finality fields, so the hypothesis pins them. -/
+    end of `voting(t)`, sent a slot-`t` vote for a chain extending `ch` — with whatever
+    filler that tick chose for the blank fields. -/
 def ActiveVotesExtend2 (x : Exec Pr2 S) (t : Nat) (ch : Chain Tx) : Prop :=
-  ∀ p ∈ Active Q S (t : Int), ∃ (i : Nat) (e : Chain Tx),
+  ∀ p ∈ Active Q S (t : Int),
+    ∃ (i : Nat) (e : Chain Tx) (src tgt : Checkpoint (Chain Tx)),
     x[i].time = Q.slotLength * t + Q.delta ∧
-    (⟨p, Msg.vote e dot dot t⟩ : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
+    (⟨p, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
       ∈ x[i].sent ∧
     chainLe ch e
 
@@ -1034,7 +1047,7 @@ theorem le_mfc_at_propose2 {x : Exec Pr2 S}
       ∃ smp ∈ votesFor (x[ip][v].view) ch (t + 1), smp.sender = p := by
     intro p hp
     obtain ⟨hpA, hpH⟩ := Finset.mem_sdiff.mp hp
-    obtain ⟨iv, e, htiv, hsent, hext⟩ := hvotes p hpA
+    obtain ⟨iv, e, esrc, etgt, htiv, hsent, hext⟩ := hvotes p hpA
     have hhon : ∀ r : Time, r ≤ Q.slotLength * (t + 1) + Q.delta →
         p ∉ S.adv ((r : Int)) := by
       intro r hr had
@@ -1042,24 +1055,24 @@ theorem le_mfc_at_propose2 {x : Exec Pr2 S}
       rw [hvot1]
       exact_mod_cast hr
     -- delivery: sent at `voting(t)`, in the view by `propose(t+1)`
-    have hview : (⟨p, Msg.vote e dot dot t⟩ :
+    have hview : (⟨p, Msg.vote e esrc etgt t⟩ :
         SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[ip][v].view := by
       refine hsyn iv ip v _ hsent ?_ hvAw
       rw [htiv, hip]
       omega
-    have hsent_ip : (⟨p, Msg.vote e dot dot t⟩ :
+    have hsent_ip : (⟨p, Msg.vote e esrc etgt t⟩ :
         SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[ip].sent :=
       views_sound x ip v _ hview
     have hhon_ip : p ∉ S.adv ((x[ip].time : Int)) := by
       rw [hip]
       exact hhon _ (by omega)
-    refine ⟨⟨p, Msg.vote e dot dot t⟩, ?_, rfl⟩
+    refine ⟨⟨p, Msg.vote e esrc etgt t⟩, ?_, rfl⟩
     -- build the filter membership inside out
-    have hvv : (⟨p, Msg.vote e dot dot t⟩ :
+    have hvv : (⟨p, Msg.vote e esrc etgt t⟩ :
         SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ votes (x[ip][v].view) := by
       simp only [votes, Finset.mem_filter]
       exact ⟨hview, trivial⟩
-    have hfeq : (⟨p, Msg.vote e dot dot t⟩ :
+    have hfeq : (⟨p, Msg.vote e esrc etgt t⟩ :
         SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ filEq (x[ip][v].view) := by
       simp only [filEq, Finset.mem_filter]
       refine ⟨hvv, ?_⟩
@@ -1078,12 +1091,12 @@ theorem le_mfc_at_propose2 {x : Exec Pr2 S}
       have heq := honest_vote_unique2 hsync hone hmc hmono hsent_ip hsm'log hhon_ip hh'
         hsend' rfl hm'
       exact hne (by rw [heq])
-    have hfexp : (⟨p, Msg.vote e dot dot t⟩ :
+    have hfexp : (⟨p, Msg.vote e esrc etgt t⟩ :
         SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
         ∈ fil1Exp (filEq (x[ip][v].view)) (t + 1) := by
       simp only [fil1Exp, Finset.mem_filter]
       exact ⟨hfeq, rfl⟩
-    have hflmd : (⟨p, Msg.vote e dot dot t⟩ :
+    have hflmd : (⟨p, Msg.vote e esrc etgt t⟩ :
         SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
         ∈ filLmd (fil1Exp (filEq (x[ip][v].view)) (t + 1)) := by
       simp only [filLmd, Finset.mem_filter]
@@ -1160,20 +1173,20 @@ theorem chainLe_nil (ch : Chain Tx) : chainLe [] ch := by
     on the frozen and the live view alike. -/
 theorem mem_votesFor_of_official {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
     (hone : OneTickPerReading x) (hmc : S.MonotoneCorruption) (hmono : TimeMonotone x)
-    {iw : Nat} {w q : Node} {e : Chain Tx} {t : Nat}
-    (hview : (⟨q, Msg.vote e dot dot t⟩ :
+    {iw : Nat} {w q : Node} {e : Chain Tx} {src tgt : Checkpoint (Chain Tx)} {t : Nat}
+    (hview : (⟨q, Msg.vote e src tgt t⟩ :
       SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[iw][w].view)
     (hhq : q ∉ S.adv ((x[iw].time : Int))) {ch : Chain Tx} (hext : chainLe ch e) :
-    (⟨q, Msg.vote e dot dot t⟩ : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
+    (⟨q, Msg.vote e src tgt t⟩ : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
       ∈ votesFor (x[iw][w].view) ch (t + 1) := by
-  have hlog : (⟨q, Msg.vote e dot dot t⟩ :
+  have hlog : (⟨q, Msg.vote e src tgt t⟩ :
       SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[iw].sent :=
     views_sound x iw w _ hview
-  have hvv : (⟨q, Msg.vote e dot dot t⟩ :
+  have hvv : (⟨q, Msg.vote e src tgt t⟩ :
       SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ votes (x[iw][w].view) := by
     simp only [votes, Finset.mem_filter]
     exact ⟨hview, trivial⟩
-  have hfeq : (⟨q, Msg.vote e dot dot t⟩ :
+  have hfeq : (⟨q, Msg.vote e src tgt t⟩ :
       SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ filEq (x[iw][w].view) := by
     simp only [filEq, Finset.mem_filter]
     refine ⟨hvv, ?_⟩
@@ -1191,12 +1204,12 @@ theorem mem_votesFor_of_official {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
     have heq := honest_vote_unique2 hsync hone hmc hmono hlog hsm'log hhq hh'
       hsend' rfl hm'
     exact hne (by rw [heq])
-  have hfexp : (⟨q, Msg.vote e dot dot t⟩ :
+  have hfexp : (⟨q, Msg.vote e src tgt t⟩ :
       SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
       ∈ fil1Exp (filEq (x[iw][w].view)) (t + 1) := by
     simp only [fil1Exp, Finset.mem_filter]
     exact ⟨hfeq, rfl⟩
-  have hflmd : (⟨q, Msg.vote e dot dot t⟩ :
+  have hflmd : (⟨q, Msg.vote e src tgt t⟩ :
       SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
       ∈ filLmd (fil1Exp (filEq (x[iw][w].view)) (t + 1)) := by
     simp only [filLmd, Finset.mem_filter]
@@ -1264,9 +1277,9 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
     {p : Node} (hp : p ∈ Active Q S ((t : Int) + 1))
     {j : Nat} (hj : x.lbl j = .tick p (Q.slotLength * (t + 1) + Q.delta)) :
     chainLe ch
-      (mfc (processProposals2 n dot (x[j][p].view) (t + 1) (x[j][p].st)).vFrozen
+      (mfc (processProposals2 n (x[j][p].view) (t + 1) (x[j][p].st)).vFrozen
         (x[j][p].view)
-        (processProposals2 n dot (x[j][p].view) (t + 1) (x[j][p].st)).chFrozen (t + 1)) := by
+        (processProposals2 n (x[j][p].view) (t + 1) (x[j][p].st)).chFrozen (t + 1)) := by
   have hmono := hstepw.timeMonotone
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
@@ -1301,7 +1314,8 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
       omega
   -- the merge tick froze the view and the fast-confirmed chain
   have hmstate : x[im + 1][p].st = { x[im][p].st with vFrozen := x[im][p].view, chFrozen := (fastConfirmSimple n (x[im][p].view) t).1 } := by
-    rw [tick_state hlblm, handler2_merge (merge_reading_mod Q t), merge_reading_div Q t]
+    obtain ⟨dm, hst, -⟩ := tick_effect hlblm
+    rw [hst, handler2_merge (merge_reading_mod Q t), merge_reading_div Q t]
   -- and nothing between `im+1` and `j` writes them
   have hpers : ∀ m, im + 1 ≤ m → m ≤ j →
       x[m][p].st.vFrozen = x[im + 1][p].st.vFrozen ∧
@@ -1357,16 +1371,16 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
         smp.sender = w := by
     intro w hw
     obtain ⟨hwA, hwH⟩ := Finset.mem_sdiff.mp hw
-    obtain ⟨iv, e, htiv, hsent, hext⟩ := hvotes w hwA
+    obtain ⟨iv, e, esrc, etgt, htiv, hsent, hext⟩ := hvotes w hwA
     have hhon : ∀ i2 : Nat, (x[i2].time : Int) ≤ Q.voting ((t : Int) + 1) →
         w ∉ S.adv ((x[i2].time : Int)) :=
       fun i2 hle2 had => hwH (hmc _ _ hle2 had)
-    have hviewm : (⟨w, Msg.vote e dot dot t⟩ :
+    have hviewm : (⟨w, Msg.vote e esrc etgt t⟩ :
         SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[im][p].view := by
       refine hsyn iv im p _ hsent ?_ hAwm
       rw [htiv, htim]
       omega
-    have hviewj : (⟨w, Msg.vote e dot dot t⟩ :
+    have hviewj : (⟨w, Msg.vote e esrc etgt t⟩ :
         SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[j][p].view := by
       refine hsyn iv j p _ hsent ?_ hAwj
       rw [htiv, htj]
@@ -1381,7 +1395,7 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
       rw [htj, hvot1]
     have hm1 := mem_votesFor_of_official hsync hone hmc hmono hviewm hhonm hext
     have hm2 := mem_votesFor_of_official hsync hone hmc hmono hviewj hhonj hext
-    exact ⟨⟨w, Msg.vote e dot dot t⟩, Finset.mem_inter.mpr ⟨hm1, hm2⟩, rfl⟩
+    exact ⟨⟨w, Msg.vote e esrc etgt t⟩, Finset.mem_inter.mpr ⟨hm1, hm2⟩, rfl⟩
   -- Constraint (1) turns the containment into the majority
   have himg : Active Q S (t : Int) \ S.adv (Q.voting ((t : Int) + 1)) ⊆
       (votesFor (x[im][p].view) ch (t + 1) ∩ votesFor (x[j][p].view) ch (t + 1)).image
@@ -1405,7 +1419,7 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
   have hmaj : Majority (x[im][p].view) (x[j][p].view) (t + 1) ch := by
     show (voters (x[j][p].view) (t + 1)).card < 2 * _
     omega
-  set s' := processProposals2 n dot (x[j][p].view) (t + 1) (x[j][p].st) with hs'def
+  set s' := processProposals2 n (x[j][p].view) (t + 1) (x[j][p].st) with hs'def
   have hcomp : chainLe ch s'.chFrozen ∨ chainLe s'.chFrozen ch := by
     -- comparability of a quorum-supported chain in a view whose time is `≤ voting(t+1)`
     have hsupported : ∀ (iw : Nat) (chq : Chain Tx),
@@ -1433,7 +1447,7 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
         exact hq0hon
       have hact := mem_active_of_honest_vote2 hsync hstepw hdil hwpt hmc ht hqlog
         hqhon hmq
-      obtain ⟨iv, e0, htiv, hsent0, hext0⟩ := hvotes smq.sender hact
+      obtain ⟨iv, e0, src0, tgt0, htiv, hsent0, hext0⟩ := hvotes smq.sender hact
       have hhon_iv : smq.sender ∉ S.adv ((x[iv].time : Int)) := by
         intro had
         refine hqhon (hmc _ _ ?_ had)
@@ -1473,8 +1487,9 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
           (s'.chFrozen = [] ∨ ∃ cert : QCert Node Tx, qc = some cert ∧
             2 * n ≤ 3 * (cert.image Prod.fst).card ∧
             ∀ e ∈ cert, chainLe s'.chFrozen e.2.1 ∧ e.2.2 = (t + 1) - 1 ∧
-              (⟨e.1, Msg.vote e.2.1 dot dot e.2.2⟩ :
-                SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[j][p].view) := hvp
+              ∃ src tgt : Checkpoint (Chain Tx),
+                (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ :
+                  SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[j][p].view) := hvp
       rcases hvp'.2.2 with hgen0 | ⟨cert, hqc, hcard, hcert⟩
       · rw [hgen0]
         exact Or.inr (chainLe_nil ch)
@@ -1484,7 +1499,8 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
         obtain ⟨hchC, hslotE, hinV⟩ := hcert entry hentry
         have hslotE' : entry.2.2 = t := by omega
         rw [hslotE'] at hinV
-        have hlogE : (⟨entry.1, Msg.vote entry.2.1 dot dot t⟩ :
+        obtain ⟨esrc, etgt, hinV⟩ := hinV
+        have hlogE : (⟨entry.1, Msg.vote entry.2.1 esrc etgt t⟩ :
             SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[j].sent :=
           views_sound x j p _ hinV
         have hhonE : entry.1 ∉ S.adv ((x[j].time : Int)) := by
@@ -1492,7 +1508,7 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
           exact hq0hon
         have hactE := mem_active_of_honest_vote2 hsync hstepw hdil hwpt hmc ht hlogE
           hhonE rfl
-        obtain ⟨iv, e0, htiv, hsent0, hext0⟩ := hvotes entry.1 hactE
+        obtain ⟨iv, e0, src0, tgt0, htiv, hsent0, hext0⟩ := hvotes entry.1 hactE
         have hhon_iv : entry.1 ∉ S.adv ((x[iv].time : Int)) := by
           intro had
           refine hhonE (hmc _ _ ?_ had)
