@@ -130,10 +130,19 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     let dot ← (Set.univ : Set (Checkpoint (Chain Tx)))
     let s' := processProposals2 n proposer V slot s
     let chMFC := mfc s'.vFrozen V s'.chFrozen slot
+    -- Line 22 runs only once active: the κ-deep rule reads the *frozen* snapshots, and a
+    -- validator that slept through the merge round has stale ones — κ-deep-confirming
+    -- from them is unsound (fifth authors'-note finding; see `CONTEXT.md`, 2026-08-04,
+    -- Lemma 5 is false without this guard). The joining protocol's silence is read as
+    -- covering the frozen-state-dependent confirmation rule, not just the sends; the
+    -- fast-confirmation rule below stays unguarded — it reads the current view, and any
+    -- `2n/3` quorum there is network-anchored.
     let chi :=
-      [s'.chi, kappaPrefix kappa chMFC].foldl
-        (fun acc c => if chainLe c chMFC then (if chainLe acc c then c else acc) else acc)
-        s'.chi
+      if s.activeAt ≤ r then
+        [s'.chi, kappaPrefix kappa chMFC].foldl
+          (fun acc c => if chainLe c chMFC then (if chainLe acc c then c else acc) else acc)
+          s'.chi
+      else s'.chi
     let proposedNow : Option (Chain Tx) :=
       V.toList.findSome? (fun sm => match sm.msg with
         | .propose chp _ _ _ t' =>
