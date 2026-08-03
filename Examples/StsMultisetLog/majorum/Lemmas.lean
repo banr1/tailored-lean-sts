@@ -25,10 +25,11 @@ namespace Majorum
 
 open the framework's flat multiset-log flavour
 
-variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx]
-  {Q : Params} {S : Schedule Node} {n kappa : Nat} {pool : Nat → Tx} {proposer : Nat → Node}
+variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx] [Fintype Node]
+  {Q : Params} {S : Schedule Node} {kappa : Nat} {pool : Nat → Tx} {proposer : Nat → Node}
 
-local notation "Pr2" => protocol2 Q n kappa pool proposer
+/-- Algorithm 2, its quorum threshold instantiated with the structural validator count. -/
+local notation "Pr2" => protocol2 Q (Fintype.card Node) kappa pool proposer
 
 /-- **Lemma 2** (`Lemma 2, arXiv:2601.03862v1 p.8`, for Algorithm 2). If, in slot `t`,
     all validators in `H_vote(t)` send vote messages for chains extending `ch`, then, in
@@ -41,12 +42,11 @@ local notation "Pr2" => protocol2 Q n kappa pool proposer
     transitions, so no wake inside the activity window can close it), and the vote that
     tick sends extends this tick's fork-choice (`handler2_vote_send`), which extends `ch`
     by `le_mfc_at_vote2`. -/
-theorem lemma2 [Fintype Node] {x : Exec Pr2 S} (H : SettingGA Q S n x)
+theorem lemma2 {x : Exec Pr2 S} (H : SettingGA Q S x)
     {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx} (hvotes : ActiveVotesExtend2 x t ch) :
     ActiveVotesExtend2 x (t + 1) ch := by
   obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, -⟩, hslp,
-    ⟨hcb, hfnQ⟩, hn, hgst⟩ := H
-  have hfn : 3 * Q.f < n := hn ▸ hfnQ
+    ⟨hcb, hfn⟩, hgst⟩ := H
   intro p hp0
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
@@ -76,7 +76,7 @@ theorem lemma2 [Fintype Node] {x : Exec Pr2 S} (H : SettingGA Q S n x)
     refine mem_awakeThroughout.mp hp _ ?_ ?_ <;> rw [hvot1] <;> omega
   -- so the tick votes, for an extension of its fork-choice
   obtain ⟨chS, hsend, hchS⟩ :=
-    handler2_vote_send (Q := Q) (n := n) (kappa := kappa) (pool := pool)
+    handler2_vote_send (Q := Q) (n := Fintype.card Node) (kappa := kappa) (pool := pool)
       (proposer := proposer) (p := p) (V := x[j][p].view) (s := x[j][p].st)
       (voting_reading_mod Q (t + 1)) hgate
   rw [voting_reading_div Q (t + 1)] at hsend hchS

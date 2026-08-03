@@ -45,10 +45,16 @@ variable {Node Msg NodeState Ev : Type} [Fintype Node] [DecidableEq Node] [Decid
     two should be free to diverge. And the framework's carries `fBound : 3 * f < n` as a
     field, which makes Theorem 5 unstateable, since the paper proves it for `f ∈ [0,n]`. Here
     the bound lives in `Resilience`, so a theorem that does not assume it simply does not
-    take it. -/
+    take it.
+
+    **There is no `n` field.** The number of validators is structural —
+    `Fintype.card Node`, the size of the validator universe every schedule and view is
+    already indexed by — not a parameter that could quietly diverge from it (user
+    decision, 2026-08-03: the tie `n = |validators|` should hold by construction, not by
+    assumption). Anything quantitative the paper states over `n` is stated over
+    `Fintype.card Node`; the algorithms' own quorum-threshold arguments are instantiated
+    with it at the theorem statements. -/
 structure Params where
-  /-- Number of validators. -/
-  n : Nat
   /-- Corruption budget, `f = |A_∞|`. -/
   f : Nat
   /-- Message delay bound after GST. -/
@@ -175,7 +181,7 @@ def GlobalAwake (Q : Params) (S : Schedule Node) : Prop :=
 /-- The corruption budget is respected, **and** `f < n/3`. Both belong here rather than in
     `Params`: Theorem 5 assumes neither, and a structure field would force it to. -/
 def Resilience (Q : Params) (S : Schedule Node) : Prop :=
-  S.CorruptionBounded Q.f ∧ 3 * Q.f < Q.n
+  S.CorruptionBounded Q.f ∧ 3 * Q.f < Fintype.card Node
 
 /-- **The setting of the dynamic-availability analysis** (arXiv:2601.03862v1, Appendix A:
     "throughout this part of the analysis, we assume `GST = 0`"): the standing model of
@@ -185,8 +191,7 @@ def Resilience (Q : Params) (S : Schedule Node) : Prop :=
     Composed from the named groups above — `Wellformed`, `Synchronous` (Δ from round 0,
     relay included), `Sleepiness` (Constraint (1)), `Resilience` — plus the three
     schedule/clock disciplines the provenance arguments rest on (`TimeStepwise`,
-    `WakePrecedesTick`, `OneTickPerReading`), the protocol's validator count agreeing
-    with the model's, and `GST = 0` itself (`Synchronous` fixes the bound from round 0
+    `WakePrecedesTick`, `OneTickPerReading`), and `GST = 0` itself (`Synchronous` fixes the bound from round 0
     whatever `Q.gst` is; `Sleepiness` still reads `Q.gst`, so the analysis needs it to
     *be* zero).
 
@@ -194,8 +199,11 @@ def Resilience (Q : Params) (S : Schedule Node) : Prop :=
     `AwakeHonest` ride along unused by Lemma 2, because Lemma 4's gossip argument and the
     later counting need them, and the point of the bundle is that the Appendix's results
     share their hypotheses. Accountable safety (Theorem 5) must **not** take this — it is
-    proved for `f ∈ [0,n]` with no synchrony; it keeps citing its own groups à la carte. -/
-structure SettingGA (Q : Params) (S : Schedule Node) (n : Nat) (x : Exec Pr S) : Prop where
+    proved for `f ∈ [0,n]` with no synchrony; it keeps citing its own groups à la carte.
+
+    No validator-count field: `n` is structural (`Fintype.card Node`, see `Params`), so
+    the results over the algorithms instantiate their quorum thresholds with it. -/
+structure SettingGA (Q : Params) (S : Schedule Node) (x : Exec Pr S) : Prop where
   /-- `Wellformed`: monotone corruption, honest-while-awake, synchronized clocks, and the
       time/tick disciplines of any run worth analyzing. -/
   wellformed : Wellformed x
@@ -209,10 +217,8 @@ structure SettingGA (Q : Params) (S : Schedule Node) (n : Nat) (x : Exec Pr S) :
   synchronous : Synchronous Q x
   /-- Constraint (1). -/
   sleepiness : Sleepiness Q S
-  /-- `f < n/3`, over the model's `n`. -/
+  /-- `f < n/3`, over the structural `n = Fintype.card Node`. -/
   resilience : Resilience Q S
-  /-- The protocol instance is run with the model's validator count. -/
-  validators : Q.n = n
   /-- Appendix A's standing assumption. -/
   gstZero : Q.gst = 0
 
