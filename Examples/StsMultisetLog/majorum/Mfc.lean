@@ -403,6 +403,48 @@ theorem kappaPrefix_le_self (kappa t : Nat) (ch : Chain Tx) :
   rw [chainLe_iff_prefix]
   exact List.takeWhile_prefix _
 
+/-- On a slot-sorted chain, every block's slot is bounded by the tip's. -/
+theorem slot_le_proposedAt_of_mem {ch : Chain Tx} (hch : slotsIncreasing ch)
+    {b : Block Tx} (hb : b ∈ ch) : b.slot ≤ proposedAt ch := by
+  induction ch with
+  | nil => cases hb
+  | cons x l ih =>
+      rcases List.mem_cons.mp hb with rfl | hbl
+      · exact head_slot_le_proposedAt hch
+      · cases l with
+        | nil => cases hbl
+        | cons y m =>
+            rw [proposedAt_cons_cons]
+            exact ih (slotsIncreasing_tail hch).2 hbl
+
+/-- `takeWhile` passes over a wholly-satisfying prefix. -/
+theorem takeWhile_append_of_all {α : Type*} {p : α → Bool} {l₁ l₂ : List α}
+    (h : ∀ a ∈ l₁, p a = true) :
+    (l₁ ++ l₂).takeWhile p = l₁ ++ l₂.takeWhile p := by
+  induction l₁ with
+  | nil => rfl
+  | cons b m ih =>
+      rw [List.cons_append, List.takeWhile_cons, if_pos (h b List.mem_cons_self),
+        ih (fun a ha => h a (List.mem_cons_of_mem b ha)), List.cons_append]
+
+/-- **The κ-deep retention step of Theorem 2's liveness**: a slot-sorted prefix at
+    least `κ` slots stale survives the `κ`-deep cut — every one of its blocks passes
+    the slot test, so `takeWhile` walks past all of it. -/
+theorem le_kappaPrefix_of_stale {pre ch : Chain Tx} {kappa t : Nat}
+    (hle : chainLe pre ch) (hpre : slotsIncreasing pre)
+    (hstale : proposedAt pre + kappa ≤ t) :
+    chainLe pre (kappaPrefix kappa t ch) := by
+  have hall : ∀ b ∈ pre, (fun b : Block Tx => decide (b.slot + kappa ≤ t)) b = true := by
+    intro b hb
+    have := slot_le_proposedAt_of_mem hpre hb
+    simp only [decide_eq_true_eq]
+    omega
+  rw [chainLe_iff_prefix] at hle ⊢
+  obtain ⟨rest, rfl⟩ := hle
+  unfold kappaPrefix
+  rw [takeWhile_append_of_all hall]
+  exact ⟨_, rfl⟩
+
 /-- Everything `takeWhile` keeps satisfies the predicate. -/
 theorem mem_takeWhile_pred {α : Type*} {p : α → Bool} {l : List α} {a : α}
     (h : a ∈ l.takeWhile p) : p a = true := by

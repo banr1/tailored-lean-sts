@@ -147,15 +147,15 @@ theorem lemma5 {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
     {a : Nat} {vi : Node} {b : Nat} {vj : Node} {sj : Nat} (hsj : 1 ≤ sj)
     (hact : vj ∈ Active Q S (sj : Int)) :
     (x[b].time = Q.slotLength * sj → x[a].time ≤ Q.slotLength * sj →
-      chainLe (x[a][vi].st.chi) (mfc (x[b][vj].view) (x[b][vj].view)
-        (fastConfirmSimple (Fintype.card Node) (x[b][vj].view) (sj - 1)).1 sj)) ∧
+      x[a][vi].st.chi ⪯ mfc (x[b][vj].view) (x[b][vj].view)
+        (fastConfirmSimple (Fintype.card Node) (x[b][vj].view) (sj - 1)).1 sj) ∧
     (x.lbl b = .tick vj (Q.slotLength * sj + Q.delta) →
       x[a].time ≤ Q.slotLength * sj + Q.delta →
-      chainLe (x[a][vi].st.chi)
-        (mfc (processProposals2 (Fintype.card Node) proposer (x[b][vj].view) sj
+      x[a][vi].st.chi ⪯
+        mfc (processProposals2 (Fintype.card Node) proposer (x[b][vj].view) sj
             (x[b][vj].st)).vFrozen (x[b][vj].view)
           (processProposals2 (Fintype.card Node) proposer (x[b][vj].view) sj
-            (x[b][vj].st)).chFrozen sj)) := by
+            (x[b][vj].st)).chFrozen sj) := by
   obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
     ⟨hcb, hfn⟩, hgst⟩ := H
   obtain ⟨s0, rfl⟩ : ∃ s0, sj = s0 + 1 := ⟨sj - 1, by omega⟩
@@ -211,7 +211,7 @@ theorem lemma7 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
     (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
     {vi : Node} {j : Nat}
     (hj : x.lbl j = .tick vi (Q.slotLength * t + 2 * Q.delta)) :
-    chainLe chp (x[j + 1][vi].st.chi) := by
+    chp ⪯ x[j + 1][vi].st.chi := by
   have hvotes := lemma4 H ht hsent hhon_i hhon_t (le_refl t)
   obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
     ⟨hcb, hfn⟩, hgst⟩ := H

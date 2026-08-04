@@ -7,8 +7,8 @@ import Examples.StsMultisetLog.majorum.Lemmas
 
 All seven theorems of arXiv:2601.03862v1, rendered in the vocabulary of
 `Security.lean` as **statements** (`def … : Prop`), plus — at the end of the file —
-the theorems *proved* for Algorithm 2 concretely (`theorem1` and `theorem2_safety`,
-2026-08-04), in the same
+the theorems *proved* for Algorithm 2 concretely (`theorem1`, `theorem2_safety`,
+`theorem2_liveness`, `theorem2_liveness_txpool`, 2026-08-04), in the same
 direct style as `Lemmas.lean` rather than through the `Security.lean` renderings (which
 quantify differently: no probability layer, and a hypothesis row that predates
 `SettingGA`).
@@ -208,7 +208,7 @@ theorem theorem1 {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
     (hhon_i : vp ∉ S.adv ((x[i].time : Int)))
     (hhon_t : vp ∉ S.adv (Q.voting (tp : Int)))
     (a : Nat) (vi : Node) :
-    chainLe chp (x[a][vi].st.chi) ∨ chainLe (x[a][vi].st.chi) chp := by
+    chp ⪯ x[a][vi].st.chi ∨ x[a][vi].st.chi ⪯ chp := by
   obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
     ⟨hcb, hfn⟩, hgst⟩ := id H
   have hδ := Q.deltaPos
@@ -275,16 +275,12 @@ theorem theorem1 {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
     bounds both confirmed chains by the same validator's fork choice there.
 
     Stated (and named) as a *half*: the paper's Theorem 2 is dynamic availability,
-    safety **and liveness** with `Tconf = 8κΔ + Δ`. The liveness half is not stated —
-    see `CONTEXT.md` (2026-08-04): it needs the slot-indexed κ-deep prefix of the
-    paper's p.4 definition where this model currently renders line 22 with a
-    count-based one, a transaction-pool model for Property 1, and `GlobalAwake` woven
-    into the activity sets — three modelling decisions, not proof work. Honesty of
-    neither validator is assumed, as in Lemma 5. -/
+    safety **and liveness** with `Tconf = 8κΔ + Δ` — the liveness half is
+    `theorem2_liveness` / `theorem2_liveness_txpool` below. Honesty of neither
+    validator is assumed, as in Lemma 5. -/
 theorem theorem2_safety {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
     (hwin : HonestProposalWindow x) (a : Nat) (vi : Node) (b : Nat) (vj : Node) :
-    chainLe (x[a][vi].st.chi) (x[b][vj].st.chi) ∨
-      chainLe (x[b][vj].st.chi) (x[a][vi].st.chi) := by
+    x[a][vi].st.chi ⪯ x[b][vj].st.chi ∨ x[b][vj].st.chi ⪯ x[a][vi].st.chi := by
   obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
     ⟨hcb, hfn⟩, hgst⟩ := id H
   have hδ := Q.deltaPos
@@ -344,6 +340,80 @@ theorem theorem2_safety {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kapp
     (show 1 ≤ s0 + 1 by omega) hact).2 hlblj
     (htime b (Or.inr rfl) hs0b)
   exact comparable_of_common_extension h5a h5b
+
+/-- **Theorem 2, the liveness half** (`Theorem 2, arXiv:2601.03862v1 p.17`, for
+    Algorithm 2), the chain fact: past any slot `t`, once `2κ` slots and a round have
+    gone by, every validator active at that round confirms a chain extending some
+    honest proposal from the window `[t+1, t+κ]`.
+
+    This is the paper's `Tconf = 8κΔ + Δ` claim: `hri` reads
+    `ri > vote(t + 2κ) = 4Δt + 8κΔ + Δ ≥ r + Tconf` for any round `r` of slot `t` (the
+    strict `<` is the one-round shift of `ActiveAtRound`, see its docstring). The
+    honest window slot exists by `HonestProposalWindow` — Lemma 1, where the paper says
+    "there is a high probability of finding a slot `tp ∈ [t+1, t+κ]` hosted by an
+    honest proposer". The transaction-pool conclusion is `theorem2_liveness_txpool`. -/
+theorem theorem2_liveness {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
+    (hwin : HonestProposalWindow x) {t : Nat}
+    {a : Nat} {vi : Node} (hact : ActiveAtRound Q S vi (x[a].time))
+    (hri : Q.slotLength * (t + 2 * kappa) + Q.delta < x[a].time) :
+    ∃ tp, t + 1 ≤ tp ∧ tp ≤ t + kappa ∧
+      ∃ (ip : Nat) (vp : Node) (chp chC : Chain Tx) (qc : Option (QCert Node Tx))
+        (ck : Checkpoint (Chain Tx)),
+        (⟨vp, Msg.propose chp chC qc ck tp⟩ :
+          SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[ip].sent ∧
+        vp ∉ S.adv ((x[ip].time : Int)) ∧ vp ∉ S.adv (Q.voting (tp : Int)) ∧
+        chp ⪯ x[a][vi].st.chi := by
+  obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
+    ⟨hcb, hfn⟩, hgst⟩ := id H
+  obtain ⟨tp, htp0, htp1, htp2, ip, vp, chp, chC, qc, ck, hsent, hh1, hh2⟩ :=
+    hwin (t + kappa + 1) (by omega)
+  refine ⟨tp, by omega, by omega, ip, vp, chp, chC, qc, ck, hsent, hh1, hh2, ?_⟩
+  refine le_chi_of_honest_proposal hsync hstepw hdiv hdil hone hwpt hmc hsyn hrel hslp
+    hcb hfn (le_refl _) hgst hκ hwin htp0 hsent hh1 hh2 hact ?_
+  have hmul : Q.slotLength * (tp + kappa) ≤ Q.slotLength * (t + 2 * kappa) :=
+    Nat.mul_le_mul_left _ (by omega)
+  omega
+
+/-- **Theorem 2, the liveness half, with the transaction pool** — Definition 2's
+    shape. The mempool is interpreted at the statement level (decision of 2026-08-04,
+    `CONTEXT.md`): `poolSet r` is the pool's content at round `r` over some transaction
+    type `τ`, `memTx` reads the abstract block payloads, `hmonoP` is the paper's
+    "ever-growing set", and `hcover` renders `Extend`'s contract — the body an honest
+    slot-`s` proposer packs covers the pool at `propose(s)` (the "Property 1" the
+    paper's proof cites but never states). Any transaction pooled by a round of slot
+    `t` is then in a block of every sufficiently-later active validator's confirmed
+    chain. -/
+theorem theorem2_liveness_txpool {x : Exec Pr2 S} {τ : Type}
+    (memTx : τ → Tx → Prop) (poolSet : Time → Set τ)
+    (hmonoP : ∀ r r' : Time, r ≤ r' → poolSet r ⊆ poolSet r')
+    (hcover : ∀ s : Nat, ∀ tx ∈ poolSet (Q.slotLength * s), memTx tx (pool s))
+    (H : SettingGA Q S x) (hκ : 1 ≤ kappa) (hwin : HonestProposalWindow x)
+    {t : Nat} {a : Nat} {vi : Node} (hact : ActiveAtRound Q S vi (x[a].time))
+    (hri : Q.slotLength * (t + 2 * kappa) + Q.delta < x[a].time)
+    {r : Time} (hr : r ≤ Q.slotLength * (t + 1)) :
+    ∀ tx ∈ poolSet r, ∃ b ∈ x[a][vi].st.chi, memTx tx b.txs := by
+  obtain ⟨tp, htp1, htp2, ip, vp, chp, chC, qc, ck, hsent, hh1, hh2, hle⟩ :=
+    theorem2_liveness H hκ hwin hact hri (t := t)
+  obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, -, -, -, -, -, -⟩ := id H
+  obtain ⟨-, k, -, -, -, -, hchp_ext, -, -⟩ :=
+    propose_provenance2 hsync hmc hstepw.timeMonotone hsent hh1 rfl
+  intro tx htx
+  refine ⟨⟨tp, pool tp⟩, ?_, ?_⟩
+  · -- the proposal's own block sits in the confirmed chain
+    have hmem : (⟨tp, pool tp⟩ : Block Tx) ∈ chp := by
+      rw [hchp_ext]
+      unfold extend
+      simp
+    have hsub : chp ⊆ x[a][vi].st.chi := by
+      have h := hle
+      rw [chainLe_iff_prefix] at h
+      exact h.subset
+    exact hsub hmem
+  · -- and its body covers the pool at `propose(tp)`, hence at `r`
+    refine hcover tp tx (hmonoP r (Q.slotLength * tp) ?_ htx)
+    have hmul : Q.slotLength * (t + 1) ≤ Q.slotLength * tp :=
+      Nat.mul_le_mul_left _ (by omega)
+    omega
 
 end Algorithm2Proved
 

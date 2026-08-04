@@ -1426,6 +1426,7 @@ theorem chi_step2 {x : Exec Pr2 S} {m : Nat} {p : Node} :
         (processProposals2 n proposer (x[m][p].view) ti (x[m][p].st)).chFrozen ti)) ∨
     (∃ ti : Nat, x.lbl m = .tick p (Q.slotLength * ti + 2 * Q.delta) ∧
       (fastConfirmSimple n (x[m][p].view) ti).2.isSome = true ∧
+      ¬ chainLe (fastConfirmSimple n (x[m][p].view) ti).1 (x[m][p].st).chi ∧
       x[m + 1][p].st.chi = (fastConfirmSimple n (x[m][p].view) ti).1) := by
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
@@ -1496,7 +1497,7 @@ theorem chi_step2 {x : Exec Pr2 S} {m : Nat} {p : Node} :
         · rw [if_pos hg] at hchi
           exact Or.inl hchi
         · rw [if_neg hg] at hchi
-          exact Or.inr (Or.inr ⟨tr / Q.slotLength, htr ▸ hr, hq, hchi⟩)
+          exact Or.inr (Or.inr ⟨tr / Q.slotLength, htr ▸ hr, hq, hg, hchi⟩)
       · rw [if_neg hq] at hst
         refine Or.inl ?_
         rw [hst]
@@ -4077,7 +4078,7 @@ theorem chi_le_mfc {x : Exec Pr2 S}
   | succ a ih =>
       intro vi b vj s0 hact
       rcases chi_step2 (x := x) (m := a) (p := vi) with hun | ⟨ti, hlbl, hguard, hchieq⟩ |
-        ⟨ti, hlbl, hqsome, hchieq⟩
+        ⟨ti, hlbl, hqsome, -, hchieq⟩
       · -- untouched: inherit
         have hle : x[a].time ≤ x[a + 1].time := time_le_of_le hmono (Nat.le_succ a)
         exact ⟨fun htb hab => by
@@ -4187,6 +4188,257 @@ theorem chi_le_mfc {x : Exec Pr2 S}
             subst hs0
             exact le_mfc_at_vote_of_quorum hsync hstepw hdil hone hmc hsyn hcb hfn hcard
               hta hfc hact hjb
+
+set_option maxHeartbeats 3000000 in
+/-- **Theorem 2's liveness engine**: an honestly proposed chain at least `κ` slots
+    stale is a prefix of the confirmed chain of every validator active at any strictly
+    later round.
+
+    The paper's argument, made inductive: the validator's activity window contains a
+    vote round of some slot `s' ≥ tp + κ` (its activation rounds are vote rounds, so
+    the first covered one past `voting(tp + κ)` qualifies); at that tick the fork
+    choice sits above `chp` (Lemma 4's machinery) and its κ-deep prefix *retains* `chp`
+    (`le_kappaPrefix_of_stale` — this is where the slot-indexed prefix earns its keep),
+    so the κ-deep write lands at or above `chp` — the kept-old case is comparable with
+    the prefix through the fork choice by Lemma 5's engine. From there the bound
+    persists: later κ-deep writes retain `chp` the same way, and a fast-confirm write
+    either adopts a chain extending `chp` or — when the quorum chain is `⪯ chp`, hence
+    `⪯` the current chain — is stopped by Algorithm 5's line-23 guard. -/
+theorem le_chi_of_honest_proposal {x : Exec Pr2 S}
+    (hsync : SynchronizedClocks x) (hstepw : TimeStepwise x) (hdiv : TimeDiverges x)
+    (hdil : Diligent x) (hone : OneTickPerReading x) (hwpt : WakePrecedesTick x)
+    (hmc : S.MonotoneCorruption) (hsyn : Synchrony 0 Q.delta x) (hrel : Relay 0 Q.delta x)
+    (hslp : Sleepiness Q S) (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < n)
+    (hcard : Fintype.card Node ≤ n) (hgst : Q.gst = 0) (hκ : 1 ≤ kappa)
+    (hwin : HonestProposalWindow x)
+    {tp : Nat} (htp : 1 ≤ tp) {vp : Node} {chp chC : Chain Tx}
+    {qc : Option (QCert Node Tx)} {ck : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc ck tp⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (tp : Int)))
+    {a : Nat} {vi : Node} (hact : ActiveAtRound Q S vi (x[a].time))
+    (hlate : Q.slotLength * (tp + kappa) + Q.delta < x[a].time) :
+    chainLe chp (x[a][vi].st.chi) := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have hmono := hstepw.timeMonotone
+  have hSL0 : 0 < Q.slotLength := by omega
+  obtain ⟨tw, htw, hawake⟩ := hact
+  -- every slot from `tp` on votes above `chp`
+  have hAVE : ∀ t', tp ≤ t' → ActiveVotesExtend2 x t' chp := fun t' ht' =>
+    ave_of_honest_proposal hsync hstepw hdiv hdil hone hwpt hmc hsyn hrel hslp hcb hfn
+      hcard hgst htp hsent hhon_i hhon_t ht'
+  -- the proposal's chain: slot-sorted, tipped at `tp`, nonempty
+  obtain ⟨-, k, -, hlblk, htk, -, hchp_ext, -, -⟩ :=
+    propose_provenance2 hsync hmc hmono hsent hhon_i rfl
+  have hAwk : x.Awake k vp := by
+    have hstep := x.step k
+    rw [hlblk] at hstep
+    have h := hstep.1
+    simp only [spec] at h
+    exact h
+  obtain ⟨tp0, rfl⟩ : ∃ tp0, tp = tp0 + 1 := ⟨tp - 1, by omega⟩
+  simp only [Nat.add_sub_cancel] at hchp_ext
+  have hMokP := mfc_propose_ok hsync hstepw hdiv hdil hone hwpt hmc hsyn hslp hcb hfn
+    hcard hgst (a := k) (w := vp) (t0 := tp0) htk hAwk
+  have hchp_sorted : slotsIncreasing chp := by
+    rw [hchp_ext]
+    exact slotsIncreasing_extend pool hMokP.1 (lt_of_le_of_lt hMokP.2 (by omega))
+  have hpa : proposedAt chp = tp0 + 1 := by
+    rw [hchp_ext]
+    exact proposedAt_extend _ _ _
+  -- the first covered vote round past `voting(tp + κ)`
+  obtain ⟨s', hs'w, hs'κ, hs'lt⟩ : ∃ s', tw ≤ s' ∧ tp0 + 1 + kappa ≤ s' ∧
+      Q.slotLength * s' + Q.delta < x[a].time := by
+    rcases Nat.le_total tw (tp0 + 1 + kappa) with hcmp | hcmp
+    · exact ⟨tp0 + 1 + kappa, hcmp, le_refl _, hlate⟩
+    · exact ⟨tw, le_refl _, hcmp, htw⟩
+  have hmulw : Q.slotLength * tw ≤ Q.slotLength * s' := Nat.mul_le_mul_left _ hs'w
+  -- `vi` is awake there, so it ticks there
+  obtain ⟨i₁, hi₁⟩ := hdiv (Q.slotLength * s' + Q.delta)
+  obtain ⟨i₀, hi₀, hti₀⟩ := exists_time_eq hstepw hi₁
+  have hAw₀ : x.Awake i₀ vi := by
+    show vi ∈ S.awake ((x[i₀].time : Int))
+    rw [hti₀]
+    refine hawake _ ?_ ?_
+    · unfold Params.voting
+      push_cast
+      omega
+    · exact_mod_cast le_of_lt hs'lt
+  obtain ⟨j, htj, hlblj⟩ := hdil (Q.slotLength * s' + Q.delta) vi ⟨i₀, hti₀, hAw₀⟩
+  -- the joining check is open at the tick
+  have hopen : x[j][vi].st.activeAt ≤ Q.slotLength * s' + Q.delta := by
+    refine activeAt_le_voting hsync hmono (t1 := s') ?_ (le_of_eq htj)
+    intro ρ h1 h2
+    refine hawake ρ ?_ ?_
+    · have hmulI : (Q.slotLength : Int) * tw ≤ (Q.slotLength : Int) * s' := by
+        exact_mod_cast hmulw
+      unfold Params.voting
+      push_cast at h1 ⊢
+      omega
+    · have hlt : ((Q.slotLength * s' + Q.delta : Nat) : Int) ≤ ((x[a].time : Nat) : Int) := by
+        exact_mod_cast le_of_lt hs'lt
+      omega
+  -- so `vi` is active in slot `s'`
+  have hs'1 : 1 ≤ s' := by omega
+  have hActs' : vi ∈ Active Q S (s' : Int) :=
+    active_of_open_join hsync hstepw hdil hwpt hs'1 hlblj htj hopen
+  obtain ⟨s0, rfl⟩ : ∃ s0, s' = s0 + 1 := ⟨s' - 1, by omega⟩
+  have hActs0 : vi ∈ Active Q S ((s0 : Int) + 1) := by
+    have hcast : (((s0 + 1 : Nat)) : Int) = (s0 : Int) + 1 := by push_cast; omega
+    rw [← hcast]
+    exact hActs'
+  -- the tick's fork choice sits above `chp` …
+  have hchpM := le_mfc_at_vote2 hsync hstepw hdil hwpt hone hmc hsyn hslp hcb hfn hgst
+    (by omega : 1 ≤ s0) (hAVE s0 (by omega)) hActs0 hlblj
+  -- … the old confirmed chain sits below the same fork choice …
+  have hold := (chi_le_mfc hsync hstepw hdiv hdil hone hwpt hmc hsyn hrel hslp hcb hfn
+    hcard hgst hκ hwin j vi j vi s0 hActs0).2 hlblj (le_of_eq htj)
+  -- … and the κ-deep write lands at or above `chp`
+  obtain ⟨dt, hst, -⟩ := tick_effect hlblj
+  have hvstate := handler2_vote_state (Q := Q) (n := n) (kappa := kappa) (pool := pool)
+    (proposer := proposer) (dot := dt) (p := vi)
+    (r := Q.slotLength * (s0 + 1) + Q.delta)
+    (V := x[j][vi].view) (s := x[j][vi].st) (voting_reading_mod Q (s0 + 1))
+  rw [voting_reading_div Q (s0 + 1)] at hvstate
+  rw [hvstate, if_pos hopen] at hst
+  set M := mfc (processProposals2 n proposer (x[j][vi].view) (s0 + 1)
+      (x[j][vi].st)).vFrozen (x[j][vi].view)
+    (processProposals2 n proposer (x[j][vi].view) (s0 + 1) (x[j][vi].st)).chFrozen
+    (s0 + 1) with hMdef
+  have hkp : chainLe chp (kappaPrefix kappa (s0 + 1) M) :=
+    le_kappaPrefix_of_stale hchpM hchp_sorted (by rw [hpa]; omega)
+  have hbase : chainLe chp (x[j + 1][vi].st.chi) := by
+    have hchi : x[j + 1][vi].st.chi
+        = [(processProposals2 n proposer (x[j][vi].view) (s0 + 1) (x[j][vi].st)).chi,
+            kappaPrefix kappa (s0 + 1) M].foldl
+            (fun acc c => if chainLe c M then (if chainLe acc c then c else acc)
+              else acc)
+            (processProposals2 n proposer (x[j][vi].view) (s0 + 1)
+              (x[j][vi].st)).chi := by
+      rw [hst]
+    rw [processProposals2_chi] at hchi
+    rw [List.foldl_cons, List.foldl_cons, List.foldl_nil] at hchi
+    have hfold : x[j + 1][vi].st.chi = kappaPrefix kappa (s0 + 1) M ∨
+        (x[j + 1][vi].st.chi = x[j][vi].st.chi ∧
+          ¬ chainLe (x[j][vi].st.chi) (kappaPrefix kappa (s0 + 1) M)) := by
+      rw [hchi]
+      split_ifs <;>
+        first
+          | exact Or.inl rfl
+          | exact Or.inr ⟨rfl, by assumption⟩
+          | exact absurd (chainLe_refl _) (by assumption)
+          | exact absurd (kappaPrefix_le_self _ _ _) (by assumption)
+    rcases hfold with h | ⟨h, hneg⟩
+    · rw [h]
+      exact hkp
+    · rw [h]
+      rcases comparable_of_common_extension hold
+          (kappaPrefix_le_self kappa (s0 + 1) M) with hok | hko
+      · exact absurd hok hneg
+      · exact chainLe_trans hkp hko
+  -- the tick precedes `a` …
+  have hja : j + 1 ≤ a := by
+    rcases Nat.lt_or_ge j a with h | h
+    · omega
+    · exfalso
+      have hle2 := time_le_of_le hmono h
+      rw [htj] at hle2
+      omega
+  -- … and the bound persists to it
+  have hpers : ∀ m, j + 1 ≤ m → chainLe chp (x[m][vi].st.chi) := by
+    intro m
+    induction m with
+    | zero => omega
+    | succ m ih =>
+        intro hm
+        rcases Nat.eq_or_lt_of_le hm with heq | hlt2
+        · have hjm : j = m := by omega
+          subst hjm
+          exact hbase
+        · have hprev := ih (by omega)
+          have htm : Q.slotLength * (s0 + 1) + Q.delta ≤ x[m].time := by
+            have h1 := time_le_of_le hmono (show j ≤ m by omega)
+            rw [htj] at h1
+            exact h1
+          rcases chi_step2 (x := x) (m := m) (p := vi) with hun |
+            ⟨t', hlbl', hguard', hchieq'⟩ | ⟨t', hlbl', hq', hgneg', hchieq'⟩
+          · rw [hun]
+            exact hprev
+          · -- a later guarded κ-deep write retains `chp` the same way
+            have hta' : x[m].time = Q.slotLength * t' + Q.delta :=
+              tick_reading hsync hlbl'
+            have ht's : s0 + 1 ≤ t' := by
+              rw [hta'] at htm
+              exact Nat.le_of_mul_le_mul_left (by omega) hSL0
+            obtain ⟨t'0, rfl⟩ : ∃ u, t' = u + 1 := ⟨t' - 1, by omega⟩
+            have hAct' : vi ∈ Active Q S ((t'0 : Int) + 1) := by
+              have hcast : (((t'0 + 1 : Nat)) : Int) = (t'0 : Int) + 1 := by
+                push_cast; omega
+              rw [← hcast]
+              exact active_of_open_join hsync hstepw hdil hwpt (by omega) hlbl'
+                hta' hguard'
+            have hchpM' := le_mfc_at_vote2 hsync hstepw hdil hwpt hone hmc hsyn hslp
+              hcb hfn hgst (by omega : 1 ≤ t'0) (hAVE t'0 (by omega)) hAct' hlbl'
+            rw [hchieq']
+            exact le_kappaPrefix_of_stale hchpM' hchp_sorted (by rw [hpa]; omega)
+          · -- a fast-confirm write: comparable with `chp`, and the line-23 guard
+            -- blocks the regressive direction
+            have hta' : x[m].time = Q.slotLength * t' + 2 * Q.delta :=
+              tick_reading hsync hlbl'
+            have ht's : s0 + 1 ≤ t' := by
+              rw [hta'] at htm
+              by_contra hc
+              have hmm : Q.slotLength * t' ≤ Q.slotLength * s0 :=
+                Nat.mul_le_mul_left _ (by omega)
+              have hexp : Q.slotLength * (s0 + 1)
+                  = Q.slotLength * s0 + Q.slotLength := Nat.mul_succ ..
+              omega
+            rcases fastConfirmSimple_fst_cases (n := n) (x[m][vi].view) t'
+              with h0 | hsupp
+            · exfalso
+              refine hgneg' ?_
+              rw [h0]
+              exact chainLe_nil _
+            · obtain ⟨q0, hq0mem, hq0hon⟩ :=
+                exists_honest_sender (r := ((x[m].time : Int))) hcb hfn hsupp
+              obtain ⟨smq, hsmq, hs0q⟩ := Finset.mem_image.mp hq0mem
+              rw [Finset.mem_filter] at hsmq
+              obtain ⟨hvq, hslotq, hchq⟩ := hsmq
+              have hlogq : smq ∈ x[m].sent := views_sound x m vi _
+                (by simp only [votes, Finset.mem_filter] at hvq; exact hvq.1)
+              have hhonq : smq.sender ∉ S.adv ((x[m].time : Int)) := by
+                rw [hs0q]
+                exact hq0hon
+              obtain ⟨eq', sq1, tq1, sq2, hmq⟩ := exists_vote_of_mem_votes hvq
+              have hsq : sq2 = t' := by
+                have e2 : msgSlot smq.msg = sq2 := by rw [hmq]; exact rfl
+                omega
+              subst hsq
+              have hactq : smq.sender ∈ Active Q S (sq2 : Int) :=
+                mem_active_of_honest_vote2 hsync hstepw hdil hwpt hmc (by omega)
+                  hlogq hhonq hmq
+              obtain ⟨iv, ev, evs, evt, htiv, hsentv, hextv⟩ :=
+                hAVE sq2 (by omega) smq.sender hactq
+              have hhon_iv : smq.sender ∉ S.adv ((x[iv].time : Int)) := by
+                intro had
+                refine hhonq (hmc _ _ ?_ had)
+                rw [htiv, hta']
+                exact_mod_cast (by omega : Q.slotLength * sq2 + Q.delta ≤
+                  Q.slotLength * sq2 + 2 * Q.delta)
+              have huniq : (⟪vote, ev, evs, evt, sq2, smq.sender⟫ :
+                  SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) = smq :=
+                honest_vote_unique2 hsync hone hmc hmono hlogq hsentv hhonq hhon_iv
+                  rfl hmq rfl
+              have hchain : msgChain smq.msg = ev := by rw [← huniq]; exact rfl
+              rcases comparable_of_common_extension hchq
+                  (show chainLe chp (msgChain smq.msg) by
+                    rw [hchain]; exact hextv) with hbc | hcb2
+              · exact absurd (chainLe_trans hbc hprev) hgneg'
+              · rw [hchieq']
+                exact hcb2
+  exact hpers a hja
 
 end Lemma5
 

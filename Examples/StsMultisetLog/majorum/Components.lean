@@ -66,6 +66,14 @@ variable [DecidableEq Tx]
 /-- `ch ⪯ ch'`, chain prefix. -/
 def chainLe (a b : Chain Tx) : Bool := a.isPrefixOf b
 
+@[inherit_doc] scoped infix:50 " ⪯ " => chainLe
+
+/-- `ch ≺ ch'`, strict prefix — a prefix of a longer chain. On prefixes,
+    `¬ (b ⪯ a)` is exactly `a ≠ b`, spelled without `DecidableEq`. -/
+def chainLt (a b : Chain Tx) : Bool := chainLe a b && !chainLe b a
+
+@[inherit_doc] scoped infix:50 " ≺ " => chainLt
+
 /-- `ch.p`, the slot the chain was proposed in — the slot of its last block, and `0` for
     genesis. -/
 def proposedAt (ch : Chain Tx) : Nat := (ch.getLast?).elim 0 Block.slot
@@ -170,7 +178,7 @@ noncomputable def filLmd (V : Finset (SignedMsg Node (Msg (Chain Tx) QC))) :
 /-- `V^{ch,t}`: the latest, non-expired, non-equivocating votes for chains extending `ch`. -/
 noncomputable def votesFor (V : View Node (Msg (Chain Tx) QC)) (ch : Chain Tx) (t : Nat) :
     Finset (SignedMsg Node (Msg (Chain Tx) QC)) :=
-  (filLmd (fil1Exp (filEq V) t)).filter (fun sm => chainLe ch (msgChain sm.msg))
+  (filLmd (fil1Exp (filEq V) t)).filter (fun sm => ch ⪯ msgChain sm.msg)
 
 /-- `S(V, t)`: the validators with non-expired votes in `V` at slot `t`. -/
 noncomputable def voters (V : View Node (Msg (Chain Tx) QC)) (t : Nat) : Finset Node :=
@@ -210,7 +218,7 @@ noncomputable def mfc (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx) (t
     Chain Tx :=
   (candidates V chC).toList.foldl
     (fun best ch =>
-      if chainLe chC ch ∧ Majority V V' t ch ∧ best.length < ch.length then ch else best)
+      if chC ⪯ ch ∧ Majority V V' t ch ∧ best.length < ch.length then ch else best)
     chC
 
 /-- **`fastconfirmsimple(V, t)`** (Algorithm 2): the greatest chain supported by more than
@@ -218,7 +226,7 @@ noncomputable def mfc (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx) (t
 noncomputable def fastConfirmSimple (n : Nat) (V : View Node (Msg (Chain Tx) QC)) (t : Nat) :
     Chain Tx × Option (QCert Node Tx) :=
   let support : Chain Tx → Finset (SignedMsg Node (Msg (Chain Tx) QC)) := fun ch =>
-    (votes V).filter (fun sm => msgSlot sm.msg = t ∧ chainLe ch (msgChain sm.msg))
+    (votes V).filter (fun sm => msgSlot sm.msg = t ∧ ch ⪯ msgChain sm.msg)
   let cands := (candidates V []).filter
     (fun ch => 2 * n ≤ 3 * ((support ch).image SignedMsg.sender).card)
   let best := cands.toList.foldl (fun best ch => if best.length < ch.length then ch else best) []
@@ -281,7 +289,7 @@ noncomputable def gf (n : Nat) (V : View Node (Msg (Chain Tx) QC)) : Checkpoint 
     not spell out, so it is not checked here. -/
 def validProposal (sm : SignedMsg Node (Msg (Chain Tx) QC)) : Bool :=
   match sm.msg with
-  | .propose chp chC _ _ t => proposedAt chp == t && chainLe chC chp
+  | .propose chp chC _ _ t => proposedAt chp == t && chC ⪯ chp
   | .vote .. => false
 
 /-! ### Assembling them -/

@@ -144,6 +144,22 @@ def Synchronous (Q : Params) (x : Exec Pr S) : Prop :=
 def Active (Q : Params) (S : Schedule Node) (t : Int) : Finset Node :=
   S.awakeThroughout (Q.voting t - 3 * (Q.delta : Int)) (Q.voting t)
 
+/-- The paper's `H_r` at an **arbitrary** round — `Active` is its slot form: some
+    voting round strictly before `r` opened the validator's activity window (the
+    joining protocol activates at voting rounds), and it has been awake from that
+    window's bottom through `r`. At `r = voting(t)` the window is `Active t`'s.
+
+    **Strictness of the voting-round bound.** The paper's rounds are atomic: `Ch^r_i`
+    there includes round `r`'s own writes, and `H_r` counts a validator from its
+    activation round on. Here states are sampled *between* events, so a validator
+    "active at `x[a].time`" must have had a vote round strictly earlier for that
+    round's confirmed-chain write to be on record. The paper's liveness bounds shift
+    by one round, no more. -/
+def ActiveAtRound (Q : Params) (S : Schedule Node) (p : Node) (r : Time) : Prop :=
+  ∃ t : Nat, Q.slotLength * t + Q.delta < r ∧
+    ∀ ρ : Int, Q.voting (t : Int) - 3 * (Q.delta : Int) ≤ ρ → ρ ≤ (r : Int) →
+      p ∈ S.awake ρ
+
 /-- **Constraint (1)** (`Constraint (1), arXiv:2601.03862v1 p.4`), the sleepiness bound:
 
         |H_{voting(t-1)} \ A_{voting t}| > |A_{voting t}|   for every slot t after GST

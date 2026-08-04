@@ -82,10 +82,10 @@ def ValidProposal2 (n : Nat) (proposer : Nat → Node)
     (sm : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) : Prop :=
   match sm.msg with
   | .propose chp chC qc _ t' =>
-      sm.sender = proposer t' ∧ proposedAt chp = t' ∧ chainLe chC chp ∧
+      sm.sender = proposer t' ∧ proposedAt chp = t' ∧ chC ⪯ chp ∧
         (chC = [] ∨ ∃ cert : QCert Node Tx, qc = some cert ∧
           2 * n ≤ 3 * (cert.image Prod.fst).card ∧
-          ∀ e ∈ cert, chainLe chC e.2.1 ∧ e.2.2 = t' - 1 ∧
+          ∀ e ∈ cert, chC ⪯ e.2.1 ∧ e.2.2 = t' - 1 ∧
             ∃ src tgt : Checkpoint (Chain Tx),
               (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ :
                 SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ V)
@@ -101,7 +101,7 @@ noncomputable def processProposals2 (n : Nat) (proposer : Nat → Node)
   V.toList.foldl (fun acc sm =>
     match sm.msg with
     | .propose _ chC _ _ t' =>
-        if t' = t ∧ ValidProposal2 n proposer V sm ∧ chainLe acc.chFrozen chC then
+        if t' = t ∧ ValidProposal2 n proposer V sm ∧ acc.chFrozen ⪯ chC then
           { acc with chFrozen := chC }
         else acc
     | .vote .. => acc) s
@@ -140,14 +140,14 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     let chi :=
       if s.activeAt ≤ r then
         [s'.chi, kappaPrefix kappa slot chMFC].foldl
-          (fun acc c => if chainLe c chMFC then (if chainLe acc c then c else acc) else acc)
+          (fun acc c => if c ⪯ chMFC then (if acc ⪯ c then c else acc) else acc)
           s'.chi
       else s'.chi
     let proposedNow : Option (Chain Tx) :=
       V.toList.findSome? (fun sm => match sm.msg with
         | .propose chp _ _ _ t' =>
             if sm.sender == proposer slot && t' == slot && proposedAt chp == slot &&
-                slotsIncreasing chp && chainLe chMFC chp then some chp
+                slotsIncreasing chp && chMFC ⪯ chp then some chp
             else none
         | .vote .. => none)
     let ch := proposedNow.getD chMFC
@@ -163,7 +163,7 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     let fq := fastConfirmSimple n V slot
     let sF :=
       if fq.2.isSome then
-        { s with chi := if chainLe fq.1 s.chi then s.chi else fq.1 }
+        { s with chi := if fq.1 ⪯ s.chi then s.chi else fq.1 }
       else s
     return { state := sF, send := 0 }
   else if phase = 3 * Q.delta then
