@@ -97,7 +97,16 @@ def commonPrefix : Chain Tx → Chain Tx → Chain Tx
     The paper says "produces a chain of length `t` that extends `ch`", measuring length in
     slots; what the protocol then checks of the result is `chp.p = t`, which appending one
     block gives. A model in which chains have a block per slot would need the intermediate
-    slots filled with something, and the paper does not say with what. -/
+    slots filled with something, and the paper does not say with what.
+
+    `pool t` is the block body an honest slot-`t` proposer packs. The paper's `Extend`
+    contract — the "Property 1" its Theorem 2 cites but never states (sixth finding,
+    `CONTEXT.md` 2026-08-04) — says that body is all of `txpool^{propose(t)}`; since the
+    paper's `txpool` is global and read-uniform, the honest body is a function of the
+    slot alone, which is exactly this signature (instantiate `Tx` at a transaction-set
+    type). The paper leaves `Extend` unspecified for `ch.p ≥ t`; here `Lemma 6` supplies
+    `ch.p < t` wherever the protocol calls it, and `slotsIncreasing_extend` consumes
+    precisely that bound. -/
 def extend (pool : Nat → Tx) (ch : Chain Tx) (t : Nat) : Chain Tx :=
   ch ++ [⟨t, pool t⟩]
 
