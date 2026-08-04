@@ -1,5 +1,5 @@
 import Mathlib.Data.Finset.Max
-import Examples.StsMultisetLog.majorum.Mfc
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Mfc
 
 /-!
 # The execution layer: provenance, and the activation machinery

@@ -1,4 +1,4 @@
-import Examples.StsMultisetLog.majorum.Analysis2
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Analysis2
 
 /-!
 # The paper's lemmas

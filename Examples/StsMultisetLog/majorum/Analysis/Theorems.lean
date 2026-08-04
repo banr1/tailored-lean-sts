@@ -1,6 +1,6 @@
 import Examples.StsMultisetLog.majorum.Spec.Assumptions
 import Examples.StsMultisetLog.majorum.Spec.Security
-import Examples.StsMultisetLog.majorum.Analysis2
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Analysis2
 
 /-!
 # Majorum's theorems, as statements
@@ -8,7 +8,7 @@ import Examples.StsMultisetLog.majorum.Analysis2
 All seven theorems of arXiv:2601.03862v1, rendered in the vocabulary of
 `Security.lean` as **statements** (`def … : Prop`), plus — at the end of the file —
 the theorems *proved* for Algorithm 2 concretely (`theorem1` and `theorem2`,
-2026-08-04), in the same direct style as `Paper/Lemmas.lean` rather than through the
+2026-08-04), in the same direct style as `Analysis/Lemmas.lean` rather than through the
 `Security.lean` renderings (which quantify differently: no probability layer, and a
 hypothesis row that predates `SettingGA`).
 
@@ -185,7 +185,7 @@ variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx] [Fintype Node]
   {proposer : Nat → Node}
 
 /-- Algorithm 2, its quorum threshold instantiated with the structural validator count —
-    the same protocol `Paper/Lemmas.lean` states the lemmas over. -/
+    the same protocol `Analysis/Lemmas.lean` states the lemmas over. -/
 local notation "Pr2" => protocol2 Q (Fintype.card Node) kappa pool proposer
 
 /-- **Theorem 1** (`Theorem 1, arXiv:2601.03862v1 p.16`, Reorg Resilience, for

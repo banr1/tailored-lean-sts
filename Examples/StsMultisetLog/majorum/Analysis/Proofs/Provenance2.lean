@@ -1,4 +1,4 @@
-import Examples.StsMultisetLog.majorum.Provenance
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Provenance
 import Examples.StsMultisetLog.majorum.Spec.Algorithm2
 
 /-!

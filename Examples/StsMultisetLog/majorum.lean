@@ -3,12 +3,12 @@ import Examples.StsMultisetLog.majorum.Spec.Security
 import Examples.StsMultisetLog.majorum.Spec.Algorithm5
 import Examples.StsMultisetLog.majorum.Spec.Components
 import Examples.StsMultisetLog.majorum.Spec.Algorithm2
-import Examples.StsMultisetLog.majorum.Mfc
-import Examples.StsMultisetLog.majorum.Provenance
-import Examples.StsMultisetLog.majorum.Provenance2
-import Examples.StsMultisetLog.majorum.Analysis2
-import Examples.StsMultisetLog.majorum.Paper.Lemmas
-import Examples.StsMultisetLog.majorum.Paper.Theorems
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Mfc
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Provenance
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Provenance2
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Analysis2
+import Examples.StsMultisetLog.majorum.Analysis.Lemmas
+import Examples.StsMultisetLog.majorum.Analysis.Theorems
 
 /-!
 # Majorum, as an the framework's flat multiset-log flavour-framework model
@@ -28,8 +28,9 @@ paper's theorems remain `Prop`-valued statements.
 ## Layout
 
 The **spec** — the protocol and its model — lives in `Spec/`; the **paper-facing
-results** in `Paper/`, one theorem per numbered lemma/theorem, each proved by a single
-call so the lists read without proof noise; everything in between is the proof layer.
+results** in `Analysis/`, one theorem per numbered lemma/theorem, each proved by a
+single call so the lists read without proof noise; the proof layer sits under
+`Analysis/Proofs/`.
 
 * `Spec/Assumptions` — the à la carte hypothesis groups (and `SettingGA`, the bundled
   Appendix-A setting). Majorum proves its theorems under *different* assumptions, so
@@ -47,19 +48,19 @@ call so the lists read without proof noise; everything in between is the proof l
   confirmations, the dynamically available component on its own. **The proved lemmas
   and theorems are about this algorithm**; its messages are Algorithm 5's with the
   paper's "·" placeholder in the finality fields, chosen nondeterministically.
-* `Mfc` — the view-local proof layer: vote filters, sender-counted majorities, what
+* `Analysis/Proofs/Mfc` — the view-local proof layer: vote filters, sender-counted majorities, what
   `MFC` returns, and the chain-structure suite for the κ-arithmetic.
-* `Provenance` — execution-level helpers for Algorithm 5, and the protocol-generic
+* `Analysis/Proofs/Provenance` — execution-level helpers for Algorithm 5, and the protocol-generic
   pieces (`emitted_of_mem_sent`, `exists_time_eq`, …).
-* `Provenance2` — the execution layer for Algorithm 2: provenance, the joining-check
+* `Analysis/Proofs/Provenance2` — the execution layer for Algorithm 2: provenance, the joining-check
   machinery, the honest-chain invariant, the Lemma-2 halves, each lemma's base case,
   and the Lemma-5/Theorem-2 engines.
-* `Analysis2` — the Appendix-A results assembled in full: the real proofs of the
+* `Analysis/Proofs/Analysis2` — the Appendix-A results assembled in full: the real proofs of the
   numbered lemmas and theorems, including Theorem 2's split faces
   (`theorem2_safety`, `theorem2_liveness`, `theorem2_liveness_txpool`).
-* `Paper/Lemmas` — **one theorem per numbered lemma of the paper**, and nothing else;
-  proofs are one call into `Analysis2`.
-* `Paper/Theorems` — the paper's theorems: the proved ones (`theorem1`, `theorem2`,
+* `Analysis/Lemmas` — **one theorem per numbered lemma of the paper**, and nothing else;
+  proofs are one call into `Proofs/Analysis2`.
+* `Analysis/Theorems` — the paper's theorems: the proved ones (`theorem1`, `theorem2`,
   one-call proofs) and the remaining statements as `Prop`s.
 
 **Read the caveats in `Spec/Security.lean` before trusting the `Prop` statements.**

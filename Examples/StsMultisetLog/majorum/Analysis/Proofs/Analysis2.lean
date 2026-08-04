@@ -1,4 +1,4 @@
-import Examples.StsMultisetLog.majorum.Provenance2
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Provenance2
 
 /-!
 # The Appendix-A analysis of Algorithm 2, assembled
@@ -8,7 +8,7 @@ The paper's numbered lemmas and theorems for Algorithm 2, **in full**: statement
 and the real proofs — destructuring the setting and composing the `Provenance2`
 machinery.
 
-The *paper-facing* lists live in `Paper/Lemmas.lean` and `Paper/Theorems.lean`:
+The *paper-facing* lists live in `Analysis/Lemmas.lean` and `Analysis/Theorems.lean`:
 identical statements whose proofs are a single call into this file, so the lists read
 without proof noise. Full statement documentation lives there; the docstrings here
 describe the assembly.
@@ -30,7 +30,7 @@ variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx] [Fintype Node]
 local notation "Pr2" => protocol2 Q (Fintype.card Node) kappa pool proposer
 
 /-- Lemma 2, assembled — `activeVotesExtend_of_le_mfc` over `le_mfc_at_vote2`.
-    Documented in `Paper/Lemmas.lean`. -/
+    Documented in `Analysis/Lemmas.lean`. -/
 theorem lemma2 {x : Exec Pr2 S} (H : SettingGA Q S x)
     {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx} (hvotes : ActiveVotesExtend2 x t ch) :
     ActiveVotesExtend2 x (t + 1) ch := by
@@ -41,7 +41,7 @@ theorem lemma2 {x : Exec Pr2 S} (H : SettingGA Q S x)
 
 /-- Lemma 3, assembled — `Nat.le_induction` with `activeVotesExtend_of_fastconfirm` at
     the base and Lemma 2's step.
-    Documented in `Paper/Lemmas.lean`. -/
+    Documented in `Analysis/Lemmas.lean`. -/
 theorem lemma3 {x : Exec Pr2 S} (H : SettingGA Q S x)
     {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx}
     (hconf : ∃ (i : Nat) (w : Node) (cert : QCert Node Tx),
@@ -60,7 +60,7 @@ theorem lemma3 {x : Exec Pr2 S} (H : SettingGA Q S x)
 
 /-- Lemma 4, assembled — `Nat.le_induction` with `activeVotesExtend_of_propose` at the
     base and Lemma 2's step.
-    Documented in `Paper/Lemmas.lean`. -/
+    Documented in `Analysis/Lemmas.lean`. -/
 theorem lemma4 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
     {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
     {ck : Checkpoint (Chain Tx)} {i : Nat}
@@ -80,7 +80,7 @@ theorem lemma4 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
 
 /-- Lemma 5, assembled — `chi_le_mfc`, the strong induction on the index of the last
     confirmed-chain write.
-    Documented in `Paper/Lemmas.lean`. -/
+    Documented in `Analysis/Lemmas.lean`. -/
 theorem lemma5 {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
     (hwin : HonestProposalWindow x)
     {a : Nat} {vi : Node} {b : Nat} {vj : Node} {sj : Nat} (hsj : 1 ≤ sj)
@@ -106,7 +106,7 @@ theorem lemma5 {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
     (le_refl _) hgst hκ hwin a vi b vj s0 hact'
 
 /-- Lemma 6, assembled — `mfc_propose_ok`'s second projection.
-    Documented in `Paper/Lemmas.lean`. -/
+    Documented in `Analysis/Lemmas.lean`. -/
 theorem lemma6 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
     {a : Nat} {w : Node} (hta : x[a].time = Q.slotLength * t) (hAwa : x.Awake a w) :
     proposedAt (mfc (x[a][w].view) (x[a][w].view)
@@ -119,7 +119,7 @@ theorem lemma6 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
   simpa using Nat.lt_succ_of_le h
 
 /-- Lemma 7, assembled — Lemma 4 at its own slot, then `le_chi_at_fconf`.
-    Documented in `Paper/Lemmas.lean`. -/
+    Documented in `Analysis/Lemmas.lean`. -/
 theorem lemma7 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
     (hbig : 2 * Fintype.card Node ≤ 3 * (Active Q S (t : Int)).card)
     {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
@@ -139,7 +139,7 @@ theorem lemma7 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
 /-- Theorem 1, assembled — Sleepiness inhabits a later slot's active set, a vote tick
     is produced there, Lemma 4's machinery and Lemma 5 bound the proposal and the
     confirmed chain by its fork choice, and prefixes of one chain are comparable.
-    Documented in `Paper/Theorems.lean`. -/
+    Documented in `Analysis/Theorems.lean`. -/
 theorem theorem1 {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
     (hwin : HonestProposalWindow x)
     {tp : Nat} (htp : 1 ≤ tp) {vp : Node} {chp chC : Chain Tx}
@@ -358,7 +358,7 @@ theorem theorem2_liveness_txpool {x : Exec Pr2 S} {τ : Type}
 
 /-- Theorem 2, assembled: the conjunction of `theorem2_safety` and
     `theorem2_liveness_txpool` — dynamic availability as Definition 4 composes it.
-    Documented in `Paper/Theorems.lean`. -/
+    Documented in `Analysis/Theorems.lean`. -/
 theorem theorem2 {x : Exec Pr2 S} {τ : Type}
     (memTx : τ → Tx → Prop) (poolSet : Time → Set τ)
     (hmonoP : ∀ r r' : Time, r ≤ r' → poolSet r ⊆ poolSet r')
