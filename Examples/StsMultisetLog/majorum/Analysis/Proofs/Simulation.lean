@@ -39,12 +39,25 @@ local notation "Pr2" => protocol2 Q n kappa pool proposer
 /-- Algorithm 2's messages and Algorithm 5's share one type. -/
 local notation "M" => Msg (Chain Tx) (QCert Node Tx)
 
-/-- **Definition 8** (`Definition 8, arXiv:2601.03862v1 p.18`): two messages are
-    *dynamically equivalent* iff they differ in at most their finality components —
-    proposes in the greatest-justified-checkpoint field, votes in the fin-vote. -/
+/-- **Definition 8** (`Definition 8, arXiv:2601.03862v1 p.18`), repaired: two messages
+    are *dynamically equivalent* iff they differ in at most their finality-derived
+    components — votes in the fin-vote (the paper's clause, verbatim), proposes in
+    everything but the proposed chain and slot.
+
+    The paper's propose clause frees only the greatest-justified-checkpoint field, but
+    that is inconsistent with its own `fastconfirm`: the GJ-branch substitutes the
+    justified chain for `(chC, QC)`, so an Algorithm-5 proposal can differ from its
+    Algorithm-2 counterpart in those fields whenever slot `t−1` lacked a fast-confirm
+    quorum, and Lemma 10's condition 1 is false as worded (ninth finding, `CONTEXT.md`
+    2026-08-05). Since `fastconfirm` is finality-coupled by construction, the whole
+    `(chC, QC)` pair is finality-*derived* and this definition frees it. Nothing
+    downstream loses strength — the transfers read only the proposed chain and slot,
+    and the frozen-chain divergence `chC` feeds is handled by bounding, not equality.
+    The tighter substitution-aware alternative (free the pair only when
+    `QC = none ∧ chC` equals the message's own GJ chain) is recorded here should the
+    full-strength condition 1 ever be wanted. -/
 def DynEq : M → M → Prop
-  | .propose chp chC qc _ t, .propose chp' chC' qc' _ t' =>
-      chp = chp' ∧ chC = chC' ∧ qc = qc' ∧ t = t'
+  | .propose chp _ _ _ t, .propose chp' _ _ _ t' => chp = chp' ∧ t = t'
   | .vote e _ _ t, .vote e' _ _ t' => e = e' ∧ t = t'
   | _, _ => False
 

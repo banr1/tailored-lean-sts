@@ -60,8 +60,8 @@ theorem DynEq.symm {m m' : M} (h : DynEq m m') : DynEq m' m := by
       cases m' with
       | vote e' src' tgt' s' => cases h
       | propose chp' chC' qc' gj' s' =>
-          obtain ⟨h1, h2, h3, h4⟩ := h
-          exact ⟨h1.symm, h2.symm, h3.symm, h4.symm⟩
+          obtain ⟨h1, h2⟩ := h
+          exact ⟨h1.symm, h2.symm⟩
 
 /-- So is its signed form. -/
 theorem SDynEq.symm {sm sm' : SignedMsg Node M} (h : SDynEq sm sm') : SDynEq sm' sm :=
