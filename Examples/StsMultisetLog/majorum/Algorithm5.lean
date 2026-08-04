@@ -106,8 +106,8 @@ structure Components (Node Chain QC : Type) where
   prefixLe : Chain → Chain → Bool
   /-- `ch.p`, the slot a chain was proposed in. -/
   proposedAt : Chain → Nat
-  /-- The `κ`-deep prefix, `(·)⌈κ`. -/
-  kappaPrefix : Chain → Chain
+  /-- The `κ`-deep prefix `(·)⌈κ,t`, slot-indexed as on p. 4. -/
+  kappaPrefix : Nat → Chain → Chain
   /-- The greatest common prefix, for `max {ch : ch ⪯ a ∧ ch ⪯ b}` at line 15. -/
   commonPrefix : Chain → Chain → Chain
   /-- `MFC(V₁, V₂, ch, t)`, the majority fork-choice (Algorithm 3). -/
@@ -206,7 +206,7 @@ noncomputable def handler (C : Components Node Chain QC) (Q : Params) (p : Node)
     let s' := processProposals C V slot s
     let chMFC := C.mfc s'.vFrozen V s'.chFrozen slot
     let chAva :=
-      [s'.chAva, C.kappaPrefix chMFC, s'.gjFrozen.ch].foldl
+      [s'.chAva, C.kappaPrefix slot chMFC, s'.gjFrozen.ch].foldl
         (fun acc ch => if C.prefixLe ch chMFC then C.maxCh acc ch else acc) s'.chAva
     let chFin := C.commonPrefix chAva (C.gf V).ch
     let target : Checkpoint Chain :=

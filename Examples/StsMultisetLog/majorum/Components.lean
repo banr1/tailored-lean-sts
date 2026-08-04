@@ -83,8 +83,19 @@ def slotsIncreasing : Chain Tx → Bool
   | [_] => true
   | a :: b :: rest => a.slot < b.slot && slotsIncreasing (b :: rest)
 
-/-- The `κ`-deep prefix `(ch)⌈κ`: drop the most recent `κ` blocks. -/
-def kappaPrefix (kappa : Nat) (ch : Chain Tx) : Chain Tx := ch.take (ch.length - kappa)
+/-- The `κ`-deep prefix `(ch)⌈κ,t` (`arXiv:2601.03862v1 p.4`): the longest prefix whose
+    blocks sit at least `κ` slots before `t` — on the slot-sorted chains the fork choice
+    produces, a `takeWhile`. The test is spelled `b.slot + κ ≤ t` so that `Nat`
+    subtraction cannot truncate: for `t < κ` nothing qualifies, matching the paper's
+    `p ≤ t − κ < 0`.
+
+    Slot-indexed, not count-based (2026-08-04, replacing `ch.take (ch.length − κ)`):
+    the two are equally strong for Lemma 5's absorption, but not for Theorem 2's
+    liveness — an honest proposal from `κ` slots back survives *this* prefix no matter
+    how few blocks sit above it, which is exactly the paper's `chp ⪯ (MFC)⌈κ,ti` step;
+    the count-based prefix would need a chain-growth argument the paper never makes. -/
+def kappaPrefix (kappa t : Nat) (ch : Chain Tx) : Chain Tx :=
+  ch.takeWhile (fun b => b.slot + kappa ≤ t)
 
 /-- The greatest common prefix, which is `max {ch : ch ⪯ a ∧ ch ⪯ b}` for a prefix order. -/
 def commonPrefix : Chain Tx → Chain Tx → Chain Tx

@@ -139,7 +139,7 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     -- `2n/3` quorum there is network-anchored.
     let chi :=
       if s.activeAt ≤ r then
-        [s'.chi, kappaPrefix kappa chMFC].foldl
+        [s'.chi, kappaPrefix kappa slot chMFC].foldl
           (fun acc c => if chainLe c chMFC then (if chainLe acc c then c else acc) else acc)
           s'.chi
       else s'.chi

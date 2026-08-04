@@ -388,29 +388,77 @@ theorem slotsIncreasing_length_le {ch : Chain Tx} (hch : slotsIncreasing ch) :
       rw [hx] at hspan
       omega
 
-/-- A chain of at most `κ` blocks has an empty `κ`-deep prefix. -/
-theorem kappaPrefix_nil_of_short {ch : Chain Tx} {kappa : Nat}
-    (h : ch.length ≤ kappa) : kappaPrefix kappa ch = [] := by
-  simp [kappaPrefix, Nat.sub_eq_zero_of_le h]
+/-- Below slot `κ`, no block is `κ` deep: the prefix is genesis. -/
+theorem kappaPrefix_nil_of_lt {t kappa : Nat} (h : t < kappa) (ch : Chain Tx) :
+    kappaPrefix kappa t ch = [] := by
+  cases ch with
+  | nil => rfl
+  | cons b l =>
+      have hb : ¬ (b.slot + kappa ≤ t) := by omega
+      simp [kappaPrefix, List.takeWhile_cons, hb]
 
 /-- The `κ`-deep prefix is a prefix. -/
-theorem kappaPrefix_le_self (kappa : Nat) (ch : Chain Tx) :
-    chainLe (kappaPrefix kappa ch) ch := by
+theorem kappaPrefix_le_self (kappa t : Nat) (ch : Chain Tx) :
+    chainLe (kappaPrefix kappa t ch) ch := by
   rw [chainLe_iff_prefix]
-  exact List.take_prefix _ _
+  exact List.takeWhile_prefix _
 
-/-- **The `κ`-deep step of Lemma 5**: a nonempty prefix within `κ` slots of a slot-sorted
-    chain's head absorbs the `κ`-deep prefix. -/
-theorem kappaPrefix_le_of_close {pre ch : Chain Tx} {kappa : Nat}
+/-- Everything `takeWhile` keeps satisfies the predicate. -/
+theorem mem_takeWhile_pred {α : Type*} {p : α → Bool} {l : List α} {a : α}
+    (h : a ∈ l.takeWhile p) : p a = true := by
+  induction l with
+  | nil => simp [List.takeWhile] at h
+  | cons b m ih =>
+      rw [List.takeWhile_cons] at h
+      by_cases hb : p b
+      · rw [if_pos hb] at h
+        rcases List.mem_cons.mp h with rfl | h2
+        · exact hb
+        · exact ih h2
+      · rw [if_neg hb] at h
+        simp at h
+
+/-- **The `κ`-deep step of Lemma 5**: a nonempty prefix proposed at most `κ` slots
+    before `t` absorbs the `κ`-deep prefix of a slot-sorted chain — any block that
+    qualifies for the prefix sits at or below the proposal, because blocks above it
+    carry later slots. -/
+theorem kappaPrefix_le_of_close {pre ch : Chain Tx} {kappa t : Nat}
     (hle : chainLe pre ch) (hch : slotsIncreasing ch) (hpre : pre ≠ [])
-    (hclose : proposedAt ch ≤ proposedAt pre + kappa) :
-    chainLe (kappaPrefix kappa ch) pre := by
-  have hspan := length_sub_le_span hle hch hpre
-  rw [chainLe_iff_prefix] at hle ⊢
-  unfold kappaPrefix
-  refine List.prefix_of_prefix_length_le (List.take_prefix _ _) hle ?_
-  simp only [List.length_take]
-  omega
+    (hclose : t ≤ proposedAt pre + kappa) :
+    chainLe (kappaPrefix kappa t ch) pre := by
+  have hkp : chainLe (kappaPrefix kappa t ch) ch := kappaPrefix_le_self kappa t ch
+  have hkps : slotsIncreasing (kappaPrefix kappa t ch) :=
+    slotsIncreasing_of_prefix hkp hch
+  rcases Nat.lt_or_ge pre.length (kappaPrefix kappa t ch).length with hlen | hlen
+  case inr =>
+    rw [chainLe_iff_prefix] at hkp hle ⊢
+    exact List.prefix_of_prefix_length_le hkp hle hlen
+  case inl =>
+    exfalso
+    have hpp : pre <+: kappaPrefix kappa t ch := by
+      rw [chainLe_iff_prefix] at hkp hle
+      exact List.prefix_of_prefix_length_le hle hkp (le_of_lt hlen)
+    obtain ⟨w, hw⟩ := hpp
+    have hwne : w ≠ [] := by
+      intro h0
+      rw [h0, List.append_nil] at hw
+      rw [hw] at hlen
+      omega
+    obtain ⟨z, w', rfl⟩ := List.exists_cons_of_ne_nil hwne
+    -- the first block past `pre` still qualifies for the prefix …
+    have hzmem : z ∈ kappaPrefix kappa t ch := by
+      rw [← hw]
+      simp
+    have hz : z.slot + kappa ≤ t := by
+      unfold kappaPrefix at hzmem
+      have h := mem_takeWhile_pred hzmem
+      simpa using h
+    -- … yet carries a slot after the proposal's
+    have hsorted2 : slotsIncreasing (pre ++ z :: w') := by
+      rw [hw]
+      exact hkps
+    have hlt := proposedAt_lt_head_append hsorted2 hpre
+    omega
 
 /-- Appending a fresh block keeps a chain slot-sorted. -/
 theorem slotsIncreasing_extend (pool : Nat → Tx) {ch : Chain Tx} {t : Nat}

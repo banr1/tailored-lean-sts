@@ -125,9 +125,10 @@ theorem lemma4 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
     Two hypotheses beyond `SettingGA`, and two strengthenings:
 
     * **`HonestProposalWindow`** is Lemma 1's conclusion, de-probabilized: every slot
-      `t > κ` has an honestly proposed slot in `[t−κ, t)`. The paper's proof invokes
-      Lemma 1 ("with overwhelming probability") exactly here; this model takes the
-      conclusion as a hypothesis wherever the paper says w.o.p.
+      `t ≥ κ` has an honestly proposed slot `tp ≥ 1` in `[t−κ, t)`. The paper's proof
+      invokes Lemma 1 ("with overwhelming probability") exactly here; this model takes
+      the conclusion as a hypothesis wherever the paper says w.o.p. (See the definition
+      for the `t = κ` boundary and the `1 ≤ tp` strengthening.)
     * **`1 ≤ κ`**: with `κ = 0` the κ-deep rule confirms the fork-choice tip itself and
       the paper's own window `[t−κ, t)` is empty — its proof, too, needs `κ ≥ 1`.
     * `vi`'s honesty is **not assumed**: every validator's state follows the handler

@@ -65,7 +65,7 @@ noncomputable def handler2Core (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     -- line 22: `Ch_i ← max({ch ∈ {Ch_i, (chMFC)⌈κ} : ch ⪯ chMFC})` — only once active
     let chi :=
       if s.activeAt ≤ r then
-        [s'.chi, kappaPrefix kappa chMFC].foldl
+        [s'.chi, kappaPrefix kappa slot chMFC].foldl
           (fun acc c => if chainLe c chMFC then (if chainLe acc c then c else acc) else acc)
           s'.chi
       else s'.chi
@@ -1052,7 +1052,8 @@ theorem handler2_vote_state {p : Node} {r : Time}
         chi :=
           if s.activeAt ≤ r then
             [(processProposals2 n proposer V (r / Q.slotLength) s).chi,
-              kappaPrefix kappa (mfc (processProposals2 n proposer V (r / Q.slotLength)
+              kappaPrefix kappa (r / Q.slotLength)
+                (mfc (processProposals2 n proposer V (r / Q.slotLength)
                   s).vFrozen V
                 (processProposals2 n proposer V (r / Q.slotLength) s).chFrozen
                 (r / Q.slotLength))].foldl
@@ -1420,7 +1421,7 @@ theorem chi_step2 {x : Exec Pr2 S} {m : Nat} {p : Node} :
     x[m + 1][p].st.chi = x[m][p].st.chi ∨
     (∃ ti : Nat, x.lbl m = .tick p (Q.slotLength * ti + Q.delta) ∧
       x[m][p].st.activeAt ≤ Q.slotLength * ti + Q.delta ∧
-      x[m + 1][p].st.chi = kappaPrefix kappa (mfc (processProposals2 n proposer
+      x[m + 1][p].st.chi = kappaPrefix kappa ti (mfc (processProposals2 n proposer
           (x[m][p].view) ti (x[m][p].st)).vFrozen (x[m][p].view)
         (processProposals2 n proposer (x[m][p].view) ti (x[m][p].st)).chFrozen ti)) ∨
     (∃ ti : Nat, x.lbl m = .tick p (Q.slotLength * ti + 2 * Q.delta) ∧
@@ -1447,7 +1448,8 @@ theorem chi_step2 {x : Exec Pr2 S} {m : Nat} {p : Node} :
       have hchi : x[m + 1][p].st.chi
           = [(processProposals2 n proposer (x[m][p].view) (tr / Q.slotLength)
               (x[m][p].st)).chi,
-            kappaPrefix kappa (mfc (processProposals2 n proposer (x[m][p].view)
+            kappaPrefix kappa (tr / Q.slotLength)
+              (mfc (processProposals2 n proposer (x[m][p].view)
                 (tr / Q.slotLength) (x[m][p].st)).vFrozen (x[m][p].view)
               (processProposals2 n proposer (x[m][p].view) (tr / Q.slotLength)
                 (x[m][p].st)).chFrozen (tr / Q.slotLength))].foldl
@@ -3902,13 +3904,29 @@ section Lemma5
 variable [Fintype Node]
 
 /-- **Lemma 1, de-probabilized** — the conclusion the κ-window argument consumes as a
-    hypothesis: behind every slot `t > κ` there is a slot `tp` in the window `[t−κ, t)`
-    whose (honest) proposer sent a proposal. The paper derives this with overwhelming
-    probability from proposer sortition (`Lemma 1, arXiv:2601.03862v1`); this model takes
-    the conclusion as an assumption wherever the paper says "w.o.p.". The proposer's
-    identity is not mentioned: it is derivable (`propose_provenance2`), as in `lemma4`. -/
+    hypothesis: behind every slot `t ≥ κ` there is a slot `tp ≥ 1` in the window
+    `[t−κ, t)` whose (honest) proposer sent a proposal. The paper derives this with
+    overwhelming probability from proposer sortition (`Lemma 1, arXiv:2601.03862v1`);
+    this model takes the conclusion as an assumption wherever the paper says "w.o.p.".
+    The proposer's identity is not mentioned: it is derivable (`propose_provenance2`),
+    as in `lemma4`.
+
+    Two deliberate edges (2026-08-04, with the slot-indexed `kappaPrefix`):
+
+    * The quantification starts at `t = κ`, not `t = κ + 1`: at slot `κ` the paper's
+      prefix `(·)⌈κ,κ` can retain a slot-`0` block, so the absorption argument needs a
+      windowed proposal there too. Below `κ` nothing qualifies for the prefix and no
+      window is needed (`kappaPrefix_nil_of_lt`).
+    * `1 ≤ tp` strengthens the paper's window `[t−κ, t)`, which at `t = κ` reaches slot
+      `0`. `lemma4`'s machinery assumes `1 ≤ t` (`activeVotesExtend_of_propose`), so
+      slot-`0` proposals are excluded here instead of extending it; for `t > κ` the
+      conjunct is implied. The cost: at `κ = 1` the `t = κ` instance is unsatisfiable
+      and Lemma 5 holds vacuously — a degenerate parameter for the paper too, whose
+      w.o.p. arguments need `κ` large. If `κ = 1` ever matters, the alternative is to
+      prove `lemma4` at `t = 0` (its base case simplifies there: no previous-slot votes,
+      the frozen chain is genesis) and let `tp = 0` back in. -/
 def HonestProposalWindow (x : Exec Pr2 S) : Prop :=
-  ∀ t : Nat, kappa < t → ∃ tp, t - kappa ≤ tp ∧ tp < t ∧
+  ∀ t : Nat, kappa ≤ t → ∃ tp, 1 ≤ tp ∧ t - kappa ≤ tp ∧ tp < t ∧
     ∃ (i : Nat) (vp : Node) (chp chC : Chain Tx) (qc : Option (QCert Node Tx))
       (ck : Checkpoint (Chain Tx)),
       (⟨vp, Msg.propose chp chC qc ck tp⟩ :
@@ -4015,9 +4033,9 @@ set_option maxHeartbeats 2000000 in
 
     * an untouched `chi` inherits the bound (the time constraint only relaxes);
     * the **κ-deep write** happens with the joining check open, hence at a slot the
-      writer is active in (`active_of_open_join`); its fork choice is slot-sorted and
-      from the past (`mfc_vote_ok`), so for slots `≤ κ` the prefix is empty, and past
-      `κ` the window's honest proposal is a prefix of the fork choice
+      writer is active in (`active_of_open_join`); below slot `κ` nothing qualifies
+      for the slot-indexed prefix (`kappaPrefix_nil_of_lt`), and from `κ` on the
+      window's honest proposal is a prefix of the fork choice
       (`le_mfc_at_vote2`) that absorbs the κ-deep prefix (`kappaPrefix_le_of_close`) and
       reaches every later fork choice (Lemma 4's machinery);
     * the **fast-confirm write** is a current-view quorum: the very next slot reads it
@@ -4072,21 +4090,17 @@ theorem chi_le_mfc {x : Exec Pr2 S}
         have hMok := mfc_vote_ok hsync hstepw hdiv hdil hone hwpt hmc hsyn hslp hcb hfn
           hcard hgst (p := vi) (s := ti)
           (fun h1 => active_of_open_join hsync hstepw hdil hwpt h1 hlbl hta hguard) hlbl
-        by_cases hshort : ti ≤ kappa
-        · -- a young fork choice has at most `κ` blocks: the prefix is genesis
+        by_cases hshort : ti < kappa
+        · -- below `κ`, nothing qualifies: the prefix is genesis
           have hnil : x[a + 1][vi].st.chi = [] := by
             rw [hchieq]
-            refine kappaPrefix_nil_of_short ?_
-            have hlen := slotsIncreasing_length_le hMok.1
-            have hP := hMok.2
-            omega
+            exact kappaPrefix_nil_of_lt hshort _
           exact ⟨fun _ _ => by rw [hnil]; exact chainLe_nil _,
             fun _ _ => by rw [hnil]; exact chainLe_nil _⟩
-        · -- past `κ`: the window's honest proposal absorbs the prefix
+        · -- from `κ` on: the window's honest proposal absorbs the prefix
           obtain ⟨t0, rfl⟩ : ∃ t0, ti = t0 + 1 := ⟨ti - 1, by omega⟩
-          obtain ⟨tp, htp1, htp2, i, vp, chp, chC, qc, ck, hsent, hhon_i, hhon_t⟩ :=
-            hwin (t0 + 1) (by omega)
-          have htp0 : 1 ≤ tp := by omega
+          obtain ⟨tp, htp0, htp1, htp2, i, vp, chp, chC, qc, ck, hsent, hhon_i,
+            hhon_t⟩ := hwin (t0 + 1) (by omega)
           obtain ⟨-, k, -, -, -, -, hchp_ext, -, -⟩ :=
             propose_provenance2 hsync hmc hmono hsent hhon_i rfl
           have hchp0 : chp ≠ [] := by
@@ -4105,12 +4119,11 @@ theorem chi_le_mfc {x : Exec Pr2 S}
             exact active_of_open_join hsync hstepw hdil hwpt (by omega) hlbl hta hguard
           have hchpM := le_mfc_at_vote2 hsync hstepw hdil hwpt hone hmc hsyn hslp hcb hfn
             hgst (by omega : 1 ≤ t0) (hAVE t0 (by omega)) hvi_act hlbl
-          have habs : chainLe (kappaPrefix kappa (mfc (processProposals2 n proposer
-              (x[a][vi].view) (t0 + 1) (x[a][vi].st)).vFrozen (x[a][vi].view)
+          have habs : chainLe (kappaPrefix kappa (t0 + 1) (mfc (processProposals2
+              n proposer (x[a][vi].view) (t0 + 1) (x[a][vi].st)).vFrozen (x[a][vi].view)
               (processProposals2 n proposer (x[a][vi].view) (t0 + 1)
                 (x[a][vi].st)).chFrozen (t0 + 1))) chp := by
             refine kappaPrefix_le_of_close hchpM hMok.1 hchp0 ?_
-            have hP := hMok.2
             rw [hpa]
             omega
           constructor
