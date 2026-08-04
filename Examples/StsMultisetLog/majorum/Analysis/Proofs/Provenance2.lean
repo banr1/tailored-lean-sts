@@ -701,12 +701,6 @@ theorem mem_active_of_honest_vote2 [Fintype Node] {x : Exec Pr2 S}
   exact active_of_open_join hsync hstepw hdil hwpt ht hlbl htj hgate
 /-! ### What the vote-round half additionally needs: reading arithmetic -/
 
-/-- `chainLe` is transitive (prefix order). -/
-theorem chainLe_trans {a b c : Chain Tx} (h1 : chainLe a b) (h2 : chainLe b c) :
-    chainLe a c := by
-  rw [chainLe_iff_prefix] at h1 h2 ⊢
-  exact h1.trans h2
-
 /-- The vote reading of slot `t+1`, reduced. -/
 theorem voting_reading_mod (Q : Params) (t : Nat) :
     (Q.slotLength * t + Q.delta) % Q.slotLength = Q.delta := by

@@ -235,13 +235,44 @@ noncomputable def fastConfirmSimple (n : Nat) (V : View Node (Msg (Chain Tx) QC)
 
 /-! ### Justification and finalization (§4) -/
 
-/-- A **supermajority link** `C → C'`: at least `2n/3` validators fin-vote from `C` to `C'`.
-    Fin-votes ride in vote messages, so this reads them out of the view. -/
+/-- The validators fin-voting `C → C'` in `V`. Fin-votes ride in vote messages, so this
+    reads them out of the view; senders are counted, not messages. -/
+noncomputable def linkVoters (V : View Node (Msg (Chain Tx) QC))
+    (C C' : Checkpoint (Chain Tx)) : Finset Node :=
+  ((votes V).filter (fun sm => match sm.msg with
+    | .vote _ src tgt _ => src = C ∧ tgt = C'
+    | .propose .. => False)).image SignedMsg.sender
+
+/-- A **supermajority link** `C → C'`: a *valid* fin-vote step — the paper's fin-vote
+    validity, `C.c < C'.c ∧ C.ch ⪯ C'.ch` (p. 9) — cast by at least `2n/3` validators.
+
+    The validity conjuncts are load-carrying for Appendix B (2026-08-04): an earlier
+    rendering omitted them, and justification then admits links *into* checkpoint slot
+    `0` and chain-incoherent links, making Lemma 8 false — its proof reads the source
+    chain's prefix bound (`Ai ⪯ ch'ⱼ`) and the counter ordering from validity. -/
 noncomputable def link (n : Nat) (V : View Node (Msg (Chain Tx) QC))
     (C C' : Checkpoint (Chain Tx)) : Prop :=
-  2 * n ≤ 3 * (((votes V).filter (fun sm => match sm.msg with
-    | .vote _ src tgt _ => src = C ∧ tgt = C'
-    | .propose .. => False)).image SignedMsg.sender).card
+  C.c < C'.c ∧ C.ch ⪯ C'.ch ∧ 2 * n ≤ 3 * (linkVoters V C C').card
+
+/-- **E1 (double voting)**: two *distinct* fin-votes `C1 → C2` and `C3 → C4` with the
+    same target checkpoint slot — "a validator must not send distinct fin-votes for the
+    same checkpoint slot". -/
+def E1 (C1 C2 C3 C4 : Checkpoint (Chain Tx)) : Prop :=
+  (C1, C2) ≠ (C3, C4) ∧ C2.c = C4.c
+
+/-- **E2 (surround voting)**: the first fin-vote is surrounded by the second,
+    `C3.c < C1.c < C2.c < C4.c`. -/
+def E2 (C1 C2 C3 C4 : Checkpoint (Chain Tx)) : Prop :=
+  C3.c < C1.c ∧ C1.c < C2.c ∧ C2.c < C4.c
+
+/-- A validator is **slashable on evidence `V`**: `V` holds two of its fin-votes that
+    together violate E1 or E2. Fin-vote *validity* is deliberately not required —
+    misbehaviour is evidence regardless of whether the votes could ever justify. -/
+def SlashableIn (V : View Node (Msg (Chain Tx) QC)) (w : Node) : Prop :=
+  ∃ sm1 ∈ V, ∃ sm2 ∈ V, sm1.sender = w ∧ sm2.sender = w ∧
+    ∃ (e1 e2 : Chain Tx) (C1 C2 C3 C4 : Checkpoint (Chain Tx)) (t1 t2 : Nat),
+      sm1.msg = .vote e1 C1 C2 t1 ∧ sm2.msg = .vote e2 C3 C4 t2 ∧
+      (E1 C1 C2 C3 C4 ∨ E2 C1 C2 C3 C4)
 
 /-- **Justified**: genesis, or reachable from it by supermajority links. A least fixed
     point, hence an inductive rather than a `Bool`. -/

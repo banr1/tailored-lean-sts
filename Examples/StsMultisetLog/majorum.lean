@@ -7,6 +7,7 @@ import Examples.StsMultisetLog.majorum.Analysis.Proofs.Mfc
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Provenance
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Provenance2
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Analysis2
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Finality
 import Examples.StsMultisetLog.majorum.Analysis.Lemmas
 import Examples.StsMultisetLog.majorum.Analysis.Theorems
 
@@ -22,8 +23,9 @@ agrees with v1 on every statement rendered here, but it is not included here and
 numbers move.
 
 **Proved** (2026-08-04): Lemmas 2–7 and Theorems 1–2 for Algorithm 2, under `SettingGA`
-plus the de-probabilized Lemma 1 (`HonestProposalWindow`) and `1 ≤ κ`. The rest of the
-paper's theorems remain `Prop`-valued statements.
+plus the de-probabilized Lemma 1 (`HonestProposalWindow`) and `1 ≤ κ`; and Appendix B —
+Lemmas 8–9, the finality component's accountable-safety counting, assumption-free
+(`f ∈ [0, n]`). The rest of the paper's theorems remain `Prop`-valued statements.
 
 ## Layout
 
@@ -58,6 +60,8 @@ single call so the lists read without proof noise; the proof layer sits under
 * `Analysis/Proofs/Analysis2` — the Appendix-A results assembled in full: the real proofs of the
   numbered lemmas and theorems, including Theorem 2's split faces
   (`theorem2_safety`, `theorem2_liveness`, `theorem2_liveness_txpool`).
+* `Analysis/Proofs/Finality` — Appendix B in full: Lemmas 8–9, `slash_of_links` and the
+  E1/E2 evidence machinery, all view-local.
 * `Analysis/Lemmas` — **one theorem per numbered lemma of the paper**, and nothing else;
   proofs are one call into `Proofs/Analysis2`.
 * `Analysis/Theorems` — the paper's theorems: the proved ones (`theorem1`, `theorem2`,

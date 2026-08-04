@@ -64,6 +64,12 @@ theorem comparable_of_common_extension {a b c : Chain Tx}
 theorem chainLe_iff_prefix {a b : Chain Tx} : chainLe a b ↔ a <+: b := by
   simp [chainLe, List.isPrefixOf_iff_prefix]
 
+/-- `chainLe` is transitive (prefix order). -/
+theorem chainLe_trans {a b c : Chain Tx} (h1 : chainLe a b) (h2 : chainLe b c) :
+    chainLe a c := by
+  rw [chainLe_iff_prefix] at h1 h2 ⊢
+  exact h1.trans h2
+
 /-! ### Reading the vote filters
 
 Small extraction lemmas, plus the one structural fact the comparability argument turns on:

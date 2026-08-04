@@ -1,4 +1,5 @@
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Analysis2
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Finality
 
 /-!
 # The paper's lemmas
@@ -188,5 +189,52 @@ theorem lemma7 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
     (hj : x.lbl j = .tick vi (Q.slotLength * t + 2 * Q.delta)) :
     chp ⪯ x[j + 1][vi].st.chi :=
   Analysis2.lemma7 H ht hbig hsent hhon_i hhon_t hj
+
+/-! ### Appendix B: the finality component
+
+Lemmas 8 and 9 are **assumption-free**: no schedule, no synchrony, no corruption bound —
+the `f ∈ [0, n]` regime. They are view-local counting over the justification machinery,
+with `n` the structural validator count as everywhere in this directory. -/
+
+/-- **Lemma 8** (`Lemma 8, arXiv:2601.03862v1 p.17`). Assume `f ∈ [0, n]` and let
+    `C_f = (ch_f, c_f)` be a finalized checkpoint and `C_j = (ch_j, c_j)` a justified
+    checkpoint with `c_j ≥ c_f`, according to any two views. Either `ch_j ⪰ ch_f`, or at
+    least `n/3` validators can be detected to have violated E1 or E2 — the detection
+    evidence lies in the two views' union (`SlashableIn`).
+
+    "`f ∈ [0, n]`" is rendered by assuming **nothing**: no hypothesis mentions the
+    adversary at all. The paper's minimality contradiction becomes a strong induction
+    on `c_j`, unwinding the justification chain one supermajority link at a time; the
+    three evidence sites (double justification at one slot, the `c_j = c_f + 1` double
+    vote, the surround) each close by quorum intersection — two `2n/3` link quorums
+    over at most `n` validators share `n/3`, and every shared voter signed both
+    fin-votes. Fin-vote *validity* (`C.c < C'.c ∧ C.ch ⪯ C'.ch`, part of `link`) is
+    what the induction reads: the source chain sits below the target, and no link
+    enters checkpoint slot `0`. -/
+theorem lemma8 {V1 V2 : View Node (Msg (Chain Tx) (QCert Node Tx))}
+    {chf chj : Chain Tx} {cf cj : Nat}
+    (hfin : FinalizedIn (Fintype.card Node) V1 ⟨chf, cf⟩)
+    (hjust : JustifiedIn (Fintype.card Node) V2 ⟨chj, cj⟩)
+    (hcle : cf ≤ cj) :
+    chf ⪯ chj ∨ ∃ W : Finset Node, Fintype.card Node ≤ 3 * W.card ∧
+      ∀ w ∈ W, SlashableIn (V1 ∪ V2) w :=
+  Finality.lemma8 (le_refl _) hfin hjust hcle
+
+/-- **Lemma 9** (`Lemma 9, arXiv:2601.03862v1 p.17`). Assume `f ∈ [0, n]`. If two
+    conflicting chains are finalized according to any two respective views, then at
+    least `n/3` validators can be detected to have violated E1 or E2.
+
+    The paper's "chain finalized according to `V`" is rendered as the hypothesis pair
+    the paper's own proof extracts: a finalized checkpoint whose chain the finalized
+    chain prefixes. Finalization implies justification, Lemma 8 nests the checkpoint
+    chains, and two prefixes of one chain cannot conflict. -/
+theorem lemma9 {V1 V2 : View Node (Msg (Chain Tx) (QCert Node Tx))}
+    {ch1 ch2 ch1' ch2' : Chain Tx} {c1 c2 : Nat}
+    (h1 : FinalizedIn (Fintype.card Node) V1 ⟨ch1', c1⟩) (h1le : ch1 ⪯ ch1')
+    (h2 : FinalizedIn (Fintype.card Node) V2 ⟨ch2', c2⟩) (h2le : ch2 ⪯ ch2')
+    (hc12 : ¬ (ch1 ⪯ ch2 : Bool)) (hc21 : ¬ (ch2 ⪯ ch1 : Bool)) :
+    ∃ W : Finset Node, Fintype.card Node ≤ 3 * W.card ∧
+      ∀ w ∈ W, SlashableIn (V1 ∪ V2) w :=
+  Finality.lemma9 (le_refl _) h1 h1le h2 h2le hc12 hc21
 
 end Majorum
