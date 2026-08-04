@@ -50,7 +50,7 @@ set_option autoImplicit false
 
 namespace Majorum
 
-open the framework's flat multiset-log flavour
+open the framework's flat multiset-log flavour Classical
 
 variable {Node Chain QC : Type}
 
@@ -123,8 +123,16 @@ structure Components (Node Chain QC : Type) where
   gf : View Node (Msg Chain QC) → Checkpoint Chain
   /-- `J(C, V)`, "checkpoint `C` is justified in view `V`". -/
   justified : Checkpoint Chain → View Node (Msg Chain QC) → Bool
-  /-- `valid(·)` on a propose message. -/
-  validProposal : SignedMsg Node (Msg Chain QC) → Bool
+  /-- `valid(·)` on a propose message, checked against the receiver's view — the
+      certificate check reads the certified votes out of it (Algorithm 2's
+      `ValidProposal2`; the same predicate serves both algorithms, the GJ-justification
+      conjunct being separate at line 30). View-taking since 2026-08-05: Lemma 10's
+      send-correspondence is false if the two algorithms validate differently. -/
+  validProposal : View Node (Msg Chain QC) → SignedMsg Node (Msg Chain QC) → Prop
+  /-- Structural chain validity — `slotsIncreasing`, abstracted (fourth finding; the
+      vote phase must check it wherever a foreign chain can be voted for, in both
+      algorithms). -/
+  sortedChain : Chain → Bool
   /-- Which validator proposes in a slot. Idealized: the paper's VRF election is
       unpredictable and fair with overwhelming probability, which is out of reach here. -/
   proposer : Nat → Node
@@ -178,7 +186,7 @@ noncomputable def processProposals (C : Components Node Chain QC)
   V.toList.foldl (fun acc sm =>
     match sm.msg with
     | .propose _ chC _ gjp t' =>
-        if t' == t && C.validProposal sm && C.justified gjp V && acc.gjFrozen.c ≤ gjp.c then
+        if t' = t ∧ C.validProposal V sm ∧ C.justified gjp V ∧ acc.gjFrozen.c ≤ gjp.c then
           let acc := { acc with gjFrozen := gjp }
           let acc := if C.prefixLe gjp.ch acc.chFrozen then acc
                      else { acc with chFrozen := gjp.ch }
@@ -214,13 +222,17 @@ noncomputable def handler (C : Components Node Chain QC) (Q : Params) (p : Node)
     let proposedNow : Option Chain :=
       V.toList.findSome? (fun sm => match sm.msg with
         | .propose chp _ _ _ t' =>
-            if t' == slot && C.proposedAt chp == slot && C.prefixLe chMFC chp then some chp
+            if sm.sender == C.proposer slot && t' == slot && C.proposedAt chp == slot &&
+                C.sortedChain chp && C.prefixLe chMFC chp then some chp
             else none
         | .vote .. => none)
     let ch := proposedNow.getD chMFC
     -- the gate reads the *pre*-state's `activeAt`; `processProposals` never writes it,
     -- so the two agree, and the un-shadowed spelling is the one proofs can see through
-    { state := { s' with chAva := chAva, chFin := chFin },
+    -- the output chains move only once active (fifth finding, as in Algorithm 2's
+    -- line 22: the κ-deep rule reads the *frozen* snapshots, stale for a joiner);
+    -- the listening state `s'` updates regardless
+    { state := if s.activeAt ≤ r then { s' with chAva := chAva, chFin := chFin } else s',
       -- a joining validator "executes the protocol, but without sending any message"
       send := if s.activeAt ≤ r then {.vote ch s'.gjFrozen target slot} else 0 }
   else if phase = 2 * Q.delta then

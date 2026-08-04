@@ -312,16 +312,32 @@ noncomputable def gf (n : Nat) (V : View Node (Msg (Chain Tx) QC)) : Checkpoint 
 
 /-! ### Validity -/
 
-/-- A **valid proposal**: it is a propose message, its chain was proposed in its own slot,
-    and it extends the fast-confirmed chain it carries.
+/-- Proposal validity, certificate included: the proposed chain belongs to the proposal's
+    slot and extends the carried fast-confirmed chain, and the certificate's votes — held
+    in the receiver's own view — give `chC` at least `2n/3` distinct supporters from the
+    previous slot. A certified vote counts **with any filler** in its blank fields,
+    matching the sender side's nondeterministic choice. See the module docstring for why
+    the check runs against the view.
 
-    Algorithm 2's vote phase says a proposal is valid "with `QC` certifying `chC` and
-    `chp.p = t`"; certificate checking is left to `QC`'s own validity, which the paper does
-    not spell out, so it is not checked here. -/
-def validProposal (sm : SignedMsg Node (Msg (Chain Tx) QC)) : Bool :=
+    **The proposal must be signed by its slot's proposer** (`sm.sender = proposer t'`).
+    The paper's `valid([propose, …])` is never defined; Lemma 4 is false without this
+    conjunct (a corrupt validator could have a certificate-backed `chC` processed, or —
+    at line 23 — its fabricated slot-`t` chain voted for), and the paper's own base-case
+    equalities need it. Structural signing makes it enforceable: nobody can forge the
+    proposer's sender field. Decision of 2026-08-04; third authors'-note finding. -/
+def ValidProposal2 (n : Nat) (proposer : Nat → Node)
+    (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
+    (sm : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) : Prop :=
   match sm.msg with
-  | .propose chp chC _ _ t => proposedAt chp == t && chC ⪯ chp
-  | .vote .. => false
+  | .propose chp chC qc _ t' =>
+      sm.sender = proposer t' ∧ proposedAt chp = t' ∧ chC ⪯ chp ∧
+        (chC = [] ∨ ∃ cert : QCert Node Tx, qc = some cert ∧
+          2 * n ≤ 3 * (cert.image Prod.fst).card ∧
+          ∀ e ∈ cert, chC ⪯ e.2.1 ∧ e.2.2 = t' - 1 ∧
+            ∃ src tgt : Checkpoint (Chain Tx),
+              (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ :
+                SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ V)
+  | .vote .. => False
 
 /-! ### Assembling them -/
 
@@ -343,7 +359,8 @@ noncomputable def components (n kappa : Nat) (pool : Nat → Tx) (proposer : Nat
   gj := gj n
   gf := gf n
   justified := fun C V => decide (JustifiedIn n V C)
-  validProposal := validProposal
+  validProposal := ValidProposal2 n proposer
+  sortedChain := slotsIncreasing
   proposer := proposer
 
 /-- Majorum, Algorithm 5, with everything it calls defined. Named for the algorithm

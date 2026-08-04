@@ -64,33 +64,6 @@ structure NodeState2 (Node Tx : Type) [DecidableEq Node] [DecidableEq Tx] where
   /-- The first round from which this validator may send (`activationRound`). -/
   activeAt : Time
 
-/-- Proposal validity, certificate included: the proposed chain belongs to the proposal's
-    slot and extends the carried fast-confirmed chain, and the certificate's votes — held
-    in the receiver's own view — give `chC` at least `2n/3` distinct supporters from the
-    previous slot. A certified vote counts **with any filler** in its blank fields,
-    matching the sender side's nondeterministic choice. See the module docstring for why
-    the check runs against the view.
-
-    **The proposal must be signed by its slot's proposer** (`sm.sender = proposer t'`).
-    The paper's `valid([propose, …])` is never defined; Lemma 4 is false without this
-    conjunct (a corrupt validator could have a certificate-backed `chC` processed, or —
-    at line 23 — its fabricated slot-`t` chain voted for), and the paper's own base-case
-    equalities need it. Structural signing makes it enforceable: nobody can forge the
-    proposer's sender field. Decision of 2026-08-04; third authors'-note finding. -/
-def ValidProposal2 (n : Nat) (proposer : Nat → Node)
-    (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
-    (sm : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) : Prop :=
-  match sm.msg with
-  | .propose chp chC qc _ t' =>
-      sm.sender = proposer t' ∧ proposedAt chp = t' ∧ chC ⪯ chp ∧
-        (chC = [] ∨ ∃ cert : QCert Node Tx, qc = some cert ∧
-          2 * n ≤ 3 * (cert.image Prod.fst).card ∧
-          ∀ e ∈ cert, chC ⪯ e.2.1 ∧ e.2.2 = t' - 1 ∧
-            ∃ src tgt : Checkpoint (Chain Tx),
-              (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ :
-                SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ V)
-  | .vote .. => False
-
 /-- Algorithm 2 lines 33–36: a valid slot-`t` proposal whose fast-confirmed chain extends
     the frozen one replaces it. Received during `[4Δt, 4Δt+Δ]`, processed at the vote
     reading, folded over the view — the same arrival-order caveat as Algorithm 5's
