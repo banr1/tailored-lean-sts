@@ -154,8 +154,18 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     return { state := { s' with chi := chi },
              send := if s.activeAt ≤ r then {.vote ch dot dot slot} else 0 }
   else if phase = 2 * Q.delta then
+    -- Fast Confirm, lines 26–29 — with **Algorithm 5's line-23 guard** (`if chAva ⪰̸
+    -- fastcand then chAva ← fastcand`): Algorithm 2's own line 29 is a plain
+    -- `Chi ← fastcand`, which lets an adversarially completed quorum on an old prefix
+    -- of the confirmed chain regress `Ch` below an already-κ-confirmed proposal,
+    -- breaking Theorem 2's liveness (seventh authors'-note finding; user decision,
+    -- 2026-08-04; see `CONTEXT.md`).
     let fq := fastConfirmSimple n V slot
-    return { state := if fq.2.isSome then { s with chi := fq.1 } else s, send := 0 }
+    let sF :=
+      if fq.2.isSome then
+        { s with chi := if chainLe fq.1 s.chi then s.chi else fq.1 }
+      else s
+    return { state := sF, send := 0 }
   else if phase = 3 * Q.delta then
     return { state := { s with vFrozen := V, chFrozen := (fastConfirmSimple n V slot).1 },
              send := 0 }

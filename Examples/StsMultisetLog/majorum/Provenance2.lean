@@ -81,9 +81,13 @@ noncomputable def handler2Core (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
       -- a joining validator executes silently
       send := if s.activeAt ≤ r then {.vote ch dot dot slot} else 0 }
   else if phase = 2 * Q.delta then
-    -- Fast Confirm, lines 26–29: adopt whenever a quorum certificate exists
+    -- Fast Confirm, lines 26–29, with Algorithm 5's line-23 guard (see `handler2`)
     let fq := fastConfirmSimple n V slot
-    { state := if fq.2.isSome then { s with chi := fq.1 } else s, send := 0 }
+    let sF :=
+      if fq.2.isSome then
+        { s with chi := if chainLe fq.1 s.chi then s.chi else fq.1 }
+      else s
+    { state := sF, send := 0 }
   else if phase = 3 * Q.delta then
     -- Merge, lines 30–32
     { state := { s with vFrozen := V, chFrozen := (fastConfirmSimple n V slot).1 }, send := 0 }
@@ -1016,7 +1020,10 @@ theorem handler2_fastconfirm {p : Node} {r : Time}
     (hmod : r % Q.slotLength = 2 * Q.delta) :
     (handler2Core Q n kappa pool proposer dot p r V s).state =
       if (fastConfirmSimple n V (r / Q.slotLength)).2.isSome then
-        { s with chi := (fastConfirmSimple n V (r / Q.slotLength)).1 } else s := by
+        { s with chi :=
+            if chainLe (fastConfirmSimple n V (r / Q.slotLength)).1 s.chi then s.chi
+            else (fastConfirmSimple n V (r / Q.slotLength)).1 }
+      else s := by
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
   simp only [handler2Core, apply_ite NodeStepResult.state]
@@ -1477,7 +1484,17 @@ theorem chi_step2 {x : Exec Pr2 S} {m : Nat} {p : Node} :
       rw [hstate] at hst
       by_cases hq : (fastConfirmSimple n (x[m][p].view) (tr / Q.slotLength)).2.isSome
       · rw [if_pos hq] at hst
-        exact Or.inr (Or.inr ⟨tr / Q.slotLength, htr ▸ hr, hq, by rw [hst]⟩)
+        have hchi : x[m + 1][p].st.chi
+            = if chainLe (fastConfirmSimple n (x[m][p].view) (tr / Q.slotLength)).1
+                (x[m][p].st).chi then (x[m][p].st).chi
+              else (fastConfirmSimple n (x[m][p].view) (tr / Q.slotLength)).1 := by
+          rw [hst]
+        by_cases hg : chainLe (fastConfirmSimple n (x[m][p].view)
+            (tr / Q.slotLength)).1 (x[m][p].st).chi
+        · rw [if_pos hg] at hchi
+          exact Or.inl hchi
+        · rw [if_neg hg] at hchi
+          exact Or.inr (Or.inr ⟨tr / Q.slotLength, htr ▸ hr, hq, hchi⟩)
       · rw [if_neg hq] at hst
         refine Or.inl ?_
         rw [hst]
@@ -3866,7 +3883,9 @@ theorem le_chi_at_fconf {x : Exec Pr2 S}
           omega
       | some _ => rfl
     rw [if_pos hsome]
-    exact hle
+    split_ifs with hg
+    · exact chainLe_trans hle hg
+    · exact hle
 
 end Lemma2Vote
 
