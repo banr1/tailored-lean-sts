@@ -1,4 +1,4 @@
-import Examples.StsMultisetLog.majorum.Assumptions
+import Examples.StsMultisetLog.majorum.Spec.Assumptions
 
 /-!
 # Majorum, Algorithm 5

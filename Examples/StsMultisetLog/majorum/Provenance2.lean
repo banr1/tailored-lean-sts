@@ -1,5 +1,5 @@
 import Examples.StsMultisetLog.majorum.Provenance
-import Examples.StsMultisetLog.majorum.Algorithm2
+import Examples.StsMultisetLog.majorum.Spec.Algorithm2
 
 /-!
 # The execution layer for Algorithm 2

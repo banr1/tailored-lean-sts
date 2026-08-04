@@ -1,4 +1,4 @@
-import Examples.StsMultisetLog.majorum.Components
+import Examples.StsMultisetLog.majorum.Spec.Components
 import Mathlib.Data.Set.Functor
 
 /-!

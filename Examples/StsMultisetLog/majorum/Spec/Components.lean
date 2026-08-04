@@ -1,4 +1,4 @@
-import Examples.StsMultisetLog.majorum.Algorithm5
+import Examples.StsMultisetLog.majorum.Spec.Algorithm5
 
 /-!
 # The functions Algorithm 5 relies on

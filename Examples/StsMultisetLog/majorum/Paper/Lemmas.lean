@@ -1,4 +1,4 @@
-import Examples.StsMultisetLog.majorum.Provenance2
+import Examples.StsMultisetLog.majorum.Analysis2
 
 /-!
 # The paper's lemmas
@@ -25,6 +25,10 @@ fast-confirmation (no majority needed), inductive step `lemma2`.
 active of its own slot (the vote *is* `chp`) and extended by all later slots' actives —
 the base case is where the proposer-identity check earns its keep and `Relay` sees its
 first use; the step is `lemma2` again.
+
+**Proof convention (2026-08-04)**: every proof here is a single call into
+`Analysis2.lean`, where the identical statement is proved in full — this file is the
+paper's lemma list, readable without stepping through proofs.
 -/
 
 set_option autoImplicit false
@@ -55,11 +59,8 @@ local notation "Pr2" => protocol2 Q (Fintype.card Node) kappa pool proposer
     by `le_mfc_at_vote2`. -/
 theorem lemma2 {x : Exec Pr2 S} (H : SettingGA Q S x)
     {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx} (hvotes : ActiveVotesExtend2 x t ch) :
-    ActiveVotesExtend2 x (t + 1) ch := by
-  obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, -⟩, hslp,
-    ⟨hcb, hfn⟩, hgst⟩ := H
-  exact activeVotesExtend_of_le_mfc hsync hstepw hdiv hdil fun p hp j hj =>
-    le_mfc_at_vote2 hsync hstepw hdil hwpt hone hmc hsyn hslp hcb hfn hgst ht hvotes hp hj
+    ActiveVotesExtend2 x (t + 1) ch :=
+  Analysis2.lemma2 H ht hvotes
 
 /-- **Lemma 3** (`Lemma 3, arXiv:2601.03862v1 p.15`, for Algorithm 2). If a validator
     fast confirms a chain `ch` in slot `t` — its `fconf(t)` view holds a `2n/3` quorum
@@ -79,15 +80,8 @@ theorem lemma3 {x : Exec Pr2 S} (H : SettingGA Q S x)
       x[i].time = Q.slotLength * t + 2 * Q.delta ∧
       fastConfirmSimple (Fintype.card Node) (x[i][w].view) t = (ch, some cert))
     {t' : Nat} (ht' : t < t') :
-    ActiveVotesExtend2 x t' ch := by
-  obtain ⟨iw, w, cert, htiw, hfc⟩ := hconf
-  induction t', ht' using Nat.le_induction with
-  | base =>
-      obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, -⟩, hslp,
-        ⟨hcb, hfn⟩, hgst⟩ := H
-      exact activeVotesExtend_of_fastconfirm hsync hstepw hdiv hdil hone hmc hsyn hcb hfn
-        (le_refl _) htiw hfc
-  | succ m hm ih => exact lemma2 H (by omega) ih
+    ActiveVotesExtend2 x t' ch :=
+  Analysis2.lemma3 H ht hconf ht'
 
 /-- **Lemma 4** (`Lemma 4, arXiv:2601.03862v1 p.15`, for Algorithm 2). Let `t` be a slot
     with an honest proposer `vp`, and assume `vp` sends a
@@ -109,14 +103,8 @@ theorem lemma4 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
     (hhon_i : vp ∉ S.adv ((x[i].time : Int)))
     (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
     {t' : Nat} (ht' : t ≤ t') :
-    ActiveVotesExtend2 x t' chp := by
-  induction t', ht' using Nat.le_induction with
-  | base =>
-      obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
-        ⟨hcb, hfn⟩, hgst⟩ := H
-      exact activeVotesExtend_of_propose hsync hstepw hdiv hdil hone hwpt hmc hsyn hrel
-        hslp hcb hfn (le_refl _) hgst ht hsent hhon_i hhon_t
-  | succ m hm ih => exact lemma2 H (by omega) ih
+    ActiveVotesExtend2 x t' chp :=
+  Analysis2.lemma4 H ht hsent hhon_i hhon_t ht'
 
 /-- **Lemma 5** (`Lemma 5, arXiv:2601.03862v1 p.16`, for Algorithm 2). Let `ri` be any
     round and `rj ≥ ri` a propose or vote round. Then, for any validator `vi` honest in
@@ -155,16 +143,8 @@ theorem lemma5 {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
         mfc (processProposals2 (Fintype.card Node) proposer (x[b][vj].view) sj
             (x[b][vj].st)).vFrozen (x[b][vj].view)
           (processProposals2 (Fintype.card Node) proposer (x[b][vj].view) sj
-            (x[b][vj].st)).chFrozen sj) := by
-  obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
-    ⟨hcb, hfn⟩, hgst⟩ := H
-  obtain ⟨s0, rfl⟩ : ∃ s0, sj = s0 + 1 := ⟨sj - 1, by omega⟩
-  have hact' : vj ∈ Active Q S ((s0 : Int) + 1) := by
-    have hcast : (((s0 + 1 : Nat)) : Int) = (s0 : Int) + 1 := by push_cast; omega
-    rw [← hcast]
-    exact hact
-  simpa using chi_le_mfc hsync hstepw hdiv hdil hone hwpt hmc hsyn hrel hslp hcb hfn
-    (le_refl _) hgst hκ hwin a vi b vj s0 hact'
+            (x[b][vj].st)).chFrozen sj) :=
+  Analysis2.lemma5 H hκ hwin hsj hact
 
 /-- **Lemma 6** (`Lemma 6, arXiv:2601.03862v1 p.16`, for Algorithm 2). For any slot `t`
     and validator `vi ∈ H_propose(t)`, `MFC^{propose(t)}_i.p < t` — the propose-round
@@ -186,13 +166,8 @@ theorem lemma5 {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
 theorem lemma6 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
     {a : Nat} {w : Node} (hta : x[a].time = Q.slotLength * t) (hAwa : x.Awake a w) :
     proposedAt (mfc (x[a][w].view) (x[a][w].view)
-      (fastConfirmSimple (Fintype.card Node) (x[a][w].view) (t - 1)).1 t) < t := by
-  obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, -⟩, hslp,
-    ⟨hcb, hfn⟩, hgst⟩ := H
-  obtain ⟨t0, rfl⟩ : ∃ t0, t = t0 + 1 := ⟨t - 1, by omega⟩
-  have h := (mfc_propose_ok hsync hstepw hdiv hdil hone hwpt hmc hsyn hslp hcb hfn
-    (le_refl _) hgst hta hAwa).2
-  simpa using Nat.lt_succ_of_le h
+      (fastConfirmSimple (Fintype.card Node) (x[a][w].view) (t - 1)).1 t) < t :=
+  Analysis2.lemma6 H ht hta hAwa
 
 /-- **Lemma 7** (`Lemma 7, arXiv:2601.03862v1 p.17`, Liveness of fast confirmations, for
     Algorithm 2). Take a slot `t` in which `|H_vote(t)| ≥ 2n/3`. If in slot `t` an honest
@@ -211,10 +186,7 @@ theorem lemma7 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
     (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
     {vi : Node} {j : Nat}
     (hj : x.lbl j = .tick vi (Q.slotLength * t + 2 * Q.delta)) :
-    chp ⪯ x[j + 1][vi].st.chi := by
-  have hvotes := lemma4 H ht hsent hhon_i hhon_t (le_refl t)
-  obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
-    ⟨hcb, hfn⟩, hgst⟩ := H
-  exact le_chi_at_fconf hsync hstepw hone hmc hsyn hcb hfn (le_refl _) hvotes hbig hj
+    chp ⪯ x[j + 1][vi].st.chi :=
+  Analysis2.lemma7 H ht hbig hsent hhon_i hhon_t hj
 
 end Majorum
