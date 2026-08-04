@@ -339,6 +339,39 @@ def ValidProposal2 (n : Nat) (proposer : Nat → Node)
                 SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ V)
   | .vote .. => False
 
+/-- **Algorithm 5's proposal validity**: `ValidProposal2`'s checks with the certificate
+    clause widened by one rung — `fastconfirm`'s GJ-branch substitutes the greatest
+    justified checkpoint's chain with **no** certificate, so an uncertified `chC` is
+    valid when it is the carried checkpoint's chain and that checkpoint is justified in
+    the receiver's own view: *justification certifies*. The rungs are evidence
+    proportional to the claim — genesis claims nothing, a fast-confirmed chain shows
+    its quorum, a justified chain shows its justification.
+
+    Deliberately **not** shared with Algorithm 2 (ninth authors'-note finding,
+    `CONTEXT.md` 2026-08-05): there the checkpoint field is the nondeterministic
+    blank and justification over Algorithm-2 views is adversary-steerable — honest
+    fin-vote fields are unconstrained — so the widened clause would revive the
+    chain-smuggling attack the certificate check exists to stop. The paper defines
+    neither predicate; its Algorithm-5 validity sentence covers only the `GJ_p` field,
+    leaving the `chC` clause it inherits from Algorithm 2 unsatisfiable on the
+    GJ-branch — Algorithm 5 would reject its own honest proposals in every slot
+    without a fast-confirm quorum. -/
+def ValidProposal5 (n : Nat) (proposer : Nat → Node)
+    (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
+    (sm : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) : Prop :=
+  match sm.msg with
+  | .propose chp chC qc gjp t' =>
+      sm.sender = proposer t' ∧ proposedAt chp = t' ∧ chC ⪯ chp ∧
+        (chC = [] ∨
+          (∃ cert : QCert Node Tx, qc = some cert ∧
+            2 * n ≤ 3 * (cert.image Prod.fst).card ∧
+            ∀ e ∈ cert, chC ⪯ e.2.1 ∧ e.2.2 = t' - 1 ∧
+              ∃ src tgt : Checkpoint (Chain Tx),
+                (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ :
+                  SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ V) ∨
+          (qc = none ∧ chC = gjp.ch ∧ JustifiedIn n V gjp))
+  | .vote .. => False
+
 /-! ### Assembling them -/
 
 /-- All of Algorithm 5's components, defined. `n` is the validator count, `κ` the
@@ -359,7 +392,7 @@ noncomputable def components (n kappa : Nat) (pool : Nat → Tx) (proposer : Nat
   gj := gj n
   gf := gf n
   justified := fun C V => decide (JustifiedIn n V C)
-  validProposal := ValidProposal2 n proposer
+  validProposal := ValidProposal5 n proposer
   sortedChain := slotsIncreasing
   proposer := proposer
 
