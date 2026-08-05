@@ -5,8 +5,11 @@ import Examples.StsMultisetLog.majorum.Analysis.Proofs.Provenance2
 
 Given any execution of Algorithm 5, `simulate` builds an execution of Algorithm 2 over
 the **same schedule and the same label stream**: ticks, wakes and time advances carry
-over unchanged, adversarial injections carry over verbatim (the two algorithms share
-their message type), and deliveries are routed through a step-indexed correspondence
+over unchanged, adversarial injections are routed through the correspondence table —
+verbatim until the injected message collides with an honest tick's send, whose
+counterpart then stands in for it, else the simulated log would hold a message its
+deliveries never carry and `Synchrony` would fail on the simulated run — and
+deliveries are routed through the same step-indexed correspondence
 table `τ` — the framework's `deliver p m` demands `m ∈ sent`, so the simulated
 execution delivers *its own* counterpart of each Algorithm-5 message. That table is the
 paper's adversary decision (iv) made concrete: whenever a validator's tick sends a
@@ -179,7 +182,7 @@ noncomputable def simStep (x5 : Exec Pr5 S) (k : Nat) :
           { state := { c2[p].st with activeAt := activationRound Q c2[p].clock },
             send := 0 } c2, τ)
     | .custom _ ev => ev.elim
-    | .adversarial p m => ({ c2 with sent := ⟨p, m⟩ ::ₘ c2.sent }, τ)
+    | .adversarial p m => ({ c2 with sent := ⟨p, (τ ⟨p, m⟩).msg⟩ ::ₘ c2.sent }, τ)
 
 /-- The initial Algorithm-2 configuration. -/
 noncomputable def simInit : Config Node M (NodeState2 Node Tx) where
@@ -205,7 +208,7 @@ noncomputable def simLbl (x5 : Exec Pr5 S) (k : Nat) : Action Node M Empty :=
   | .tick p t => .tick p t
   | .wake p => .wake p
   | .custom p ev => .custom p ev
-  | .adversarial p m => .adversarial p m
+  | .adversarial p m => .adversarial p (((simState x5 k).2 ⟨p, m⟩).msg)
 
 /-! ### The cheap invariants
 
@@ -388,6 +391,35 @@ theorem sends_align {view5 : View Node M} {st5 : NodeState Node (Chain Tx) (QCer
       | (left; constructor <;> rfl)
       | (right; constructor <;> simp)
 
+/-- The table preserves the signer: a key's image carries the key's own sender. -/
+theorem sim_table_sender {x5 : Exec Pr5 S} (k : Nat) (sm : SignedMsg Node M) :
+    ((simState x5 k).2 sm).sender = sm.sender := by
+  induction k with
+  | zero => rfl
+  | succ k ih =>
+      show ((simStep x5 k (simState x5 k)).2 sm).sender = sm.sender
+      cases h : x5.lbl k with
+      | advance t => simp only [simStep, h]; exact ih
+      | tick p t =>
+          simp only [simStep, h]
+          by_cases hcond : sm.sender = p ∧ sm.msg ∈
+              (handlerCore (components n kappa pool proposer) Q (pick5 x5 k p t) p t
+                (setClock p t (x5.cfg k))[p].view (setClock p t (x5.cfg k))[p].st).send
+          · rw [if_pos hcond]
+            cases hso : sendOf (handler2Core Q n kappa pool proposer simBlank
+                (simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+                  (setClock p t (simState x5 k).1)[p].st) p t
+                (setClock p t (simState x5 k).1)[p].view
+                (setClock p t (simState x5 k).1)[p].st) with
+            | none => exact ih
+            | some m2 => exact hcond.1.symm
+          · rw [if_neg hcond]
+            exact ih
+      | deliver p m => simp only [simStep, h]; exact ih
+      | wake p => simp only [simStep, h]; exact ih
+      | custom p ev => exact ev.elim
+      | adversarial p m => simp only [simStep, h]; exact ih
+
 /-- The table maps into the simulated log (or is the identity): every entry ever
     written points at a message the simulation has signed. -/
 theorem sim_table {x5 : Exec Pr5 S} (k : Nat) (sm : SignedMsg Node M) :
@@ -555,10 +587,16 @@ theorem sim_sent {x5 : Exec Pr5 S} (k : Nat) :
           rw [h] at hsm
           simp only [simStep, h]
           rcases Multiset.mem_cons.mp hsm with rfl | hold
-          · rcases sim_table (x5 := x5) k ⟨p, m⟩ with h1 | h1
-            · rw [h1]
-              exact Multiset.mem_cons_self _ _
-            · exact Multiset.mem_cons_of_mem h1
+          · have hs := sim_table_sender (x5 := x5) k (⟨p, m⟩ : SignedMsg Node M)
+            have himg : (⟨p, ((simState x5 k).2 ⟨p, m⟩).msg⟩ : SignedMsg Node M)
+                = (simState x5 k).2 ⟨p, m⟩ := by
+              cases htau : (simState x5 k).2 ⟨p, m⟩ with
+              | mk sd mg =>
+                  rw [htau] at hs
+                  simp only at hs ⊢
+                  rw [hs]
+            rw [himg]
+            exact Multiset.mem_cons_self _ _
           · exact Multiset.mem_cons_of_mem (ih sm hold)
 
 /-- **The simulated execution** — Lemma 10's constructed Algorithm-2 run: same
