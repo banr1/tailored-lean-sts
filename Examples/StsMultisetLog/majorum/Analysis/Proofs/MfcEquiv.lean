@@ -591,10 +591,10 @@ theorem processProposals_gjFrozen_justified {V : View Node M} {t : Nat}
       | vote e src tgt t' => exact h
       | propose chp chC qc gjp t' =>
           dsimp only
-          split_ifs with hcond h1 h2 <;>
-            first
-              | exact h
-              | exact of_decide_eq_true hcond.2.2.1
+          simp only [apply_ite NodeState.gjFrozen, ite_self]
+          split_ifs with hcond
+          · exact of_decide_eq_true hcond.2.2.1
+          · exact h
   
 /-- Algorithm 5's frozen greatest-justified checkpoint is justified in the current
     view, always: genesis at start, `GJ` of the current view at merges, a
@@ -808,7 +808,7 @@ theorem processProposals_chAva (C : Components Node (Chain Tx) (QCert Node Tx))
       | vote ch src tgt t' => rfl
       | propose chp chC qc gjp t' =>
           dsimp only
-          split_ifs <;> rfl
+          simp only [apply_ite NodeState.chAva, ite_self]
 
 /-- **One step of `chAva`**: unchanged, or the owner's vote tick with the joining check
     open writes the `chAva` fold (`voteChAva`), or the owner's fast-confirm tick adopts
@@ -1038,17 +1038,26 @@ theorem processProposals_chFrozen (V : View Node M) (t : Nat)
         | vote ch src tgt t' => exact Or.inl rfl
         | propose chp chC qc gjp t' =>
             dsimp only
-            split_ifs with hcond h1 h2 h3 h4
-            · exact Or.inr (Or.inl ⟨⟨asd, .propose chp chC qc gjp t'⟩,
-                hV _ List.mem_cons_self, ⟨chp, qc, gjp, by rw [hcond.1]⟩,
-                hcond.2.1⟩)
-            · exact Or.inl rfl
-            · exact Or.inr (Or.inl ⟨⟨asd, .propose chp chC qc gjp t'⟩,
-                hV _ List.mem_cons_self, ⟨chp, qc, gjp, by rw [hcond.1]⟩,
-                hcond.2.1⟩)
-            · exact Or.inr (Or.inr ⟨gjp.c,
-                show JustifiedIn n V gjp from of_decide_eq_true hcond.2.2.1⟩)
-            · exact Or.inl rfl
+            -- split the guarded checkpoint block first: its condition is `ite`-free
+            by_cases hg : t' = t ∧
+                (components n kappa pool proposer).validProposal V
+                  ⟨asd, .propose chp chC qc gjp t'⟩ ∧
+                (components n kappa pool proposer).justified gjp V = true ∧
+                s.gjFrozen.c ≤ gjp.c
+            · rw [if_pos hg]
+              split_ifs with h1 h2 h3
+              · exact Or.inr (Or.inl ⟨⟨asd, .propose chp chC qc gjp t'⟩,
+                  hV _ List.mem_cons_self, ⟨chp, qc, gjp, by rw [hg.1]⟩, hg.2.1⟩)
+              · exact Or.inl rfl
+              · exact Or.inr (Or.inl ⟨⟨asd, .propose chp chC qc gjp t'⟩,
+                  hV _ List.mem_cons_self, ⟨chp, qc, gjp, by rw [hg.1]⟩, hg.2.1⟩)
+              · exact Or.inr (Or.inr ⟨gjp.c,
+                  show JustifiedIn n V gjp from of_decide_eq_true hg.2.2.1⟩)
+            · rw [if_neg hg]
+              split_ifs with h1
+              · exact Or.inr (Or.inl ⟨⟨asd, .propose chp chC qc gjp t'⟩,
+                  hV _ List.mem_cons_self, ⟨chp, qc, gjp, by rw [h1.1]⟩, h1.2.1⟩)
+              · exact Or.inl rfl
       · exact Or.inr (Or.inl h)
       · exact Or.inr (Or.inr h)
 

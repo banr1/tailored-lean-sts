@@ -468,7 +468,7 @@ theorem processProposals_vFrozen (C : Components Node (Chain Tx) QC)
       | vote ch src tgt t' => rfl
       | propose chp chC qc gj t' =>
           dsimp only
-          split_ifs <;> rfl
+          simp only [apply_ite NodeState.vFrozen, ite_self]
 
 /-- Every branch of the handler keeps the frozen view or freezes the current one. -/
 theorem handler_vFrozen (C : Components Node (Chain Tx) QC) (Q : Params)
@@ -513,7 +513,7 @@ theorem processProposals_activeAt (C : Components Node (Chain Tx) QC)
       | vote ch src tgt t' => rfl
       | propose chp chC qc gj t' =>
           dsimp only
-          split_ifs <;> rfl
+          simp only [apply_ite NodeState.activeAt, ite_self]
 
 /-- Neither does any branch of the handler: activation is written by wake events alone. -/
 theorem handler_activeAt (pick : Chain Tx) (p : Node) (r : Time)
