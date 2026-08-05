@@ -25,9 +25,12 @@ numbers move.
 **Proved** (2026-08-06): Lemmas 2–7 and Theorems 1–2 for Algorithm 2, under `SettingGA`
 plus the de-probabilized Lemma 1 (`HonestProposalWindow`) and `1 ≤ κ`; Appendix B —
 Lemmas 8–9, the finality component's accountable-safety counting, assumption-free
-(`f ∈ [0, n]`); and **Appendix C's Lemmas 10–13 for Algorithm 5**, which carry the
-Appendix-A results across to the full protocol through the MFC-equivalent Algorithm-2 run
-Lemma 10 constructs. The rest of the paper's theorems remain `Prop`-valued statements.
+(`f ∈ [0, n]`); and **Appendix C.1 in full for Algorithm 5** — Lemmas 10–14 and
+Theorems 3–4 (reorg resilience and dynamic availability), which carry the Appendix-A
+results across to the full protocol through the MFC-equivalent Algorithm-2 run Lemma 10
+constructs. What remains of the paper is Appendix C.2, partial synchrony: Lemmas 15–18 and
+Theorems 5–7 (accountable safety, liveness of the finalized chain, ebb-and-flow), whose
+statements are the `Prop`s in `Analysis/Theorems.lean`.
 
 ## Layout
 
@@ -65,10 +68,12 @@ single call so the lists read without proof noise; the proof layer sits under
 * `Analysis/Proofs/Finality` — Appendix B in full: Lemmas 8–9, `slash_of_links` and the
   E1/E2 evidence machinery, all view-local.
 * `Analysis/Proofs/Simulation`, `Analysis/Proofs/Transfer`, `Analysis/Proofs/Equivalence`,
-  `Analysis/Proofs/MfcEquiv` — Appendix C: the Algorithm-2 run built by replaying an
-  Algorithm-5 run's schedule (`simulate`), its compliance, Definitions 8–9, and Lemmas
-  10–13. `MfcEquiv` holds Lemma 10's grand induction and the transfers the later lemmas
-  ride.
+  `Analysis/Proofs/MfcEquiv` — Appendix C.1's transfer layer: the Algorithm-2 run built by
+  replaying an Algorithm-5 run's schedule (`simulate`), its compliance, Definitions 8–9,
+  and Lemmas 10–13. `MfcEquiv` holds Lemma 10's grand induction.
+* `Analysis/Proofs/Availability5` — Appendix C.1's results about Algorithm 5 itself:
+  Lemma 14 and Theorems 3–4, over the order facts for `chainava` (`chAva_comparable`,
+  `chAva_mono`) that the paper's proofs use silently.
 * `Analysis/Lemmas` — **one theorem per numbered lemma of the paper**, and nothing else;
   proofs are one call into `Proofs/Analysis2`.
 * `Analysis/Theorems` — the paper's theorems: the proved ones (`theorem1`, `theorem2`,

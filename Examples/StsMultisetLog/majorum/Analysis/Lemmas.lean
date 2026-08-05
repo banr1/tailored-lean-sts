@@ -1,5 +1,6 @@
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Analysis2
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Finality
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Availability5
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.MfcEquiv
 
 /-!
@@ -357,5 +358,30 @@ theorem lemma13 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
   let hpair := MfcEquiv.lemma10 rfl H hκ hwin
   MfcEquiv.lemma13 rfl hpair.2 H hpair.1 hκ
     (MfcEquiv.window_transfer H hwin) a vi k vj s0 hv
+
+/-- **Lemma 14** (`Lemma 14, arXiv:2601.03862v1 p.21`, Liveness of fast confirmations, for
+    Algorithm 5 — the analogue of Lemma 7). Take a slot `t` in which `|H_vote(t)| ≥ 2n/3`.
+    If in slot `t` an honest validator sends a propose message for chain `chp`, then any
+    validator's fast-confirm tick of slot `t` leaves its *available* chain extending `chp`.
+
+    The paper's proof is Lemma 7's with `Chain` replaced by `chainava`. One case that
+    substitution passes over is real and is proved here: Algorithm 5's `fastcand` is the
+    greatest justified chain whenever that chain does not extend the fast-confirmed one, and
+    `chp ⪯ fastcand` then follows from the justified chain's descent to some honest
+    validator's available chain, Theorem 3, and the branch's own guard. -/
+theorem lemma14 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    {t : Nat} (ht : 1 ≤ t)
+    (hbig : 2 * Fintype.card Node ≤ 3 * (Active Q S (t : Int)).card)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {ck : Checkpoint (Chain Tx)} {i : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc ck t⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[i].sent)
+    (hhon_i : vp ∉ S.adv ((x5[i].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    {vi : Node} {j : Nat}
+    (hj : x5.lbl j = .tick vi (Q.slotLength * t + 2 * Q.delta)) :
+    chp ⪯ x5[j + 1][vi].st.chAva :=
+  Availability5.lemma14 H hκ hwin ht hbig hsent hhon_i hhon_t hj
 
 end Majorum

@@ -1,6 +1,7 @@
 import Examples.StsMultisetLog.majorum.Spec.Assumptions
 import Examples.StsMultisetLog.majorum.Spec.Security
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Analysis2
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Availability5
 
 /-!
 # Majorum's theorems, as statements
@@ -246,5 +247,76 @@ theorem theorem2 {x : Exec Pr2 S} {τ : Type}
   Analysis2.theorem2 memTx poolSet hmonoP hcover H hκ hwin
 
 end Algorithm2Proved
+
+/-! ### Proved: Algorithm 5, concretely
+
+Appendix C.1's two theorems, in the same direct style — the available chain in place of
+Algorithm 2's confirmed chain. Both reach Appendix A through Lemma 10's MFC-equivalent
+run; the assembly is in `Analysis/Proofs/Availability5.lean`. -/
+
+section Algorithm5Proved
+
+variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx] [Fintype Node]
+  {Q : Params} {S : Schedule Node} {kappa : Nat} {pool : Nat → Tx}
+  {proposer : Nat → Node}
+
+/-- Algorithm 5, its quorum threshold instantiated with the structural validator count. -/
+local notation "Pr5" =>
+  protocol (components (Fintype.card Node) kappa pool proposer) Q
+
+/-- **Theorem 3** (`Theorem 3, arXiv:2601.03862v1 p.21`, Reorg Resilience, for
+    Algorithm 5). An honestly proposed chain never conflicts with any validator's
+    *available* chain — `ReorgResilient` for `chainava`, unqualified.
+
+    The paper's proof is Theorem 1's with `Chain` replaced by `chainava`, Lemma 4 by Lemma
+    12 and Lemma 5 by Lemma 13, and that is how it is proved here: a slot past both the
+    proposal and the round in question has an active validator (Constraint (1)) whose vote
+    tick bounds both chains from above.
+
+    Hypotheses as for Theorem 1, with `HonestProposalWindow5` — Lemma 1 de-probabilized,
+    stated over Algorithm-5 runs — carrying the paper's "w.o.p.". -/
+theorem theorem3 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    {tp : Nat} (htp : 1 ≤ tp) {vp : Node} {chp chC : Chain Tx}
+    {qc : Option (QCert Node Tx)} {ck : Checkpoint (Chain Tx)} {i : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc ck tp⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[i].sent)
+    (hhon_i : vp ∉ S.adv ((x5[i].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (tp : Int)))
+    (a : Nat) (vi : Node) :
+    chp ⪯ x5[a][vi].st.chAva ∨ x5[a][vi].st.chAva ⪯ chp :=
+  Availability5.theorem3 H hκ hwin htp hsent hhon_i hhon_t a vi
+
+/-- **Theorem 4** (`Theorem 4, arXiv:2601.03862v1 p.21`, for Algorithm 5). "Algorithm
+    `3sf-tob-noga` is dynamically-available w.o.p." — Definition 4 for `chainava`, with
+    `Tconf = 8κΔ + Δ` as in Theorem 2.
+
+    * **Safety**: any two validators' available chains, at any two points, are comparable.
+      Proved through Lemma 10: each is dominated by an Algorithm-2 confirmed chain
+      (conditions 2.3/2.4) and those are comparable by Theorem 2.
+    * **Liveness**: any transaction pooled by a round of slot `t` is in a block of the
+      available chain of every validator active past `vote(t + 2κ)`. The mempool is
+      interpreted at the statement level exactly as in Theorem 2.
+
+    The paper's proof is Theorem 2's with `chainava` for `Chain` and Lemmas 12/13 for 4/5,
+    plus the extra case its Algorithm-5 `chainava` write forces — the fast-confirm round
+    can adopt the greatest justified chain, which is handled here (as the paper does) by the
+    justified descent plus Theorem 3. -/
+theorem theorem4 {x5 : Exec Pr5 S} {τ : Type}
+    (memTx : τ → Tx → Prop) (poolSet : Time → Set τ)
+    (hmonoP : ∀ r r' : Time, r ≤ r' → poolSet r ⊆ poolSet r')
+    (hcover : ∀ s : Nat, ∀ tx ∈ poolSet (Q.slotLength * s), memTx tx (pool s))
+    (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5) :
+    (∀ (a : Nat) (vi : Node) (b : Nat) (vj : Node),
+      x5[a][vi].st.chAva ⪯ x5[b][vj].st.chAva ∨
+        x5[b][vj].st.chAva ⪯ x5[a][vi].st.chAva) ∧
+    (∀ (t a : Nat) (vi : Node), ActiveAtRound Q S vi (x5[a].time) →
+      Q.slotLength * (t + 2 * kappa) + Q.delta < x5[a].time →
+      ∀ r : Time, r ≤ Q.slotLength * (t + 1) →
+      ∀ tx ∈ poolSet r, ∃ b ∈ x5[a][vi].st.chAva, memTx tx b.txs) :=
+  Availability5.theorem4 memTx poolSet hmonoP hcover H hκ hwin
+
+end Algorithm5Proved
 
 end Majorum
