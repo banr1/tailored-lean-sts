@@ -364,11 +364,19 @@ theorem lemma13 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     If in slot `t` an honest validator sends a propose message for chain `chp`, then any
     validator's fast-confirm tick of slot `t` leaves its *available* chain extending `chp`.
 
+    Stated for *any* validator ticking at `fconf(t)`, not only `H_fconf(t)`, as in Lemma 7:
+    the tick's own enabling supplies awakeness.
+
     The paper's proof is Lemma 7's with `Chain` replaced by `chainava`. One case that
     substitution passes over is real and is proved here: Algorithm 5's `fastcand` is the
     greatest justified chain whenever that chain does not extend the fast-confirmed one, and
     `chp ⪯ fastcand` then follows from the justified chain's descent to some honest
-    validator's available chain, Theorem 3, and the branch's own guard. -/
+    validator's available chain, Theorem 3, and the branch's own guard.
+
+    **Two hypotheses the paper's Lemma 14 does not carry**: `1 ≤ κ` and
+    `HonestProposalWindow5`. They are what covering that case costs — it goes through
+    Theorem 3, and so through Lemma 10 and Lemma 13. Lemma 7, whose proof the paper
+    inherits, needs neither, because Algorithm 2 has no `GJ` branch to cover. -/
 theorem lemma14 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
     {t : Nat} (ht : 1 ≤ t)
