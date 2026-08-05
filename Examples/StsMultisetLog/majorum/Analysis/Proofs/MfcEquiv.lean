@@ -911,4 +911,81 @@ theorem chAva_step5 {x5 : Exec Pr5 S} {m : Nat} {p : Node} :
       rw [h5, h]
       rfl
 
+/-- A guarded-max fold lands on its seed or a list element. -/
+theorem foldl_maxCh_mem {C : Components Node (Chain Tx) (QCert Node Tx)}
+    {Mb : Chain Tx} (l : List (Chain Tx)) (init : Chain Tx) :
+    l.foldl (fun acc ch => if C.prefixLe ch Mb then C.maxCh acc ch else acc) init = init ∨
+    l.foldl (fun acc ch => if C.prefixLe ch Mb then C.maxCh acc ch else acc) init ∈ l := by
+  induction l generalizing init with
+  | nil => exact Or.inl rfl
+  | cons a l ih =>
+      rw [List.foldl_cons]
+      have hstep : (if C.prefixLe a Mb then C.maxCh init a else init) = init ∨
+          (if C.prefixLe a Mb then C.maxCh init a else init) = a := by
+        split_ifs
+        · unfold Components.maxCh
+          split_ifs
+          · exact Or.inr rfl
+          · exact Or.inl rfl
+        · exact Or.inl rfl
+      rcases ih (if C.prefixLe a Mb then C.maxCh init a else init) with h | h
+      · rw [h]
+        rcases hstep with hs | hs
+        · exact Or.inl hs
+        · refine Or.inr ?_
+          rw [hs]
+          exact List.mem_cons_self
+      · exact Or.inr (List.mem_cons_of_mem a h)
+
+/-- **The vote-tick `chAva` output is one of its three candidates**: the previous
+    `chAva`, the κ-deep prefix of this tick's fork choice, or the frozen
+    greatest-justified chain — condition 2.3's case split. -/
+theorem voteChAva_cases (x5 : Exec Pr5 S) (k : Nat) (w : Node) (t : Time) :
+    voteChAva x5 k w t
+        = (processProposals (components n kappa pool proposer)
+            x5[k][w].view (t / Q.slotLength) x5[k][w].st).chAva ∨
+    voteChAva x5 k w t
+        = (components n kappa pool proposer).kappaPrefix (t / Q.slotLength)
+          ((components n kappa pool proposer).mfc
+            (processProposals (components n kappa pool proposer)
+              x5[k][w].view (t / Q.slotLength) x5[k][w].st).vFrozen
+            x5[k][w].view
+            (processProposals (components n kappa pool proposer)
+              x5[k][w].view (t / Q.slotLength) x5[k][w].st).chFrozen
+            (t / Q.slotLength)) ∨
+    voteChAva x5 k w t
+        = (processProposals (components n kappa pool proposer)
+            x5[k][w].view (t / Q.slotLength) x5[k][w].st).gjFrozen.ch := by
+  have h := foldl_maxCh_mem (C := components n kappa pool proposer)
+    (Mb := (components n kappa pool proposer).mfc
+      (processProposals (components n kappa pool proposer)
+        x5[k][w].view (t / Q.slotLength) x5[k][w].st).vFrozen
+      x5[k][w].view
+      (processProposals (components n kappa pool proposer)
+        x5[k][w].view (t / Q.slotLength) x5[k][w].st).chFrozen
+      (t / Q.slotLength))
+    [(processProposals (components n kappa pool proposer)
+        x5[k][w].view (t / Q.slotLength) x5[k][w].st).chAva,
+      (components n kappa pool proposer).kappaPrefix (t / Q.slotLength)
+        ((components n kappa pool proposer).mfc
+          (processProposals (components n kappa pool proposer)
+            x5[k][w].view (t / Q.slotLength) x5[k][w].st).vFrozen
+          x5[k][w].view
+          (processProposals (components n kappa pool proposer)
+            x5[k][w].view (t / Q.slotLength) x5[k][w].st).chFrozen
+          (t / Q.slotLength)),
+      (processProposals (components n kappa pool proposer)
+        x5[k][w].view (t / Q.slotLength) x5[k][w].st).gjFrozen.ch]
+    (processProposals (components n kappa pool proposer)
+      x5[k][w].view (t / Q.slotLength) x5[k][w].st).chAva
+  rcases h with h | h
+  · exact Or.inl h
+  · rcases List.mem_cons.mp h with h1 | h1
+    · exact Or.inl h1
+    · rcases List.mem_cons.mp h1 with h2 | h2
+      · exact Or.inr (Or.inl h2)
+      · rcases List.mem_cons.mp h2 with h3 | h3
+        · exact Or.inr (Or.inr h3)
+        · cases h3
+
 end Majorum
