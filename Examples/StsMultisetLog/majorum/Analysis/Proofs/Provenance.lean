@@ -325,6 +325,51 @@ own (real-time) round, and the wake event for every transition actually fires
 (`TimeStepwise` supplies the round, `Diligent` a tick in it, `WakePrecedesTick` the
 ordering). -/
 
+/-- `processProposals` writes only `gjFrozen` and `chFrozen`; the frozen view rides
+    through. -/
+theorem processProposals_vFrozen (C : Components Node (Chain Tx) QC)
+    (V : View Node (Msg (Chain Tx) QC)) (t : Nat) (s : NodeState Node (Chain Tx) QC) :
+    (processProposals C V t s).vFrozen = s.vFrozen := by
+  unfold processProposals
+  generalize V.toList = l
+  induction l generalizing s with
+  | nil => rfl
+  | cons a l ih =>
+      rw [List.foldl_cons, ih]
+      cases hm : a.msg with
+      | vote ch src tgt t' => rfl
+      | propose chp chC qc gj t' =>
+          dsimp only
+          split_ifs <;> rfl
+
+/-- Every branch of the handler keeps the frozen view or freezes the current one. -/
+theorem handler_vFrozen (C : Components Node (Chain Tx) QC) (Q : Params) (p : Node)
+    (r : Time) (V : View Node (Msg (Chain Tx) QC)) (s : NodeState Node (Chain Tx) QC) :
+    (handler C Q p r V s).state.vFrozen = s.vFrozen ∨
+      (handler C Q p r V s).state.vFrozen = V := by
+  simp only [handler, apply_ite NodeStepResult.state]
+  split_ifs <;>
+    first
+      | exact Or.inl rfl
+      | exact Or.inl (processProposals_vFrozen C V _ s)
+      | exact Or.inr rfl
+
+/-- Ticks do not touch views: the reaction rewrites state and log only. -/
+theorem tick_view {NS : Type} {Pr' : Protocol Node (Msg (Chain Tx) QC) NS Empty}
+    {x : Exec Pr' S} {k : Nat} {p : Node} {t : Time} (h : x.lbl k = .tick p t)
+    (q : Node) : x[k + 1][q].view = x[k][q].view := by
+  have hstep : Step Pr' S (x.lbl k) x[k] x[k + 1] := x.step k
+  rw [h] at hstep
+  obtain ⟨-, heff⟩ := hstep
+  simp only [spec] at heff
+  rw [nodeStep_iff_exists] at heff
+  obtain ⟨res, -, hpost⟩ := heff
+  rw [hpost]
+  by_cases hq : q = p
+  · subst hq
+    simp [applyNodeStepResult_getElem, setClock_getElem]
+  · simp [applyNodeStepResult_getElem, setClock_getElem, Ne.symm hq]
+
 /-- `processProposals` never writes `activeAt`. -/
 theorem processProposals_activeAt (C : Components Node (Chain Tx) QC)
     (V : View Node (Msg (Chain Tx) QC)) (t : Nat) (s : NodeState Node (Chain Tx) QC) :
