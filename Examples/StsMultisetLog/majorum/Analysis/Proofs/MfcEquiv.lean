@@ -2041,4 +2041,97 @@ theorem justified_early {x5 : Exec Pr5 S}
       have := hlink.1
       omega
 
+set_option maxHeartbeats 1000000 in
+/-- **Condition 2.1, discharged at a tick**: the propose-round fork choices agree,
+    from the table invariant (skeleton equality), the dominance invariant, and the
+    justified descent — at slot `0` by vacuity (`justified_early`), later through
+    `chi_le_mfc`'s propose conjunct at the merely-awake proposer. -/
+theorem agree_propose_at_tick (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (H2 : SettingGA Q S (simulate x5))
+    (hκ : 1 ≤ kappa) (hwin2 : HonestProposalWindow (simulate x5))
+    {k : Nat} (hTD : TableDynEq x5 k)
+    (hD : ∀ (j : Nat), j ≤ k → ∀ (q : Node), ∃ (a : Nat) (w : Node),
+      (simulate x5)[a].time ≤ x5[j].time ∧
+      chainLe x5[j][q].st.chAva ((simulate x5)[a][w].st.chi))
+    {p : Node} {t : Time} (hlbl : x5.lbl k = .tick p t)
+    (hmod : t % Q.slotLength = 0) :
+    (components n kappa pool proposer).mfc x5[k][p].view x5[k][p].view
+        ((components n kappa pool proposer).fastConfirm x5[k][p].view
+          (t / Q.slotLength - 1)).1 (t / Q.slotLength)
+      = mfc (simulate x5)[k][p].view (simulate x5)[k][p].view
+        (fastConfirmSimple n (simulate x5)[k][p].view (t / Q.slotLength - 1)).1
+        (t / Q.slotLength) := by
+  subst hn
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have hSL0 : 0 < Q.slotLength := by omega
+  obtain ⟨⟨hmc5, hah5, hsync5, hmono5, -, -, -⟩, -, -, hone5, -, -, ⟨hcb5, hfn5⟩, -⟩ :=
+    H5
+  have H2' := H2
+  obtain ⟨⟨hmc2, hah2, hsync2, hmono2, hcs2, hdiv2, hdil2⟩, hstepw2, hwpt2, hone2,
+    ⟨hsyn2, hrel2⟩, hslp, ⟨hcb, hfn⟩, hgst⟩ := H2'
+  -- the two views correspond, so the skeletons agree
+  have hskel : voteSkel x5[k][p].view = voteSkel ((simulate x5)[k][p].view) :=
+    voteSkel_eq_of_corr (viewCorr_of_tableDynEq hone5 hmc5 hah5 hmono5 hTD p)
+  -- the 2.5 bound on the greatest justified chain
+  have h25 : chainLe (gj (Fintype.card Node) x5[k][p].view).ch
+      (mfc ((simulate x5)[k][p].view) ((simulate x5)[k][p].view)
+        (fastConfirmSimple (Fintype.card Node) ((simulate x5)[k][p].view)
+          (t / Q.slotLength - 1)).1 (t / Q.slotLength)) := by
+    by_cases hs0 : t / Q.slotLength = 0
+    · -- slot 0: nothing but genesis is justified this early
+      have ht0 : t = 0 := by
+        have h := Nat.div_add_mod t Q.slotLength
+        rw [hs0, hmod] at h
+        omega
+      have htime : x5[k].time ≤ Q.delta := by
+        rw [tick_reading5 hsync5 hlbl, ht0]
+        omega
+      have hgen := justified_early hsync5 hmc5 hmono5 hcb5 hfn5 (le_refl _) htime
+        (gj_justified (Fintype.card Node) x5[k][p].view)
+      rw [hgen]
+      exact chainLe_nil _
+    · -- later slots: descend to an earlier vote tick, ride the dominance, bound by
+      -- Lemma 5's engine
+      obtain ⟨s1, hs1⟩ : ∃ s1, t / Q.slotLength = s1 + 1 :=
+        ⟨t / Q.slotLength - 1,
+          (Nat.succ_pred_eq_of_pos (Nat.pos_of_ne_zero hs0)).symm⟩
+      rcases justified_to_voteChAva hsync5 hmc5 hmono5 hcb5 hfn5 (le_refl _)
+          (i := k) (gj (Fintype.card Node) x5[k][p].view).c _ rfl k p (le_refl k)
+          (gj_justified (Fintype.card Node) x5[k][p].view) with hnil | hdesc
+      · rw [hnil]
+        exact chainLe_nil _
+      · obtain ⟨k', w, t', hk'k, hlbl', hmod', hgate', hle⟩ := hdesc
+        rw [← vote_tick_chAva hlbl' hmod' hgate'] at hle
+        obtain ⟨a, w2, hta, hdom⟩ := hD (k' + 1) (by omega) w
+        have hbound : chainLe (gj (Fintype.card Node) x5[k][p].view).ch
+            ((simulate x5)[a][w2].st.chi) := chainLe_trans hle hdom
+        -- the tick transfers; its enabledness gives awakeness in the simulated run
+        have hlbl2 : (simulate x5).lbl k = .tick p t := simLbl_tick_iff.mpr hlbl
+        have hawk2 : (simulate x5).Awake k p := by
+          have hstep := (simulate x5).step k
+          rw [hlbl2] at hstep
+          have h1 := hstep.1
+          simp only [spec] at h1
+          exact h1
+        have h4 : t = Q.slotLength * (s1 + 1) := by
+          have h := Nat.div_add_mod t Q.slotLength
+          rw [hs1, hmod] at h
+          omega
+        have htb : (simulate x5)[k].time = Q.slotLength * (s1 + 1) := by
+          rw [simulate_time, tick_reading5 hsync5 hlbl, h4]
+        have hab : (simulate x5)[a].time ≤ Q.slotLength * (s1 + 1) := by
+          refine le_trans hta ?_
+          have h1 : x5[k' + 1].time = x5[k'].time := tick_time5 hlbl'
+          have h2 : x5[k'].time ≤ x5[k].time :=
+            time_le_of_le hmono5 (le_of_lt hk'k)
+          have h3 : x5[k].time = t := tick_reading5 hsync5 hlbl
+          omega
+        have hchi := (chi_le_mfc hsync2 hstepw2 hdiv2 hdil2 hone2 hwpt2 hmc2 hsyn2
+          hrel2 hslp hcb hfn (le_refl _) hgst hκ hwin2 a w2 k p s1).1 hawk2 htb hab
+        rw [hs1]
+        simp only [Nat.add_sub_cancel]
+        exact chainLe_trans hbound hchi
+  exact mfc_propose_agree hskel h25
+
 end Majorum
