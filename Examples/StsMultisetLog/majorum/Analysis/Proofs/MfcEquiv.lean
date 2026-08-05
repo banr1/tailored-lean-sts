@@ -641,4 +641,51 @@ theorem gjFrozen_justified {x5 : Exec Pr5 S} (k : Nat) (q : Node) :
       | custom q' ev => exact ev.elim
       | adversarial q' m => exact ih
 
+/-! ### The 2.5 leg's raw materials -/
+
+/-- **A supermajority has an honest member at any round**: `2n/3` supporters against a
+    corruption budget below `n/3` over at most `n` validators. -/
+theorem exists_honest_of_quorum {A : Finset Node} {r : Int}
+    (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < n)
+    (hcard : Fintype.card Node ≤ n) (hA : 2 * n ≤ 3 * A.card) :
+    ∃ w ∈ A, w ∉ S.adv r := by
+  by_contra hall
+  push_neg at hall
+  have hsub : A ⊆ S.adv r := hall
+  have hle : A.card ≤ Q.f := le_trans (Finset.card_le_card hsub) (hcb r)
+  have hcard' : A.card ≤ Fintype.card Node := Finset.card_le_univ A
+  omega
+
+/-- Algorithm 5's vote-phase send, in full: the pick, the processed frozen
+    greatest-justified as source, and the two-mode target. -/
+theorem handler_vote_fin_content {C : Components Node (Chain Tx) (QCert Node Tx)}
+    {pick : Chain Tx} {p : Node} {r : Time} {V : View Node M}
+    {s : NodeState Node (Chain Tx) (QCert Node Tx)} {m : M}
+    (hmod : r % Q.slotLength = Q.delta)
+    (h : m ∈ (handlerCore C Q pick p r V s).send) :
+    m = .vote pick
+      (processProposals C V (r / Q.slotLength) s).gjFrozen
+      (if (processProposals C V (r / Q.slotLength) s).gjFrozen.c
+          = r / Q.slotLength - 1 then
+        ⟨[(processProposals C V (r / Q.slotLength) s).chAva,
+            C.kappaPrefix (r / Q.slotLength)
+              (C.mfc (processProposals C V (r / Q.slotLength) s).vFrozen V
+                (processProposals C V (r / Q.slotLength) s).chFrozen
+                (r / Q.slotLength)),
+            (processProposals C V (r / Q.slotLength) s).gjFrozen.ch].foldl
+          (fun acc ch => if C.prefixLe ch
+              (C.mfc (processProposals C V (r / Q.slotLength) s).vFrozen V
+                (processProposals C V (r / Q.slotLength) s).chFrozen
+                (r / Q.slotLength)) then C.maxCh acc ch else acc)
+          (processProposals C V (r / Q.slotLength) s).chAva,
+          r / Q.slotLength⟩
+      else ⟨(processProposals C V (r / Q.slotLength) s).gjFrozen.ch,
+          r / Q.slotLength⟩)
+      (r / Q.slotLength) := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  simp only [handlerCore, apply_ite NodeStepResult.send] at h
+  split_ifs at h <;> first | omega | simp at h
+  all_goals simp_all
+
 end Majorum
