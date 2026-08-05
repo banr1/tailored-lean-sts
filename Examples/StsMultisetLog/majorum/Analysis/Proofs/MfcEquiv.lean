@@ -1925,4 +1925,54 @@ theorem frozen_at_vote_tick5 {x5 : Exec Pr5 S}
   rw [hmstate.1, hmstate.2] at hsj
   exact ⟨im, himj, htim, hsj.1, hsj.2⟩
 
+/-! ### The prefix-guarded fold is a maximum, under comparability -/
+
+/-- **A `⪯`-guarded fold dominates every value comparable with its whole run**: the
+    accumulator only grows, so at the position of any value the scan's accumulator is
+    below the final one; if the value tops the final accumulator, comparability makes
+    the guard fire there — contradiction. Stated over an abstract write-step
+    `step acc v = if acc ⪯ v then v else acc` shape via the hypothesis that each fold
+    step either keeps the accumulator or moves to something above it, and fires
+    whenever the guard holds. -/
+theorem chainLe_foldl_of_comparable {l : List (Chain Tx)}
+    {seed : Chain Tx} {O : Chain Tx}
+    (hseed : chainLe seed O) (hl : ∀ v ∈ l, chainLe v O)
+    {v : Chain Tx} (hv : v ∈ l) :
+    chainLe v (l.foldl (fun acc c => if chainLe acc c then c else acc) seed) := by
+  -- the accumulator is monotone and stays under `O`
+  have hmono : ∀ (l' : List (Chain Tx)) (a : Chain Tx),
+      chainLe a (l'.foldl (fun acc c => if chainLe acc c then c else acc) a) := by
+    intro l'
+    induction l' with
+    | nil => exact fun a => chainLe_refl a
+    | cons c l' ih =>
+        intro a
+        rw [List.foldl_cons]
+        by_cases h : chainLe a c
+        · rw [if_pos h]
+          exact chainLe_trans h (ih c)
+        · rw [if_neg h]
+          exact ih a
+  -- main induction: once `v` is scanned, the accumulator is at or above it
+  induction l generalizing seed with
+  | nil => cases hv
+  | cons c l ih =>
+      rw [List.foldl_cons]
+      rcases List.mem_cons.mp hv with rfl | hvl
+      · -- `v` is scanned now: the guard fires or the accumulator already tops it
+        by_cases h : chainLe seed v
+        · rw [if_pos h]
+          exact hmono l v
+        · rw [if_neg h]
+          have hcomp := comparable_of_common_extension hseed (hl v hv)
+          rcases hcomp with h' | h'
+          · exact absurd h' h
+          · exact chainLe_trans h' (hmono l seed)
+      · by_cases h : chainLe seed c
+        · rw [if_pos h]
+          exact ih (hl c List.mem_cons_self)
+            (fun d hd => hl d (List.mem_cons_of_mem c hd)) hvl
+        · rw [if_neg h]
+          exact ih hseed (fun d hd => hl d (List.mem_cons_of_mem c hd)) hvl
+
 end Majorum
