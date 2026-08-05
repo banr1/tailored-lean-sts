@@ -785,4 +785,130 @@ theorem justified_le_of_chAva_le {x5 : Exec Pr5 S}
         exact IH C.c (hJc ▸ hlink.1) C rfl k sm.sender
           (le_of_lt (lt_of_lt_of_le hkj hji)) hCjust
 
+/-! ### One step of Algorithm 5's available chain — condition 2.3/2.4's case analysis -/
+
+/-- The proposal fold never writes `chAva`. -/
+theorem processProposals_chAva (C : Components Node (Chain Tx) (QCert Node Tx))
+    (V : View Node M) (t : Nat) (s : NodeState Node (Chain Tx) (QCert Node Tx)) :
+    (processProposals C V t s).chAva = s.chAva := by
+  unfold processProposals
+  generalize V.toList = l
+  induction l generalizing s with
+  | nil => rfl
+  | cons a l ih =>
+      rw [List.foldl_cons, ih]
+      cases hm : a.msg with
+      | vote ch src tgt t' => rfl
+      | propose chp chC qc gjp t' =>
+          dsimp only
+          split_ifs <;> rfl
+
+/-- **One step of `chAva`**: unchanged, or the owner's vote tick with the joining check
+    open writes the `chAva` fold (`voteChAva`), or the owner's fast-confirm tick adopts
+    a longer fast confirmation. -/
+theorem chAva_step5 {x5 : Exec Pr5 S} {m : Nat} {p : Node} :
+    x5[m + 1][p].st.chAva = x5[m][p].st.chAva ∨
+    (∃ ti : Nat, x5.lbl m = .tick p (Q.slotLength * ti + Q.delta) ∧
+      x5[m][p].st.activeAt ≤ Q.slotLength * ti + Q.delta ∧
+      x5[m + 1][p].st.chAva = voteChAva x5 m p (Q.slotLength * ti + Q.delta)) ∨
+    (∃ ti : Nat, x5.lbl m = .tick p (Q.slotLength * ti + 2 * Q.delta) ∧
+      ¬ chainLe ((components n kappa pool proposer).fastConfirm x5[m][p].view ti).1
+          x5[m][p].st.chAva ∧
+      x5[m + 1][p].st.chAva
+        = ((components n kappa pool proposer).fastConfirm x5[m][p].view ti).1) := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have h5 : x5[m + 1] = _ := exec5_succ (x5 := x5) m
+  cases h : x5.lbl m with
+  | advance t =>
+      refine Or.inl ?_
+      rw [h5, h]
+      rfl
+  | tick q t =>
+      by_cases hq : p = q
+      · subst hq
+        have hget : x5[m + 1][p].st
+            = (handlerCore (components n kappa pool proposer) Q (pick5 x5 m p t) p t
+              x5[m][p].view x5[m][p].st).state := by
+          rw [h5, h]
+          simp only [applyNodeStepResult_getElem, setClock_getElem, if_pos rfl,
+            if_true]
+          rfl
+        by_cases hph1 : t % Q.slotLength = Q.delta
+        · -- the vote phase
+          have htr : t = Q.slotLength * (t / Q.slotLength) + Q.delta := by
+            conv_lhs => rw [← Nat.div_add_mod t Q.slotLength]
+            rw [hph1]
+          by_cases hgate : x5[m][p].st.activeAt ≤ t
+          · refine Or.inr (Or.inl ⟨t / Q.slotLength, congrArg (Action.tick p) htr,
+              by rw [← htr]; exact hgate, ?_⟩)
+            rw [hget]
+            simp only [handlerCore, apply_ite NodeStepResult.state]
+            rw [if_neg (by omega), if_pos hph1, if_pos hgate]
+            unfold voteChAva
+            rw [← htr]
+          · refine Or.inl ?_
+            rw [hget]
+            simp only [handlerCore, apply_ite NodeStepResult.state]
+            rw [if_neg (by omega), if_pos hph1, if_neg hgate]
+            exact processProposals_chAva _ _ _ _
+        · by_cases hph2 : t % Q.slotLength = 2 * Q.delta
+          · -- the fast-confirm phase
+            have htr : t = Q.slotLength * (t / Q.slotLength) + 2 * Q.delta := by
+              conv_lhs => rw [← Nat.div_add_mod t Q.slotLength]
+              rw [hph2]
+            by_cases hg : chainLe
+                ((components n kappa pool proposer).fastConfirm x5[m][p].view
+                  (t / Q.slotLength)).1 x5[m][p].st.chAva
+            · refine Or.inl ?_
+              rw [hget]
+              simp only [handlerCore, apply_ite NodeStepResult.state]
+              rw [if_neg (by omega), if_neg (by omega), if_pos hph2]
+              dsimp only
+              rw [components_prefixLe, if_pos hg]
+            · refine Or.inr (Or.inr ⟨t / Q.slotLength, congrArg (Action.tick p) htr, hg, ?_⟩)
+              rw [hget]
+              simp only [handlerCore, apply_ite NodeStepResult.state]
+              rw [if_neg (by omega), if_neg (by omega), if_pos hph2]
+              dsimp only
+              rw [components_prefixLe, if_neg hg]
+          · -- quiet phases: propose, merge, idle
+            refine Or.inl ?_
+            rw [hget]
+            simp only [handlerCore, apply_ite NodeStepResult.state]
+            by_cases hph0 : t % Q.slotLength = 0
+            · rw [if_pos hph0]
+              split_ifs <;> rfl
+            · rw [if_neg hph0, if_neg hph1, if_neg hph2]
+              split_ifs <;> rfl
+      · refine Or.inl ?_
+        rw [h5, h]
+        simp only [applyNodeStepResult_getElem, setClock_getElem, if_true,
+          if_neg (fun hh => hq (Eq.symm hh))]
+        rfl
+  | deliver q msg =>
+      refine Or.inl ?_
+      rw [h5, h]
+      by_cases hq : p = q
+      · subst hq
+        simp only [applyNodeStepResult_getElem, receive_getElem, if_pos rfl, if_true]
+        rfl
+      · simp only [applyNodeStepResult_getElem, receive_getElem,
+          if_neg (fun hh => hq (Eq.symm hh))]
+        rfl
+  | wake q =>
+      refine Or.inl ?_
+      rw [h5, h]
+      by_cases hq : p = q
+      · subst hq
+        simp only [applyNodeStepResult_getElem, if_pos rfl, if_true]
+        rfl
+      · simp only [applyNodeStepResult_getElem, if_neg (fun hh => hq (Eq.symm hh))]
+        rfl
+  | custom q ev => exact ev.elim
+  | adversarial q msg =>
+      refine Or.inl ?_
+      rw [h5, h]
+      rfl
+
 end Majorum
