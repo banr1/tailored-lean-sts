@@ -2711,4 +2711,173 @@ theorem b5_le_voteMfc (hn : n = Fintype.card Node)
   · exact justified_le_voteMfc hn H5 H2 hκ hwin2 hD hlbl hact (le_refl k)
       (J := ⟨_, c⟩) hj
 
+/-! ### Algorithm 5's proposal fold is a maximum once every write sits under one chain -/
+
+/-- **A fold whose every step stays under a bound and never descends**: the conclusion for
+    the whole list, from the per-step fact. Stated over an abstract step so the concrete
+    fold's guard tree is never spelled out. -/
+theorem foldl_bounded_mono {α : Type}
+    {f : NodeState Node (Chain Tx) (QCert Node Tx) → α →
+      NodeState Node (Chain Tx) (QCert Node Tx)}
+    {O : Chain Tx} {l : List α}
+    (hf : ∀ (acc : NodeState Node (Chain Tx) (QCert Node Tx)) (a : α), a ∈ l →
+      chainLe acc.chFrozen O →
+      chainLe (f acc a).chFrozen O ∧ chainLe acc.chFrozen (f acc a).chFrozen)
+    {s : NodeState Node (Chain Tx) (QCert Node Tx)} (hs : chainLe s.chFrozen O) :
+    chainLe (l.foldl f s).chFrozen O ∧ chainLe s.chFrozen (l.foldl f s).chFrozen := by
+  induction l generalizing s with
+  | nil => exact ⟨hs, chainLe_refl _⟩
+  | cons a l ih =>
+      rw [List.foldl_cons]
+      obtain ⟨h1, h2⟩ := hf s a List.mem_cons_self hs
+      obtain ⟨h3, h4⟩ :=
+        ih (fun acc b hb => hf acc b (List.mem_cons_of_mem a hb)) h1
+      exact ⟨h3, chainLe_trans h2 h4⟩
+
+/-- **A bounded fold dominates a value its own step would write**: at the scan position the
+    accumulator is comparable with the value (both sit under `O`), so either the value is
+    already below the accumulator, or the step fires and writes it — and the rest of the
+    fold never descends. -/
+theorem foldl_ge_of_fires {α : Type}
+    {f : NodeState Node (Chain Tx) (QCert Node Tx) → α →
+      NodeState Node (Chain Tx) (QCert Node Tx)}
+    {O : Chain Tx} {l : List α} {v : Chain Tx}
+    (hf : ∀ (acc : NodeState Node (Chain Tx) (QCert Node Tx)) (a : α), a ∈ l →
+      chainLe acc.chFrozen O →
+      chainLe (f acc a).chFrozen O ∧ chainLe acc.chFrozen (f acc a).chFrozen)
+    {a₀ : α} (ha₀ : a₀ ∈ l) (hv : chainLe v O)
+    (hfire : ∀ acc : NodeState Node (Chain Tx) (QCert Node Tx),
+      chainLe acc.chFrozen O → chainLe acc.chFrozen v → chainLe v (f acc a₀).chFrozen)
+    {s : NodeState Node (Chain Tx) (QCert Node Tx)} (hs : chainLe s.chFrozen O) :
+    chainLe v (l.foldl f s).chFrozen := by
+  induction l generalizing s with
+  | nil => cases ha₀
+  | cons a l ih =>
+      rw [List.foldl_cons]
+      have hf' : ∀ (acc : NodeState Node (Chain Tx) (QCert Node Tx)) (b : α), b ∈ l →
+          chainLe acc.chFrozen O →
+          chainLe (f acc b).chFrozen O ∧ chainLe acc.chFrozen (f acc b).chFrozen :=
+        fun acc b hb => hf acc b (List.mem_cons_of_mem a hb)
+      rcases List.mem_cons.mp ha₀ with rfl | ha₀l
+      · -- the value's own step runs now
+        obtain ⟨h1, h2⟩ := hf s a₀ List.mem_cons_self hs
+        have hstep : chainLe v (f s a₀).chFrozen := by
+          rcases comparable_of_common_extension hs hv with hle | hle
+          · exact hfire s hs hle
+          · exact chainLe_trans hle h2
+        exact chainLe_trans hstep (foldl_bounded_mono hf' h1).2
+      · obtain ⟨h1, -⟩ := hf s a List.mem_cons_self hs
+        exact ih (fun acc b hb => hf acc b (List.mem_cons_of_mem a hb)) ha₀l h1
+
+/-- **Both conclusions from one step fact**: the bound with monotonicity, and the
+    domination of every value the fold's own step would write. `P a v` says "`a` offers the
+    write value `v`". -/
+theorem foldl_bounded_all {α : Type}
+    {f : NodeState Node (Chain Tx) (QCert Node Tx) → α →
+      NodeState Node (Chain Tx) (QCert Node Tx)}
+    {O : Chain Tx} {l : List α} {P : α → Chain Tx → Prop}
+    (hf : ∀ (acc : NodeState Node (Chain Tx) (QCert Node Tx)) (a : α), a ∈ l →
+      chainLe acc.chFrozen O →
+      chainLe (f acc a).chFrozen O ∧ chainLe acc.chFrozen (f acc a).chFrozen)
+    (hfire : ∀ a₀ ∈ l, ∀ v : Chain Tx, P a₀ v →
+      ∀ acc : NodeState Node (Chain Tx) (QCert Node Tx), chainLe acc.chFrozen O →
+        chainLe acc.chFrozen v → chainLe v (f acc a₀).chFrozen)
+    {s : NodeState Node (Chain Tx) (QCert Node Tx)} (hs : chainLe s.chFrozen O) :
+    (chainLe (l.foldl f s).chFrozen O ∧ chainLe s.chFrozen (l.foldl f s).chFrozen) ∧
+      ∀ a₀ ∈ l, ∀ v : Chain Tx, P a₀ v → chainLe v O →
+        chainLe v (l.foldl f s).chFrozen :=
+  ⟨foldl_bounded_mono hf hs,
+    fun a₀ ha₀ v hP hv => foldl_ge_of_fires hf ha₀ hv (hfire a₀ ha₀ v hP) hs⟩
+
+set_option maxHeartbeats 1000000 in
+/-- **Algorithm 5's proposal fold, under a common bound**: with every write value below
+    `O` — the certificate writes by `hval`, the justified-chain writes by `hjust` — the
+    processed frozen chain stays below `O`, never descends below the seed, and *dominates
+    every valid slot-`t` proposal's chain*.
+
+    The last is what condition 2.2's second cross-bound needs, and it is why the bound is
+    hypothesized rather than derived: the paper's justified-chain reset
+    (`chfrozen ← GJ_p.ch` when the accumulator does not extend it) can move the
+    accumulator sideways in general, and only comparability — which the common bound
+    supplies — makes it move *up*, turning the fold into a maximum. -/
+theorem processProposals_bounded {V : View Node M} {t : Nat}
+    {s : NodeState Node (Chain Tx) (QCert Node Tx)} {O : Chain Tx}
+    (hseed : chainLe s.chFrozen O)
+    (hval : ∀ sm ∈ V, ∀ chp chC qc ck, sm.msg = .propose chp chC qc ck t →
+      ValidProposal5 n proposer V sm → chainLe chC O)
+    (hjust : ∀ sm ∈ V, ∀ chp chC qc gjp, sm.msg = .propose chp chC qc gjp t →
+      JustifiedIn n V gjp → chainLe gjp.ch O) :
+    (chainLe (processProposals (components n kappa pool proposer) V t s).chFrozen O ∧
+        chainLe s.chFrozen
+          (processProposals (components n kappa pool proposer) V t s).chFrozen) ∧
+      ∀ sm ∈ V.toList, ∀ v : Chain Tx,
+        ((∃ chp qc ck, sm.msg = .propose chp v qc ck t) ∧
+          ValidProposal5 n proposer V sm) → chainLe v O →
+        chainLe v (processProposals (components n kappa pool proposer) V t s).chFrozen := by
+  unfold processProposals
+  refine foldl_bounded_all ?_ ?_ hseed
+  · -- every step stays under `O` and never descends
+    intro acc a ha hacc
+    have haV : a ∈ V := Finset.mem_toList.mp ha
+    obtain ⟨asd, amsg⟩ := a
+    cases amsg with
+    | vote ch src tgt t' => exact ⟨hacc, chainLe_refl _⟩
+    | propose chp chC qc gjp t' =>
+        dsimp only
+        by_cases hgj : t' = t ∧ (components n kappa pool proposer).validProposal V
+              ⟨asd, .propose chp chC qc gjp t'⟩ ∧
+            (components n kappa pool proposer).justified gjp V = true ∧
+            acc.gjFrozen.c ≤ gjp.c
+        · rw [if_pos hgj]
+          have hgjO : chainLe gjp.ch O :=
+            hjust _ haV chp chC qc gjp (by rw [hgj.1]) (of_decide_eq_true hgj.2.2.1)
+          by_cases h1 : (components n kappa pool proposer).prefixLe gjp.ch acc.chFrozen
+          · rw [if_pos h1]
+            split_ifs with h2
+            · exact ⟨hval _ haV chp chC qc gjp (by rw [h2.1]) h2.2.1, h2.2.2⟩
+            · exact ⟨hacc, chainLe_refl _⟩
+          · rw [if_neg h1]
+            have hup : chainLe acc.chFrozen gjp.ch := by
+              rcases comparable_of_common_extension hacc hgjO with h | h
+              · exact h
+              · exact absurd h h1
+            split_ifs with h2
+            · exact ⟨hval _ haV chp chC qc gjp (by rw [h2.1]) h2.2.1,
+                chainLe_trans hup h2.2.2⟩
+            · exact ⟨hgjO, hup⟩
+        · rw [if_neg hgj]
+          split_ifs with h2
+          · exact ⟨hval _ haV chp chC qc gjp (by rw [h2.1]) h2.2.1, h2.2.2⟩
+          · exact ⟨hacc, chainLe_refl _⟩
+  · -- a valid proposal's own step leaves the fold above its chain
+    intro a₀ ha₀ v hP acc hacc hle
+    obtain ⟨⟨chp, qc, ck, hmsg⟩, hvalid⟩ := hP
+    have haV : a₀ ∈ V := Finset.mem_toList.mp ha₀
+    obtain ⟨asd, amsg⟩ := a₀
+    have hm0 : amsg = Msg.propose chp v qc ck t := hmsg
+    subst hm0
+    dsimp only
+    by_cases hgj : t = t ∧ (components n kappa pool proposer).validProposal V
+          ⟨asd, .propose chp v qc ck t⟩ ∧
+        (components n kappa pool proposer).justified ck V = true ∧ acc.gjFrozen.c ≤ ck.c
+    · rw [if_pos hgj]
+      have hckO : chainLe ck.ch O :=
+        hjust _ haV chp v qc ck rfl (of_decide_eq_true hgj.2.2.1)
+      by_cases h1 : (components n kappa pool proposer).prefixLe ck.ch acc.chFrozen
+      · rw [if_pos h1]
+        split_ifs with h2
+        · exact chainLe_refl v
+        · exact absurd ⟨rfl, hvalid, hle⟩ h2
+      · rw [if_neg h1]
+        split_ifs with h2
+        · exact chainLe_refl v
+        · rcases comparable_of_common_extension hckO
+            (hval _ haV chp v qc ck rfl hvalid) with h | h
+          · exact absurd ⟨rfl, hvalid, h⟩ h2
+          · exact h
+    · rw [if_neg hgj]
+      split_ifs with h2
+      · exact chainLe_refl v
+      · exact absurd ⟨rfl, hvalid, hle⟩ h2
+
 end Majorum
