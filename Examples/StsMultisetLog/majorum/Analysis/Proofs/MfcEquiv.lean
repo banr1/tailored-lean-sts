@@ -1526,4 +1526,87 @@ theorem lemma13 (hn : n = Fintype.card Node)
       (le_trans hta2 hta)
     exact chainLe_trans hdom hchi
 
+/-! ### The grand induction's raw pieces -/
+
+/-- An active vote tick writes exactly the `chAva` fold. -/
+theorem vote_tick_chAva {x5 : Exec Pr5 S} {k : Nat} {w : Node} {t : Time}
+    (hlbl : x5.lbl k = .tick w t) (hmod : t % Q.slotLength = Q.delta)
+    (hgate : x5[k][w].st.activeAt ≤ t) :
+    x5[k + 1][w].st.chAva = voteChAva x5 k w t := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have hget : x5[k + 1][w].st
+      = (handlerCore (components n kappa pool proposer) Q (pick5 x5 k w t) w t
+        x5[k][w].view x5[k][w].st).state := by
+    rw [show x5[k + 1] = _ from exec5_succ (x5 := x5) k, hlbl]
+    simp only [applyNodeStepResult_getElem, setClock_getElem, if_pos rfl, if_true]
+    rfl
+  rw [hget]
+  simp only [handlerCore, apply_ite NodeStepResult.state]
+  rw [if_neg (by omega), if_pos hmod, if_pos hgate]
+  unfold voteChAva
+  rfl
+
+/-- **The justified-descent, landing on a vote tick**: a checkpoint justified in any
+    view reachable by step `i` is genesis-chained, or its chain is below some *earlier
+    active vote tick's* `chAva` fold output — the witness form condition 2.3's
+    maintenance consumes (the `M2`-bounded form, `justified_le_of_chAva_le`, bounds by
+    a fork-choice term; the dominance invariant needs the tick itself). Same descent:
+    fresh-mode targets are the fold output, stale-mode targets equal their source,
+    which is the voter's own justified `gjFrozen`, one checkpoint slot down. -/
+theorem justified_to_voteChAva {x5 : Exec Pr5 S}
+    (hsync : SynchronizedClocks x5) (hmc : S.MonotoneCorruption)
+    (hmono : TimeMonotone x5)
+    (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < n)
+    (hcard : Fintype.card Node ≤ n)
+    {i : Nat} (cJ : Nat) :
+    ∀ (J : Checkpoint (Chain Tx)), J.c = cJ →
+    ∀ (j : Nat) (q : Node), j ≤ i →
+      JustifiedIn n x5[j][q].view J →
+      J.ch = [] ∨
+      ∃ (k : Nat) (w : Node) (t : Time), k < i ∧ x5.lbl k = .tick w t ∧
+        t % Q.slotLength = Q.delta ∧ x5[k][w].st.activeAt ≤ t ∧
+        chainLe J.ch (voteChAva x5 k w t) := by
+  induction cJ using Nat.strong_induction_on with
+  | _ cJ IH =>
+  intro J hJc j q hji hJ
+  cases hJ with
+  | genesis => exact Or.inl rfl
+  | @link C _ hC hlink =>
+      obtain ⟨w, hwA, hwhon⟩ := exists_honest_of_quorum (r := ((x5[j].time : Int)))
+        hcb hfn hcard hlink.2.2
+      obtain ⟨sm, hsmV, hsmw, e, τ, hsmmsg⟩ := mem_linkVoters hwA
+      have hsmsent : sm ∈ x5[j].sent := views_sound x5 j q sm hsmV
+      have hhon : sm.sender ∉ S.adv ((x5[j].time : Int)) := by
+        rw [hsmw]
+        exact hwhon
+      obtain ⟨k, hkj, hlblk, htimek, hgate, -, pk, hpk, hsend⟩ :=
+        vote_provenance (C := components n kappa pool proposer) hsync hmc hmono
+          hsmsent hhon hsmmsg
+      have hcontent := handler_vote_fin_content (voting_reading_mod Q τ) hsend
+      rw [voting_reading_div Q τ, hsmmsg] at hcontent
+      injection hcontent with he hsrc htgt hslot
+      by_cases hmode : (processProposals (components n kappa pool proposer)
+          x5[k][sm.sender].view τ x5[k][sm.sender].st).gjFrozen.c = τ - 1
+      · rw [if_pos hmode] at htgt
+        refine Or.inr ⟨k, sm.sender, Q.slotLength * τ + Q.delta,
+          lt_of_lt_of_le hkj hji, hlblk, voting_reading_mod Q τ, hgate, ?_⟩
+        have hJch : J.ch = voteChAva x5 k sm.sender (Q.slotLength * τ + Q.delta) := by
+          rw [htgt]
+          unfold voteChAva
+          rw [voting_reading_div Q τ]
+        rw [hJch]
+        exact chainLe_refl _
+      · rw [if_neg hmode] at htgt
+        have hCsrc : C = (processProposals (components n kappa pool proposer)
+            x5[k][sm.sender].view τ x5[k][sm.sender].st).gjFrozen := hsrc
+        have hJch : J.ch = C.ch := by
+          rw [htgt, hCsrc]
+        have hCjust : JustifiedIn n x5[k][sm.sender].view C := by
+          rw [hCsrc]
+          exact processProposals_gjFrozen_justified (gjFrozen_justified k sm.sender)
+        rw [hJch]
+        exact IH C.c (hJc ▸ hlink.1) C rfl k sm.sender
+          (le_of_lt (lt_of_lt_of_le hkj hji)) hCjust
+
 end Majorum
