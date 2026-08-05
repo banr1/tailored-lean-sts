@@ -305,6 +305,7 @@ theorem tableDynEq_step {x5 : Exec Pr5 S} {k : Nat} (h : TableDynEq x5 k)
           (fastConfirmSimple n (simState x5 k).1[p].view (t / Q.slotLength - 1)).1
           (t / Q.slotLength))
     (hV : ∀ p t, x5.lbl k = .tick p t → t % Q.slotLength = Q.delta →
+      x5[k][p].st.activeAt ≤ t →
       simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
         (setClock p t (simState x5 k).1)[p].st = pick5 x5 k p t) :
     TableDynEq x5 (k + 1) := by
@@ -337,11 +338,16 @@ theorem tableDynEq_step {x5 : Exec Pr5 S} {k : Nat} (h : TableDynEq x5 k)
               have hmfc := hP p t hl hmod
               simp only [setClock_getElem, if_pos rfl, if_true]
               rw [components_extend, hmfc]
-            · -- vote reading: both chains are the (aligned) pick
+            · -- vote reading: both chains are the (aligned) pick; the fired send
+              -- opens the joining check
               obtain ⟨src, tgt, hm5⟩ := handler_vote_content hmod hcond.2
               have hm2' := handler2_vote_content hmod hm2
               rw [hm5, hm2']
-              exact ⟨(hV p t hl hmod).symm, rfl⟩
+              have hgate : x5[k][p].st.activeAt ≤ t := by
+                have hg := (mem_handler_send hcond.2).1
+                simp only [setClock_getElem, if_pos rfl, if_true] at hg
+                exact hg
+              exact ⟨(hV p t hl hmod hgate).symm, rfl⟩
       · rw [if_neg hcond]
         exact h sm
   | deliver q m' => simp only [simStep, hl]; exact h sm
@@ -1046,6 +1052,32 @@ theorem processProposals_chFrozen (V : View Node M) (t : Nat)
       · exact Or.inr (Or.inl h)
       · exact Or.inr (Or.inr h)
 
+/-- A tick does not move the original run's time. -/
+theorem tick_time5 {x5 : Exec Pr5 S} {k : Nat} {p : Node} {t : Time}
+    (hlbl : x5.lbl k = .tick p t) : x5[k + 1].time = x5[k].time := by
+  rw [show x5[k + 1] = _ from exec5_succ (x5 := x5) k, hlbl]
+  rfl
+
+/-- Under synchronized clocks, a tick's reading is the real time it happens at —
+    Algorithm 5's side. -/
+theorem tick_reading5 {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
+    {k : Nat} {p : Node} {t : Time} (hlbl : x5.lbl k = .tick p t) :
+    x5[k].time = t := by
+  have hclock : x5[k + 1][p].clock = t := by
+    rw [show x5[k + 1] = _ from exec5_succ (x5 := x5) k, hlbl]
+    simp [applyNodeStepResult_getElem, setClock_getElem]
+  have hstep := x5.step k
+  rw [hlbl] at hstep
+  have hawk : x5.Awake (k + 1) p := by
+    show p ∈ S.awake ((x5[k + 1].time : Int))
+    rw [tick_time5 hlbl]
+    have h1 := hstep.1
+    simp only [spec] at h1
+    exact h1
+  have hs := hsync (k + 1) p hawk
+  rw [hclock] at hs
+  rw [← tick_time5 hlbl, ← hs]
+
 /-! ### Definition 9, rendered -/
 
 /-- The honest-proposal window, on the Algorithm-5 side — `HonestProposalWindow`'s
@@ -1083,6 +1115,7 @@ def MfcEquivalent (x5 : Exec Pr5 S) (x2 : Exec Pr2 S) : Prop :=
         (fastConfirmSimple n x2[k][p].view (t / Q.slotLength - 1)).1
         (t / Q.slotLength)) ∧
   (∀ k p t, x5.lbl k = .tick p t → t % Q.slotLength = Q.delta →
+    x5[k][p].st.activeAt ≤ t →
     (components n kappa pool proposer).mfc
         (processProposals (components n kappa pool proposer)
           x5[k][p].view (t / Q.slotLength) x5[k][p].st).vFrozen
@@ -1264,12 +1297,84 @@ theorem lemma11_votes (hn : n = Fintype.card Node)
       (activeVotesExtend_transfer heq H5.wellformed.2.2.1 H5.wellformed.1
         H5.wellformed.2.2.2.1 H5.wellformed.2.1 H2.wellformed.2.2.1 h))
 
+/-- `activeAt_le_voting`, on the Algorithm-5 side: a validator awake through the
+    activity window has its joining check open at the voting reading. -/
+theorem activeAt_le_voting5 {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
+    (hmono : TimeMonotone x5) {p : Node} {t1 : Nat}
+    (hwin : ∀ r : Int, ((Q.slotLength * t1 + Q.delta : Nat) : Int) - 3 * Q.delta ≤ r →
+      r ≤ ((Q.slotLength * t1 + Q.delta : Nat) : Int) → p ∈ S.awake r)
+    {j : Nat} (hj : x5[j].time ≤ Q.slotLength * t1 + Q.delta) :
+    x5[j][p].st.activeAt ≤ Q.slotLength * t1 + Q.delta := by
+  induction j with
+  | zero =>
+      have h0 := x5.init.2.1 p
+      show ((x5.cfg 0)[p]).st.activeAt ≤ Q.slotLength * t1 + Q.delta
+      rw [h0]
+      exact Nat.zero_le _
+  | succ m ih =>
+      have hm' : x5[m].time ≤ Q.slotLength * t1 + Q.delta :=
+        le_trans (time_le_of_le hmono (Nat.le_succ m)) hj
+      have hA := ih hm'
+      have hstep : Step Pr5 S (x5.lbl m) x5[m] x5[m + 1] := x5.step m
+      refine hstep.elimR (motive := fun _ c c' =>
+          c[p].st.activeAt ≤ Q.slotLength * t1 + Q.delta →
+          c.time ≤ Q.slotLength * t1 + Q.delta →
+          (∀ q : Node, q ∈ S.awake ((c.time : Int)) → c[q].clock = c.time) →
+          c'[p].st.activeAt ≤ Q.slotLength * t1 + Q.delta)
+        ?_ ?_ ?_ ?_ ?_ ?_ hA hm' (fun q hq => hsync m q hq)
+      · intro d t h _ _
+        exact h
+      · intro d d' q t hen hns h _ _
+        rw [nodeStep_iff_exists] at hns
+        obtain ⟨res, hres, rfl⟩ := hns
+        rw [protocol_step_tick] at hres
+        obtain ⟨pk, -, rfl⟩ := mem_handler_iff.mp hres
+        by_cases hq : q = p
+        · subst hq
+          simpa [applyNodeStepResult_getElem, handler_activeAt, setClock_getElem] using h
+        · simpa [applyNodeStepResult_getElem, setClock_getElem, hq] using h
+      · intro d d' q mm hen hns h _ _
+        rw [nodeStep_iff_exists] at hns
+        obtain ⟨res, hres, rfl⟩ := hns
+        rw [protocol_step_recv] at hres
+        subst hres
+        by_cases hq : q = p
+        · subst hq
+          simpa [applyNodeStepResult_getElem, receive_getElem] using h
+        · simpa [applyNodeStepResult_getElem, receive_getElem, hq] using h
+      · intro d d' q hen hns h hm'' hclocks
+        simp only [spec] at hen
+        rw [nodeStep_iff_exists] at hns
+        obtain ⟨res, hres, rfl⟩ := hns
+        rw [protocol_step_wake] at hres
+        subst hres
+        by_cases hq : q = p
+        · subst hq
+          have hlow : (d.time : Int) - 1 <
+              ((Q.slotLength * t1 + Q.delta : Nat) : Int) - 3 * Q.delta := by
+            by_contra hge
+            refine hen.2 (hwin ((d.time : Int) - 1) (by omega) ?_)
+            have hdt : (d.time : Int) ≤ ((Q.slotLength * t1 + Q.delta : Nat) : Int) := by
+              exact_mod_cast hm''
+            omega
+          have hr : d.time + 3 * Q.delta ≤ Q.slotLength * t1 + Q.delta := by
+            have h2 : (d.time : Int) + 3 * Q.delta ≤
+                ((Q.slotLength * t1 + Q.delta : Nat) : Int) := by omega
+            exact_mod_cast h2
+          simpa [applyNodeStepResult_getElem, hclocks q hen.1] using
+            activationRound_le_voting Q hr
+        · simpa [applyNodeStepResult_getElem, hq] using h
+      · intro d d' q ev hen hns
+        exact ev.elim
+      · intro d q mm hen h _ _
+        exact h
+
 set_option maxHeartbeats 1000000 in
 /-- The two Algorithm-5 fork-choice bounds at slot `t+1`, from the equivalent run's
     slot-`t` votes — Lemma 11's engine, reused by Lemma 12 at every later slot. -/
 theorem mfc_bounds_of_ave2 (hn : n = Fintype.card Node)
     {x5 : Exec Pr5 S} {x2 : Exec Pr2 S}
-    (heq : MfcEquivalent x5 x2) (H2 : SettingGA Q S x2)
+    (heq : MfcEquivalent x5 x2) (H5 : SettingGA Q S x5) (H2 : SettingGA Q S x2)
     {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx}
     (hvotes2 : ActiveVotesExtend2 x2 t ch) :
     (∀ (k : Nat) (vi : Node), vi ∈ Active Q S ((t : Int) + 1) →
@@ -1308,7 +1413,17 @@ theorem mfc_bounds_of_ave2 (hn : n = Fintype.card Node)
       hsyn2 hslp hcb hfn (le_refl _) hgst ht hvotes2 htb hvi
     simpa using hbound
   · intro k vi hvi hlbl
-    have h22 := heq.2.2.2.1 k vi _ hlbl (voting_reading_mod Q (t + 1))
+    have hgate : x5[k][vi].st.activeAt ≤ Q.slotLength * (t + 1) + Q.delta := by
+      refine activeAt_le_voting5 H5.wellformed.2.2.1 H5.wellformed.2.2.2.1
+        (t1 := t + 1) ?_ ?_
+      · intro r h1 h2
+        refine mem_awakeThroughout.mp hvi r ?_ ?_ <;>
+          · show _
+            unfold Params.voting
+            push_cast at h1 h2 ⊢
+            omega
+      · exact le_of_eq (tick_reading5 H5.wellformed.2.2.1 hlbl)
+    have h22 := heq.2.2.2.1 k vi _ hlbl (voting_reading_mod Q (t + 1)) hgate
     rw [voting_reading_div Q (t + 1)] at h22
     rw [h22]
     have hlbl2 := (heq.1 k vi _).mp hlbl
@@ -1348,7 +1463,7 @@ theorem lemma11 (hn : n = Fintype.card Node)
   have hvotes2 : ActiveVotesExtend2 x2 t ch :=
     activeVotesExtend_transfer heq H5.wellformed.2.2.1 H5.wellformed.1
       H5.wellformed.2.2.2.1 H5.wellformed.2.1 H2.wellformed.2.2.1 h
-  obtain ⟨hP, hV⟩ := mfc_bounds_of_ave2 rfl heq H2 ht hvotes2
+  obtain ⟨hP, hV⟩ := mfc_bounds_of_ave2 rfl heq H5 H2 ht hvotes2
   exact ⟨hP, hV, lemma11_votes rfl heq H5 H2 ht h⟩
 
 /-- **An honest Algorithm-5 proposal pins its emitting tick**: reading `propose(t)`,
@@ -1463,7 +1578,7 @@ theorem lemma12 (hn : n = Fintype.card Node)
     exact activeVotesExtend_transfer' heq H2.wellformed.2.2.1 H2.wellformed.1
       H2.wellformed.2.2.2.1 H2.wellformed.2.1 H5.wellformed.2.2.1 (hvotes2 t' ht')
   · intro t₀ ht₀
-    exact mfc_bounds_of_ave2 rfl heq H2 (le_trans ht ht₀) (hvotes2 t₀ ht₀)
+    exact mfc_bounds_of_ave2 rfl heq H5 H2 (le_trans ht ht₀) (hvotes2 t₀ ht₀)
 
 set_option maxHeartbeats 1000000 in
 /-- **Lemma 13** (`Lemma 13, arXiv:2601.03862v1 p.20`, the analogue of Lemma 5, for
@@ -1474,7 +1589,7 @@ set_option maxHeartbeats 1000000 in
     and conditions 2.1/2.2 carry the bound back. -/
 theorem lemma13 (hn : n = Fintype.card Node)
     {x5 : Exec Pr5 S} {x2 : Exec Pr2 S}
-    (heq : MfcEquivalent x5 x2) (H2 : SettingGA Q S x2)
+    (heq : MfcEquivalent x5 x2) (H5 : SettingGA Q S x5) (H2 : SettingGA Q S x2)
     (hκ : 1 ≤ kappa) (hwin2 : HonestProposalWindow x2)
     (a : Nat) (vi : Node) (k : Nat) (vj : Node) (s0 : Nat)
     (hv : vj ∈ Active Q S ((s0 : Int) + 1)) :
@@ -1517,7 +1632,17 @@ theorem lemma13 (hn : n = Fintype.card Node)
       (le_trans hta2 hta)
     exact chainLe_trans hdom hchi
   · intro hlbl hta
-    have h22 := heq.2.2.2.1 k vj _ hlbl (voting_reading_mod Q (s0 + 1))
+    have hgate : x5[k][vj].st.activeAt ≤ Q.slotLength * (s0 + 1) + Q.delta := by
+      refine activeAt_le_voting5 H5.wellformed.2.2.1 H5.wellformed.2.2.2.1
+        (t1 := s0 + 1) ?_ ?_
+      · intro r h1 h2
+        refine mem_awakeThroughout.mp hv r ?_ ?_ <;>
+          · show _
+            unfold Params.voting
+            push_cast at h1 h2 ⊢
+            omega
+      · exact le_of_eq (tick_reading5 H5.wellformed.2.2.1 hlbl)
+    have h22 := heq.2.2.2.1 k vj _ hlbl (voting_reading_mod Q (s0 + 1)) hgate
     rw [voting_reading_div Q (s0 + 1)] at h22
     rw [h22]
     have hlbl2 := (heq.1 k vj _).mp hlbl
