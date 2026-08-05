@@ -1418,8 +1418,14 @@ theorem mfc_bounds_of_ave2 (hn : n = Fintype.card Node)
     rw [h21]
     have hlbl2 := (heq.1 k vi _).mp hlbl
     have htb : x2[k].time = Q.slotLength * (t + 1) := tick_reading hsync2 hlbl2
+    have hawk2 : x2.Awake k vi := by
+      have hstep := x2.step k
+      rw [hlbl2] at hstep
+      have h1 := hstep.1
+      simp only [spec] at h1
+      exact h1
     have hbound := le_mfc_at_propose_of_ave hsync2 hstepw2 hdil2 hwpt2 hone2 hmc2
-      hsyn2 hslp hcb hfn (le_refl _) hgst ht hvotes2 htb hvi
+      hsyn2 hslp hcb hfn (le_refl _) hgst ht hvotes2 htb hawk2
     simpa using hbound
   · intro k vi hvi hlbl
     have hgate : x5[k][vi].st.activeAt ≤ Q.slotLength * (t + 1) + Q.delta := by
@@ -1636,8 +1642,14 @@ theorem lemma13 (hn : n = Fintype.card Node)
     rw [h21]
     have hlbl2 := (heq.1 k vj _).mp hlbl
     have htb : x2[k].time = Q.slotLength * (s0 + 1) := tick_reading hsync2 hlbl2
+    have hawk2 : x2.Awake k vj := by
+      have hstep := x2.step k
+      rw [hlbl2] at hstep
+      have h1 := hstep.1
+      simp only [spec] at h1
+      exact h1
     have hchi := (chi_le_mfc hsync2 hstepw2 hdiv2 hdil2 hone2 hwpt2 hmc2 hsyn2 hrel2
-      hslp hcb hfn (le_refl _) hgst hκ hwin2 a2 w2 k vj s0 hv).1 htb
+      hslp hcb hfn (le_refl _) hgst hκ hwin2 a2 w2 k vj s0).1 hawk2 htb
       (le_trans hta2 hta)
     exact chainLe_trans hdom hchi
   · intro hlbl hta
@@ -1656,7 +1668,7 @@ theorem lemma13 (hn : n = Fintype.card Node)
     rw [h22]
     have hlbl2 := (heq.1 k vj _).mp hlbl
     have hchi := (chi_le_mfc hsync2 hstepw2 hdiv2 hdil2 hone2 hwpt2 hmc2 hsyn2 hrel2
-      hslp hcb hfn (le_refl _) hgst hκ hwin2 a2 w2 k vj s0 hv).2 hlbl2
+      hslp hcb hfn (le_refl _) hgst hκ hwin2 a2 w2 k vj s0).2 hv hlbl2
       (le_trans hta2 hta)
     exact chainLe_trans hdom hchi
 

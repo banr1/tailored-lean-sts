@@ -1753,7 +1753,7 @@ theorem le_mfc_at_propose2 {x : Exec Pr2 S}
     (hsyn : Synchrony 0 Q.delta x) (hslp : Sleepiness Q S) (hgst : Q.gst = 0)
     {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx} (hvotes : ActiveVotesExtend2 x t ch)
     {ip : Nat} (hip : x[ip].time = Q.slotLength * (t + 1))
-    {v : Node} (hv : v ∈ Active Q S ((t : Int) + 1))
+    {v : Node} (hvAw : x.Awake ip v)
     {b : Chain Tx} (hb : chainLe b ch) :
     chainLe ch (mfc (x[ip][v].view) (x[ip][v].view) b (t + 1)) := by
   have hmono := hstepw.timeMonotone
@@ -1765,10 +1765,6 @@ theorem le_mfc_at_propose2 {x : Exec Pr2 S}
     push_cast
     omega
   -- `v` is awake at `propose(t+1)`: it sits inside slot `t+1`'s activity window
-  have hvAw : x.Awake ip v := by
-    show v ∈ S.awake ((x[ip].time : Int))
-    rw [hip]
-    refine mem_awakeThroughout.mp hv _ ?_ ?_ <;> rw [hvot1] <;> push_cast <;> omega
   -- each still-honest active of slot `t` pushes its vote through the filters at `t+1`
   have hmemFor : ∀ p ∈ Active Q S (t : Int) \ S.adv (Q.voting ((t : Int) + 1)),
       ∃ smp ∈ votesFor (x[ip][v].view) ch (t + 1), smp.sender = p := by
@@ -3204,7 +3200,7 @@ theorem le_mfc_at_propose_of_quorum {x : Exec Pr2 S}
     (htiw : x[iw].time = Q.slotLength * t + 2 * Q.delta)
     (hfc : fastConfirmSimple n (x[iw][w].view) t = (ch, some cert))
     {b : Nat} (htb : x[b].time = Q.slotLength * (t + 1))
-    {vj : Node} (hv : vj ∈ Active Q S ((t : Int) + 1)) :
+    {vj : Node} (hAwb : x.Awake b vj) :
     chainLe ch (mfc (x[b][vj].view) (x[b][vj].view)
       (fastConfirmSimple n (x[b][vj].view) t).1 (t + 1)) := by
   have hmono := hstepw.timeMonotone
@@ -3224,10 +3220,6 @@ theorem le_mfc_at_propose_of_quorum {x : Exec Pr2 S}
     push_cast
     omega
   have hexp : Q.slotLength * (t + 1) = Q.slotLength * t + Q.slotLength := Nat.mul_succ ..
-  have hAwb : x.Awake b vj := by
-    show vj ∈ S.awake ((x[b].time : Int))
-    rw [htb]
-    refine mem_awakeThroughout.mp hv _ ?_ ?_ <;> rw [hvot1] <;> push_cast <;> omega
   have hsub : ((votes (x[iw][w].view)).filter (fun sm => msgSlot sm.msg = t ∧
         chainLe ch (msgChain sm.msg))) ⊆
       ((votes (x[b][vj].view)).filter (fun sm => msgSlot sm.msg = t ∧
@@ -3948,7 +3940,7 @@ theorem le_mfc_at_propose_of_ave {x : Exec Pr2 S}
     (hgst : Q.gst = 0)
     {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx} (hvotes : ActiveVotesExtend2 x t ch)
     {b : Nat} (htb : x[b].time = Q.slotLength * (t + 1))
-    {vj : Node} (hv : vj ∈ Active Q S ((t : Int) + 1)) :
+    {vj : Node} (hAwb : x.Awake b vj) :
     chainLe ch (mfc (x[b][vj].view) (x[b][vj].view)
       (fastConfirmSimple n (x[b][vj].view) t).1 (t + 1)) := by
   have hmono := hstepw.timeMonotone
@@ -3956,7 +3948,7 @@ theorem le_mfc_at_propose_of_ave {x : Exec Pr2 S}
   have hsl : Q.slotLength = 4 * Q.delta := rfl
   rcases fastConfirmSimple_fst_cases (n := n) (x[b][vj].view) t with h0 | hsupp
   · refine le_mfc_at_propose2 hsync hstepw hdil hwpt hone hmc hsyn hslp hgst ht hvotes
-      htb hv ?_
+      htb hAwb ?_
     rw [h0]
     exact chainLe_nil _
   · obtain ⟨q0, hq0mem, hq0hon⟩ :=
@@ -3991,7 +3983,7 @@ theorem le_mfc_at_propose_of_ave {x : Exec Pr2 S}
     rcases comparable_of_common_extension hchq
         (by rw [hchain]; exact hext : chainLe ch (msgChain smq.msg)) with hbc | hcb2
     · exact le_mfc_at_propose2 hsync hstepw hdil hwpt hone hmc hsyn hslp hgst ht hvotes
-        htb hv hbc
+        htb hAwb hbc
     · exact chainLe_trans hcb2 (base_le_mfc _ _ _ _)
 
 set_option maxHeartbeats 2000000 in
@@ -4016,11 +4008,12 @@ theorem chi_le_mfc {x : Exec Pr2 S}
     (hcard : Fintype.card Node ≤ n) (hgst : Q.gst = 0)
     (hκ : 1 ≤ kappa) (hwin : HonestProposalWindow x) :
     ∀ (a : Nat) (vi : Node) (b : Nat) (vj : Node) (s0 : Nat),
-      vj ∈ Active Q S ((s0 : Int) + 1) →
-      ((x[b].time = Q.slotLength * (s0 + 1) → x[a].time ≤ Q.slotLength * (s0 + 1) →
+      ((x.Awake b vj →
+        x[b].time = Q.slotLength * (s0 + 1) → x[a].time ≤ Q.slotLength * (s0 + 1) →
         chainLe (x[a][vi].st.chi) (mfc (x[b][vj].view) (x[b][vj].view)
           (fastConfirmSimple n (x[b][vj].view) s0).1 (s0 + 1))) ∧
-       (x.lbl b = .tick vj (Q.slotLength * (s0 + 1) + Q.delta) →
+       (vj ∈ Active Q S ((s0 : Int) + 1) →
+        x.lbl b = .tick vj (Q.slotLength * (s0 + 1) + Q.delta) →
           x[a].time ≤ Q.slotLength * (s0 + 1) + Q.delta →
         chainLe (x[a][vi].st.chi)
           (mfc (processProposals2 n proposer (x[b][vj].view) (s0 + 1)
@@ -4034,24 +4027,24 @@ theorem chi_le_mfc {x : Exec Pr2 S}
   intro a
   induction a with
   | zero =>
-      intro vi b vj s0 hact
+      intro vi b vj s0
       have h0 : x[0][vi].st.chi = [] := by
         have h := x.init.2.1 vi
         show ((x.cfg 0)[vi]).st.chi = []
         rw [h]
         rfl
-      exact ⟨fun _ _ => by rw [h0]; exact chainLe_nil _,
-        fun _ _ => by rw [h0]; exact chainLe_nil _⟩
+      exact ⟨fun _ _ _ => by rw [h0]; exact chainLe_nil _,
+        fun _ _ _ => by rw [h0]; exact chainLe_nil _⟩
   | succ a ih =>
-      intro vi b vj s0 hact
+      intro vi b vj s0
       rcases chi_step2 (x := x) (m := a) (p := vi) with hun | ⟨ti, hlbl, hguard, hchieq⟩ |
         ⟨ti, hlbl, hqsome, -, hchieq⟩
       · -- untouched: inherit
         have hle : x[a].time ≤ x[a + 1].time := time_le_of_le hmono (Nat.le_succ a)
-        exact ⟨fun htb hab => by
-            rw [hun]; exact (ih vi b vj s0 hact).1 htb (by omega),
-          fun hjb hab => by
-            rw [hun]; exact (ih vi b vj s0 hact).2 hjb (by omega)⟩
+        exact ⟨fun hawk htb hab => by
+            rw [hun]; exact (ih vi b vj s0).1 hawk htb (by omega),
+          fun hact hjb hab => by
+            rw [hun]; exact (ih vi b vj s0).2 hact hjb (by omega)⟩
       · -- the κ-deep write
         have hta : x[a].time = Q.slotLength * ti + Q.delta := tick_reading hsync hlbl
         have hta1 : x[a + 1].time = x[a].time := tick_time hlbl
@@ -4063,8 +4056,8 @@ theorem chi_le_mfc {x : Exec Pr2 S}
           have hnil : x[a + 1][vi].st.chi = [] := by
             rw [hchieq]
             exact kappaPrefix_nil_of_lt hshort _
-          exact ⟨fun _ _ => by rw [hnil]; exact chainLe_nil _,
-            fun _ _ => by rw [hnil]; exact chainLe_nil _⟩
+          exact ⟨fun _ _ _ => by rw [hnil]; exact chainLe_nil _,
+            fun _ _ _ => by rw [hnil]; exact chainLe_nil _⟩
         · -- from `κ` on: the window's honest proposal absorbs the prefix
           obtain ⟨t0, rfl⟩ : ∃ t0, ti = t0 + 1 := ⟨ti - 1, by omega⟩
           obtain ⟨tp, htp0, htp1, htp2, i, vp, chp, chC, qc, ck, hsent, hhon_i,
@@ -4095,7 +4088,7 @@ theorem chi_le_mfc {x : Exec Pr2 S}
             rw [hpa]
             omega
           constructor
-          · intro htb hab
+          · intro hawk htb hab
             rw [hchieq]
             refine chainLe_trans habs ?_
             have hmul : Q.slotLength * (t0 + 1) < Q.slotLength * (s0 + 1) := by
@@ -4103,8 +4096,8 @@ theorem chi_le_mfc {x : Exec Pr2 S}
               omega
             have hts : t0 + 1 < s0 + 1 := Nat.lt_of_mul_lt_mul_left hmul
             exact le_mfc_at_propose_of_ave hsync hstepw hdil hwpt hone hmc hsyn hslp
-              hcb hfn hcard hgst (by omega : 1 ≤ s0) (hAVE s0 (by omega)) htb hact
-          · intro hjb hab
+              hcb hfn hcard hgst (by omega : 1 ≤ s0) (hAVE s0 (by omega)) htb hawk
+          · intro hact hjb hab
             rw [hchieq]
             refine chainLe_trans habs ?_
             have hmul : Q.slotLength * (t0 + 1) ≤ Q.slotLength * (s0 + 1) := by
@@ -4121,7 +4114,7 @@ theorem chi_le_mfc {x : Exec Pr2 S}
             = ((fastConfirmSimple n (x[a][vi].view) ti).1, some cert) := by
           rw [← hcert]
         constructor
-        · intro htb hab
+        · intro hawk htb hab
           rw [hchieq]
           have hmul : Q.slotLength * ti < Q.slotLength * (s0 + 1) := by
             rw [hta1, hta] at hab
@@ -4133,12 +4126,12 @@ theorem chi_le_mfc {x : Exec Pr2 S}
             have hAVEs := ave_propagate hsync hstepw hdiv hdil hone hwpt hmc hsyn hslp
               hcb hfn hgst (by omega : 1 ≤ ti + 1) hAVE1 (show ti + 1 ≤ s0 by omega)
             exact le_mfc_at_propose_of_ave hsync hstepw hdil hwpt hone hmc hsyn hslp
-              hcb hfn hcard hgst (by omega : 1 ≤ s0) hAVEs htb hact
+              hcb hfn hcard hgst (by omega : 1 ≤ s0) hAVEs htb hawk
           · have hs0 : s0 = ti := by omega
             subst hs0
             exact le_mfc_at_propose_of_quorum hsync hstepw hone hmc hsyn hcb hfn hcard
-              hta hfc htb hact
-        · intro hjb hab
+              hta hfc htb hawk
+        · intro hact hjb hab
           rw [hchieq]
           have hmul : Q.slotLength * ti < Q.slotLength * (s0 + 1) := by
             rw [hta1, hta] at hab
@@ -4261,7 +4254,7 @@ theorem le_chi_of_honest_proposal {x : Exec Pr2 S}
     (by omega : 1 ≤ s0) (hAVE s0 (by omega)) hActs0 hlblj
   -- … the old confirmed chain sits below the same fork choice …
   have hold := (chi_le_mfc hsync hstepw hdiv hdil hone hwpt hmc hsyn hrel hslp hcb hfn
-    hcard hgst hκ hwin j vi j vi s0 hActs0).2 hlblj (le_of_eq htj)
+    hcard hgst hκ hwin j vi j vi s0).2 hActs0 hlblj (le_of_eq htj)
   -- … and the κ-deep write lands at or above `chp`
   obtain ⟨dt, pk, hpkk, hst, -⟩ := tick_effect hlblj
   have hvstate := handler2_vote_state (Q := Q) (n := n) (kappa := kappa) (pool := pool)

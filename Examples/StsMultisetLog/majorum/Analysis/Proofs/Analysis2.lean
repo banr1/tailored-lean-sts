@@ -102,8 +102,21 @@ theorem lemma5 {x : Exec Pr2 S} (H : SettingGA Q S x) (hκ : 1 ≤ kappa)
     have hcast : (((s0 + 1 : Nat)) : Int) = (s0 : Int) + 1 := by push_cast; omega
     rw [← hcast]
     exact hact
-  simpa using chi_le_mfc hsync hstepw hdiv hdil hone hwpt hmc hsyn hrel hslp hcb hfn
-    (le_refl _) hgst hκ hwin a vi b vj s0 hact'
+  have h := chi_le_mfc hsync hstepw hdiv hdil hone hwpt hmc hsyn hrel hslp hcb hfn
+    (le_refl _) hgst hκ hwin a vi b vj s0
+  have hδ := Q.deltaPos
+  have hvot1 : Q.voting ((s0 : Int) + 1)
+      = ((Q.slotLength * (s0 + 1) + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  refine ⟨fun htb hab => ?_, fun hjb hab => by simpa using h.2 hact' hjb hab⟩
+  have hawk : x.Awake b vj := by
+    show vj ∈ S.awake ((x[b].time : Int))
+    rw [htb]
+    refine mem_awakeThroughout.mp hact' _ ?_ ?_ <;> rw [hvot1] <;> push_cast <;>
+      have hsl : Q.slotLength = 4 * Q.delta := rfl <;> omega
+  simpa using h.1 hawk htb hab
 
 /-- Lemma 6, assembled — `mfc_propose_ok`'s second projection.
     Documented in `Analysis/Lemmas.lean`. -/
