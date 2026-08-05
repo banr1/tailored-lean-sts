@@ -663,31 +663,29 @@ theorem activeAt_lb_step {x : Exec Pr S} (hsync : SynchronizedClocks x) {m : Nat
     intro d q mm hen h _ _
     exact h
 
-/-- **An honest voter is active.** A vote for slot `t` in the log, whose sender is still
-    honest, puts that sender in `Active(t)` — the paper's silent step from "voted in slot
-    `t`" to membership in `H_{vote(t)}`, and the last piece of Lemma 2's containment.
+/-- **An open joining check at a vote tick means the validator is active.** The tick's own
+    enabling condition puts it awake at `voting(t)`; if it had been asleep anywhere in
+    `Active`'s window, the last such round's transition would carry a wake event
+    (`Diligent` ticks the transition round, `WakePrecedesTick` demands the event), and a
+    wake that recent stores an activation round *after* `voting(t)` — which nothing lowers
+    (`activeAt_lb_step`), against the open check.
 
-    The dichotomy: either the sender was awake through the whole activity window, which is
-    `Active(t)` directly; or it has a latest transition *inside* the window, in which case
-    the wake machinery (`TimeStepwise` supplies the round, `Diligent` a tick in it,
-    `WakePrecedesTick` the wake before that tick) makes its stored activation round
-    trustworthy — and a wake that recent activates only after `voting(t)`, contradicting
-    the open gate the vote itself certifies. -/
-theorem mem_active_of_honest_vote [Fintype Node] {x : Exec Pr S}
+    Factored out of `mem_active_of_honest_vote` (whose vote message enters only through
+    `vote_provenance`), so that Definition 9's condition-2.2 hypothesis — the joining check
+    itself — suffices wherever `Active` is needed. Mirrors `active_of_open_join` on the
+    Algorithm-2 side. -/
+theorem active_of_open_join5 [Fintype Node] {x : Exec Pr S}
     (hsync : SynchronizedClocks x) (hstepw : TimeStepwise x) (hdil : Diligent x)
-    (hwpt : WakePrecedesTick x) (hmc : S.MonotoneCorruption)
-    {i : Nat} {sm : SignedMsg Node (Msg (Chain Tx) QC)} {e : Chain Tx}
-    {src tgt : Checkpoint (Chain Tx)} {t : Nat} (ht : 1 ≤ t)
-    (hmem : sm ∈ x[i].sent) (hhon : sm.sender ∉ S.adv ((x[i].time : Int)))
-    (hmsg : sm.msg = .vote e src tgt t) :
-    sm.sender ∈ Active Q S (t : Int) := by
+    (hwpt : WakePrecedesTick x) {p : Node} {t : Nat} (ht : 1 ≤ t)
+    {j : Nat} (hlbl : x.lbl j = .tick p (Q.slotLength * t + Q.delta))
+    (htj : x[j].time = Q.slotLength * t + Q.delta)
+    (hgate : x[j][p].st.activeAt ≤ Q.slotLength * t + Q.delta) :
+    p ∈ Active Q S (t : Int) := by
   have hmono := hstepw.timeMonotone
-  obtain ⟨j, hji, hlbl, htj, hgate, -, -⟩ :=
-    vote_provenance hsync hmc hmono hmem hhon hmsg
   -- the voter is awake at `voting(t)`: the tick's own enabling condition
   have hstepj : Step Pr S (x.lbl j) x[j] x[j + 1] := x.step j
   rw [hlbl] at hstepj
-  have hawk : sm.sender ∈ S.awake ((x[j].time : Int)) := by
+  have hawk : p ∈ S.awake ((x[j].time : Int)) := by
     have := hstepj.1
     simp only [spec] at this
     exact this
@@ -696,20 +694,20 @@ theorem mem_active_of_honest_vote [Fintype Node] {x : Exec Pr S}
     unfold Params.voting
     push_cast
     omega
-  show sm.sender ∈ S.awakeThroughout (Q.voting (t : Int) - 3 * (Q.delta : Int))
+  show p ∈ S.awakeThroughout (Q.voting (t : Int) - 3 * (Q.delta : Int))
     (Q.voting (t : Int))
   by_cases hbad : ∃ r ∈ Finset.Icc (Q.voting (t : Int) - 3 * (Q.delta : Int))
-      (Q.voting (t : Int)), sm.sender ∉ S.awake r
+      (Q.voting (t : Int)), p ∉ S.awake r
   · -- a round in the window at which the sender was asleep: derive the contradiction
     exfalso
     obtain ⟨r₀, hr₀Icc, hr₀⟩ := hbad
     set bad : Finset Int := (Finset.Icc (Q.voting (t : Int) - 3 * (Q.delta : Int))
-        (Q.voting (t : Int))).filter (fun r => sm.sender ∉ S.awake r) with hbaddef
+        (Q.voting (t : Int))).filter (fun r => p ∉ S.awake r) with hbaddef
     have hbadne : bad.Nonempty := ⟨r₀, Finset.mem_filter.mpr ⟨hr₀Icc, hr₀⟩⟩
     obtain ⟨hwIcc, hwna⟩ := Finset.mem_filter.mp (Finset.max'_mem bad hbadne)
     obtain ⟨hwlo, hwhi⟩ := Finset.mem_Icc.mp hwIcc
     -- the sender is awake at the top of the window, so the bad round is strictly below
-    have hawktop : sm.sender ∈ S.awake (Q.voting (t : Int)) := by
+    have hawktop : p ∈ S.awake (Q.voting (t : Int)) := by
       rw [hvot]
       rw [htj] at hawk
       exact_mod_cast hawk
@@ -717,7 +715,7 @@ theorem mem_active_of_honest_vote [Fintype Node] {x : Exec Pr S}
       lt_of_le_of_ne hwhi (fun h => hwna (by rw [h]; exact hawktop))
     -- awake everywhere strictly above the bad round, within the window
     have hawakeW : ∀ r : Int, bad.max' hbadne < r → r ≤ Q.voting (t : Int) →
-        sm.sender ∈ S.awake r := by
+        p ∈ S.awake r := by
       intro r hr1 hr2
       by_contra hna
       have hmem' : r ∈ bad :=
@@ -741,20 +739,20 @@ theorem mem_active_of_honest_vote [Fintype Node] {x : Exec Pr S}
         omega
       exact_mod_cast h2
     -- a wake event of the sender at time `n`, strictly before the vote tick
-    have hwake : ∃ k, k < j ∧ x.lbl k = .wake sm.sender ∧ x[k].time = n := by
+    have hwake : ∃ k, k < j ∧ x.lbl k = .wake p ∧ x[k].time = n := by
       rcases Nat.lt_or_ge n (Q.slotLength * t + Q.delta) with hnlt | hnge
       · -- the transition is strictly below the vote round: Diligent ticks it there
         obtain ⟨i₀, hi₀j, hti₀⟩ := exists_time_eq hstepw
           (show n ≤ x[j].time by rw [htj]; omega)
-        have hAw : x.Awake i₀ sm.sender := by
-          show sm.sender ∈ S.awake ((x[i₀].time : Int))
+        have hAw : x.Awake i₀ p := by
+          show p ∈ S.awake ((x[i₀].time : Int))
           rw [hti₀, hn]
           exact hawakeW _ (by omega) (by omega)
-        obtain ⟨i₁, hti₁, hlbl₁⟩ := hdil n sm.sender ⟨i₀, hti₀, hAw⟩
-        have hnaw : sm.sender ∉ S.awake ((x[i₁].time : Int) - 1) := by
+        obtain ⟨i₁, hti₁, hlbl₁⟩ := hdil n p ⟨i₀, hti₀, hAw⟩
+        have hnaw : p ∉ S.awake ((x[i₁].time : Int) - 1) := by
           rw [hti₁, hn]
           simpa using hwna
-        obtain ⟨k, hki₁, hwk, htk'⟩ := hwpt i₁ sm.sender n hlbl₁ hnaw
+        obtain ⟨k, hki₁, hwk, htk'⟩ := hwpt i₁ p n hlbl₁ hnaw
         have hij : i₁ < j := by
           rcases Nat.lt_or_ge i₁ j with h | h
           · exact h
@@ -770,25 +768,25 @@ theorem mem_active_of_honest_vote [Fintype Node] {x : Exec Pr S}
         exact ⟨k, lt_trans hki₁ hij, hwk, by rw [htk', hti₁]⟩
       · -- the transition round is the vote round itself: the vote tick is in it
         have hneq : n = Q.slotLength * t + Q.delta := by omega
-        have hnaw : sm.sender ∉ S.awake ((x[j].time : Int) - 1) := by
+        have hnaw : p ∉ S.awake ((x[j].time : Int) - 1) := by
           rw [htj]
           have hδ : ((Q.slotLength * t + Q.delta : Nat) : Int) - 1 = bad.max' hbadne := by
             rw [← hvot]
             omega
           rw [hδ]
           exact hwna
-        obtain ⟨k, hkj, hwk, htk'⟩ := hwpt j sm.sender _ hlbl hnaw
+        obtain ⟨k, hkj, hwk, htk'⟩ := hwpt j p _ hlbl hnaw
         refine ⟨k, hkj, hwk, ?_⟩
         rw [htk', htj]
         omega
     obtain ⟨k, hkj, hwk, htk⟩ := hwake
     -- the wake wrote the true activation round, and nothing lowered it since
-    have hbase : x[k + 1][sm.sender].st.activeAt = activationRound Q n := by
+    have hbase : x[k + 1][p].st.activeAt = activationRound Q n := by
       have h := wake_sets_activeAt hsync hwk
       rw [htk] at h
       exact h
     have hpers : ∀ m, k + 1 ≤ m → m ≤ j →
-        activationRound Q n ≤ x[m][sm.sender].st.activeAt := by
+        activationRound Q n ≤ x[m][p].st.activeAt := by
       intro m
       induction m with
       | zero => omega
@@ -814,6 +812,25 @@ theorem mem_active_of_honest_vote [Fintype Node] {x : Exec Pr S}
     refine mem_awakeThroughout.mpr fun r h1 h2 => ?_
     by_contra hna
     exact hbad ⟨r, Finset.mem_Icc.mpr ⟨h1, h2⟩, hna⟩
+
+
+/-- **An honest voter is active.** A vote for slot `t` in the log, whose sender is still
+    honest, puts that sender in `Active(t)` — the paper's silent step from "voted in slot
+    `t`" to membership in `H_{vote(t)}`, and the last piece of Lemma 2's containment. The
+    vote locates its own tick (`vote_provenance`) and certifies that the joining check was
+    open there, which is all `active_of_open_join5` needs. -/
+theorem mem_active_of_honest_vote [Fintype Node] {x : Exec Pr S}
+    (hsync : SynchronizedClocks x) (hstepw : TimeStepwise x) (hdil : Diligent x)
+    (hwpt : WakePrecedesTick x) (hmc : S.MonotoneCorruption)
+    {i : Nat} {sm : SignedMsg Node (Msg (Chain Tx) QC)} {e : Chain Tx}
+    {src tgt : Checkpoint (Chain Tx)} {t : Nat} (ht : 1 ≤ t)
+    (hmem : sm ∈ x[i].sent) (hhon : sm.sender ∉ S.adv ((x[i].time : Int)))
+    (hmsg : sm.msg = .vote e src tgt t) :
+    sm.sender ∈ Active Q S (t : Int) := by
+  have hmono := hstepw.timeMonotone
+  obtain ⟨j, hji, hlbl, htj, hgate, -, -⟩ :=
+    vote_provenance hsync hmc hmono hmem hhon hmsg
+  exact active_of_open_join5 hsync hstepw hdil hwpt ht hlbl htj hgate
 
 /-! ### The propose-round half of Lemma 2 -/
 
