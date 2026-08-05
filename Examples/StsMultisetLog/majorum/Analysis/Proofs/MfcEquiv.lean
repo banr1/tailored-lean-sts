@@ -1851,6 +1851,7 @@ theorem frozen_at_vote_tick5 {x5 : Exec Pr5 S}
     {t : Nat} {p : Node} (hp : p ∈ Active Q S ((t : Int) + 1))
     {j : Nat} (hj : x5.lbl j = .tick p (Q.slotLength * (t + 1) + Q.delta)) :
     ∃ im, im < j ∧ x5[im].time = Q.slotLength * t + 3 * Q.delta ∧
+      x5.lbl im = .tick p (Q.slotLength * t + 3 * Q.delta) ∧
       x5[j][p].st.vFrozen = x5[im][p].view ∧
       x5[j][p].st.chFrozen
         = ((components n kappa pool proposer).fastConfirm x5[im][p].view t).1 := by
@@ -1935,7 +1936,7 @@ theorem frozen_at_vote_tick5 {x5 : Exec Pr5 S}
           exact ⟨hstep.1.trans hprev.1, hstep.2.trans hprev.2⟩
   have hsj := hpers j (by omega) (le_refl j)
   rw [hmstate.1, hmstate.2] at hsj
-  exact ⟨im, himj, htim, hsj.1, hsj.2⟩
+  exact ⟨im, himj, htim, hlblm, hsj.1, hsj.2⟩
 
 /-! ### The prefix-guarded fold is a maximum, under comparability -/
 

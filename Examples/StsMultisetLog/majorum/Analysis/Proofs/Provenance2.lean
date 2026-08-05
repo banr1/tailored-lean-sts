@@ -2040,6 +2040,7 @@ theorem frozen_at_vote_tick {x : Exec Pr2 S}
     {t : Nat} {p : Node} (hp : p ∈ Active Q S ((t : Int) + 1))
     {j : Nat} (hj : x.lbl j = .tick p (Q.slotLength * (t + 1) + Q.delta)) :
     ∃ im, im < j ∧ x[im].time = Q.slotLength * t + 3 * Q.delta ∧
+      x.lbl im = .tick p (Q.slotLength * t + 3 * Q.delta) ∧
       x[j][p].st.vFrozen = x[im][p].view ∧
       x[j][p].st.chFrozen = (fastConfirmSimple n (x[im][p].view) t).1 := by
   have hmono := hstepw.timeMonotone
@@ -2112,7 +2113,7 @@ theorem frozen_at_vote_tick {x : Exec Pr2 S}
           exact ⟨hstep.1.trans hprev.1, hstep.2.trans hprev.2⟩
   have hsj := hpers j (by omega) (le_refl j)
   rw [hmstate] at hsj
-  exact ⟨im, himj, htim, hsj.1, hsj.2⟩
+  exact ⟨im, himj, htim, hlblm, hsj.1, hsj.2⟩
 
 set_option maxHeartbeats 2000000 in
 /-- **The vote-round half of Lemma 2, for Algorithm 2**: at the vote tick of a validator
@@ -2155,7 +2156,7 @@ theorem le_mfc_at_vote2 {x : Exec Pr2 S}
     intro r h1 h2
     refine mem_awakeThroughout.mp hp _ ?_ ?_ <;> rw [hvot1] <;> omega
   -- the frozen state entering the vote tick
-  obtain ⟨im, himj, htim, hvfj, hcfj⟩ := frozen_at_vote_tick hsync hstepw hdil hone hp hj
+  obtain ⟨im, himj, htim, -, hvfj, hcfj⟩ := frozen_at_vote_tick hsync hstepw hdil hone hp hj
   have hsj : x[j][p].st.vFrozen = x[im][p].view ∧
       x[j][p].st.chFrozen = (fastConfirmSimple n (x[im][p].view) t).1 := ⟨hvfj, hcfj⟩
   -- delivery of the official slot-`t` votes into both views
@@ -2619,7 +2620,7 @@ theorem honest_vote_chain {x : Exec Pr2 S}
                 push_cast; omega
               rw [← hcast]
               exact hact
-            obtain ⟨im, himj, htim, -, hcfj⟩ :=
+            obtain ⟨im, himj, htim, -, -, hcfj⟩ :=
               frozen_at_vote_tick hsync hstepw hdil hone hp' hlblj
             rw [hcfj]
             rcases fastConfirmSimple_fst_cases (n := n) (x[im][sm.sender].view) s0
@@ -2709,7 +2710,7 @@ theorem honest_vote_chain {x : Exec Pr2 S}
             have hcast : (((s0 + 1 : Nat)) : Int) = (s0 : Int) + 1 := by push_cast; omega
             rw [← hcast]
             exact hact
-          obtain ⟨im, himj, htim, hvfj, -⟩ :=
+          obtain ⟨im, himj, htim, -, hvfj, -⟩ :=
             frozen_at_vote_tick hsync hstepw hdil hone hp' hlblj
           have hvf : (processProposals2 n proposer (x[j][sm.sender].view) (s0 + 1)
               (x[j][sm.sender].st)).vFrozen = x[im][sm.sender].view := by
@@ -2897,7 +2898,7 @@ theorem mfc_vote_ok {x : Exec Pr2 S}
               push_cast; omega
             rw [← hcast]
             exact hp (by omega)
-          obtain ⟨im, himj, htim, -, hcfj⟩ :=
+          obtain ⟨im, himj, htim, -, -, hcfj⟩ :=
             frozen_at_vote_tick hsync hstepw hdil hone hp' hj
           rw [hcfj]
           rcases fastConfirmSimple_fst_cases (n := n) (x[im][p].view) s0
@@ -2985,7 +2986,7 @@ theorem mfc_vote_ok {x : Exec Pr2 S}
           have hcast : (((s0 + 1 : Nat)) : Int) = (s0 : Int) + 1 := by push_cast; omega
           rw [← hcast]
           exact hp (by omega)
-        obtain ⟨im, himj, htim, hvfj, -⟩ :=
+        obtain ⟨im, himj, htim, -, hvfj, -⟩ :=
           frozen_at_vote_tick hsync hstepw hdil hone hp' hj
         have hvf : (processProposals2 n proposer (x[j][p].view) (s0 + 1)
             (x[j][p].st)).vFrozen = x[im][p].view := by
@@ -3125,7 +3126,7 @@ theorem le_mfc_at_vote_of_quorum {x : Exec Pr2 S}
     exact absurd h0 hch0
   rw [h1] at hsupp
   -- the frozen chain entering the vote tick
-  obtain ⟨im, himj, htim, -, hcfj⟩ := frozen_at_vote_tick hsync hstepw hdil hone hp hj
+  obtain ⟨im, himj, htim, -, -, hcfj⟩ := frozen_at_vote_tick hsync hstepw hdil hone hp hj
   have hvot1 : Q.voting ((t : Int) + 1)
       = ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int) := by
     unfold Params.voting
@@ -3597,7 +3598,7 @@ theorem activeVotesExtend_of_propose {x : Exec Pr2 S}
             rw [heq]
             exact hdeliver_kj sm hsmview
   -- the frozen state entering `p`'s vote tick
-  obtain ⟨im, himj, htim, hvfj, hcfj⟩ := frozen_at_vote_tick hsync hstepw hdil hone hp' hlblj
+  obtain ⟨im, himj, htim, -, hvfj, hcfj⟩ := frozen_at_vote_tick hsync hstepw hdil hone hp' hlblj
   -- the merge value is below `chC`
   have hbmchC : chainLe ((fastConfirmSimple n (x[im][p].view) t0).1) chC := by
     by_cases hbm0 : (fastConfirmSimple n (x[im][p].view) t0).1 = []
