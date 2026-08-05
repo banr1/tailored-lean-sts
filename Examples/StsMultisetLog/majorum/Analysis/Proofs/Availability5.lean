@@ -65,7 +65,7 @@ theorem chAva_comparable {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ 
   · exact comparable_of_common_extension h1 (chainLe_trans h2 h)
 
 /-- A guarded maximum fold never descends below its starting point. -/
-private theorem foldl_max_ge (Mb : Chain Tx) :
+theorem foldl_max_ge (Mb : Chain Tx) :
     ∀ (l : List (Chain Tx)) (acc : Chain Tx),
       chainLe acc (l.foldl (fun acc ch =>
         if (components (Fintype.card Node) kappa pool proposer).prefixLe ch Mb then
