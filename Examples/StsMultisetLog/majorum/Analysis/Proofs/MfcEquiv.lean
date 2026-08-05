@@ -498,4 +498,71 @@ theorem frozen_viewCorr {x5 : Exec Pr5 S} (hone : OneTickPerReading x5)
           rw [e2]
           exact ih'
 
+/-! ### Condition 2.1, assembled: the propose-round fork choices agree -/
+
+/-- The instance's fork choice, fast confirmation and greatest-justified are
+    Algorithm 2's. -/
+theorem components_mfc :
+    (components (Node := Node) n kappa pool proposer).mfc = mfc := rfl
+
+theorem components_fastConfirmSimple :
+    (components (Node := Node) n kappa pool proposer).fastConfirmSimple
+      = fastConfirmSimple n := rfl
+
+theorem components_gj :
+    (components (Node := Node) n kappa pool proposer).gj = gj n := rfl
+
+theorem components_prefixLe :
+    (components (Node := Node) n kappa pool proposer).prefixLe = chainLe := rfl
+
+/-- **Condition 2.1's assembly**: the two propose-round fork choices agree, given the
+    views' skeleton equality and the 2.5 bound on the greatest justified chain. The
+    simple fast-confirmations coincide by congruence, so either the bases are equal
+    (`fastconfirm`'s quorum branch), or Algorithm 5's base is the justified chain —
+    and then both bases are prefixes of the simulated output (2.5 and `base_le_mfc`),
+    hence comparable, the branch guard orients them, and the base swap closes. -/
+theorem mfc_propose_agree {V5 V2 : View Node M} {t : Nat}
+    (hskel : voteSkel V5 = voteSkel V2)
+    (h25 : chainLe (gj n V5).ch
+      (mfc V2 V2 (fastConfirmSimple n V2 (t - 1)).1 t)) :
+    (components n kappa pool proposer).mfc V5 V5
+        ((components n kappa pool proposer).fastConfirm V5 (t - 1)).1 t
+      = mfc V2 V2 (fastConfirmSimple n V2 (t - 1)).1 t := by
+  have hfcs : fastConfirmSimple n V5 (t - 1) = fastConfirmSimple n V2 (t - 1) :=
+    fastConfirmSimple_congr hskel n (t - 1)
+  rw [components_mfc]
+  unfold Components.fastConfirm
+  rw [components_fastConfirmSimple, components_gj, components_prefixLe, hfcs]
+  by_cases hguard : chainLe (gj n V5).ch (fastConfirmSimple n V2 (t - 1)).1
+  · rw [if_pos hguard]
+    exact mfc_congr hskel hskel (Finset.Subset.refl _) (Finset.Subset.refl _) _ t
+  · rw [if_neg hguard]
+    have hb2le : chainLe (fastConfirmSimple n V2 (t - 1)).1
+        (mfc V2 V2 (fastConfirmSimple n V2 (t - 1)).1 t) := base_le_mfc V2 V2 _ t
+    have hb2b5 : chainLe (fastConfirmSimple n V2 (t - 1)).1 (gj n V5).ch := by
+      rcases comparable_of_common_extension h25 hb2le with h | h
+      · exact absurd h hguard
+      · exact h
+    have hswap : mfc V2 V2 (gj n V5).ch t
+        = mfc V2 V2 (fastConfirmSimple n V2 (t - 1)).1 t :=
+      mfc_base_swap
+        (chainLe_trans hb2b5 (base_le_mfc V2 V2 (gj n V5).ch t)) h25
+    calc mfc V5 V5 (gj n V5).ch t
+        = mfc V2 V2 (gj n V5).ch t :=
+          mfc_congr hskel hskel (Finset.Subset.refl _) (Finset.Subset.refl _) _ t
+      _ = mfc V2 V2 (fastConfirmSimple n V2 (t - 1)).1 t := hswap
+
+/-- **Condition 2.2's assembly**: the two vote-round fork choices agree, given the
+    frozen and current views' skeleton equalities, the snapshot discipline, and the
+    two cross-bounds on the (divergent) frozen bases — which the slot induction
+    supplies from the justified-chain and quorum arguments. -/
+theorem mfc_vote_agree {Vf5 V5 Vf2 V2 : View Node M} {b5 b2 : Chain Tx} {t : Nat}
+    (hskelF : voteSkel Vf5 = voteSkel Vf2) (hskel : voteSkel V5 = voteSkel V2)
+    (hsub5 : Vf5 ⊆ V5) (hsub2 : Vf2 ⊆ V2)
+    (h5 : chainLe b5 (mfc Vf2 V2 b2 t)) (h2 : chainLe b2 (mfc Vf2 V2 b5 t)) :
+    mfc Vf5 V5 b5 t = mfc Vf2 V2 b2 t :=
+  calc mfc Vf5 V5 b5 t
+      = mfc Vf2 V2 b5 t := mfc_congr hskelF hskel hsub5 hsub2 b5 t
+    _ = mfc Vf2 V2 b2 t := mfc_base_swap h2 h5
+
 end Majorum
