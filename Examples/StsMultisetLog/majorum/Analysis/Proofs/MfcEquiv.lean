@@ -988,4 +988,16 @@ theorem voteChAva_cases (x5 : Exec Pr5 S) (k : Nat) (w : Node) (t : Time) :
         · exact Or.inr (Or.inr h3)
         · cases h3
 
+/-- The vote skeleton is monotone in the view. -/
+theorem voteSkel_mono {Va Vb : View Node M} (hsub : Va ⊆ Vb) :
+    voteSkel Va ⊆ voteSkel Vb := by
+  intro tr htr
+  obtain ⟨q, c, s⟩ := tr
+  obtain ⟨sm, hsm, h1, h2, h3⟩ := mem_voteSkel.mp htr
+  refine mem_voteSkel.mpr ⟨sm, ?_, h1, h2, h3⟩
+  unfold votes at hsm ⊢
+  exact Finset.mem_filter.mpr ⟨hsub (Finset.mem_filter.mp hsm).1,
+    (Finset.mem_filter.mp hsm).2⟩
+
+
 end Majorum
