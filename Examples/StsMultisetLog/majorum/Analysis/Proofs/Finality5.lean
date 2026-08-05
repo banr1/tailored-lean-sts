@@ -881,4 +881,35 @@ theorem lemma16 {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
       · rw [hf]
         exact chFin_le_gf5 hsync hmono hone hmc hcb hfn hm p
 
+/-! ### Theorem 6's safety half -/
+
+set_option maxHeartbeats 1000000 in
+/-- **The finalized chain is safe**: any two validators' finalized chains are comparable,
+    at any two points of the execution. Each prefixes a checkpoint finalized in its own
+    view; the two checkpoints nest (`justified_nest`, at whichever has the larger slot);
+    and prefixes of one chain are comparable. -/
+theorem chFin_comparable {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
+    (hmono : TimeMonotone x5) (hone : OneTickPerReading x5) (hmc : S.MonotoneCorruption)
+    (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < Fintype.card Node)
+    (i : Nat) (p : Node) (j : Nat) (q : Node) :
+    chainLe x5[i][p].st.chFin x5[j][q].st.chFin ∨
+      chainLe x5[j][q].st.chFin x5[i][p].st.chFin := by
+  have hcard : 0 < Fintype.card Node := by omega
+  rcases chFin_finalized5 (kappa := kappa) (pool := pool) (proposer := proposer) i p
+    with h0 | ⟨ch1, c1, hfin1, hle1⟩
+  · exact Or.inl (by rw [h0]; exact chainLe_nil _)
+  rcases chFin_finalized5 (kappa := kappa) (pool := pool) (proposer := proposer) j q
+    with h0 | ⟨ch2, c2, hfin2, hle2⟩
+  · exact Or.inr (by rw [h0]; exact chainLe_nil _)
+  -- both views' messages are in the log at the later index
+  have hk1 : ∀ sm ∈ x5[i][p].view, sm ∈ x5[max i j].sent := fun sm hsm =>
+    mem_sent_mono (le_max_left i j) (views_sound x5 i p _ hsm)
+  have hk2 : ∀ sm ∈ x5[j][q].view, sm ∈ x5[max i j].sent := fun sm hsm =>
+    mem_sent_mono (le_max_right i j) (views_sound x5 j q _ hsm)
+  rcases Nat.le_total c1 c2 with hc | hc
+  · have hnest := justified_nest hsync hmono hone hmc hcb hfn hk1 hk2 hfin1 hfin2.1 hc
+    exact comparable_of_common_extension (chainLe_trans hle1 hnest) hle2
+  · have hnest := justified_nest hsync hmono hone hmc hcb hfn hk2 hk1 hfin2 hfin1.1 hc
+    exact comparable_of_common_extension hle1 (chainLe_trans hle2 hnest)
+
 end Majorum.Finality5

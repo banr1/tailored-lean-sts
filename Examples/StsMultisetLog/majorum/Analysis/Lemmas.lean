@@ -1,6 +1,7 @@
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Analysis2
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Finality
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Availability5
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Finality5
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.MfcEquiv
 
 /-!
@@ -391,5 +392,33 @@ theorem lemma14 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     (hj : x5.lbl j = .tick vi (Q.slotLength * t + 2 * Q.delta)) :
     chp ⪯ x5[j + 1][vi].st.chAva :=
   Availability5.lemma14 H hκ hwin ht hbig hsent hhon_i hhon_t hj
+
+/-- **Lemma 15** (`Lemma 15, arXiv:2601.03862v1 p.22`). Honest validators following
+    Algorithm 5 are never slashed — never slashable, that is, on any evidence drawn from the
+    messages actually sent.
+
+    The paper's two observations are the two slashing conditions' escape routes: an honest
+    validator sends one vote per slot, whose fin-vote targets that very slot (**E1**), and
+    its fin-vote's source is the frozen greatest-justified checkpoint, whose slot never
+    falls (**E2**). No corruption bound is needed, matching the paper's `f ∈ [0, n]`. -/
+theorem lemma15 {x5 : Exec Pr5 S} (H : SettingGA Q S x5)
+    (hne : Nonempty Node) {r : Nat} {w : Node} (hhon : x5.Honest r w)
+    {V : View Node (Msg (Chain Tx) (QCert Node Tx))}
+    (hsub : ∀ sm ∈ V, sm ∈ x5[r].sent) :
+    ¬ SlashableIn V w :=
+  Finality5.lemma15 H.wellformed.2.2.1 H.wellformed.2.2.2.1 H.oneTick H.wellformed.1
+    Fintype.card_pos hhon hsub
+
+/-- **Lemma 16** (`Lemma 16, arXiv:2601.03862v1 p.22`). A validator's finalized chain grows
+    monotonically: `chainfin^{r'}_i ⪰ chainfin^r_i` for `r' ≥ r`.
+
+    Not one of the paper's security definitions — "frequently desired by Ethereum protocol
+    implementers", as it notes. Proved by induction over the step rather than the paper's
+    contradiction on a first violating round, which also removes the need for synchrony. -/
+theorem lemma16 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (p : Node)
+    {r r' : Nat} (h : r ≤ r') :
+    x5[r][p].st.chFin ⪯ x5[r'][p].st.chFin :=
+  Finality5.lemma16 H.wellformed.2.2.1 H.wellformed.2.2.2.1 H.oneTick H.wellformed.1
+    H.resilience.1 H.resilience.2 p h
 
 end Majorum

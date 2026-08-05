@@ -28,9 +28,11 @@ Lemmas 8–9, the finality component's accountable-safety counting, assumption-f
 (`f ∈ [0, n]`); and **Appendix C.1 in full for Algorithm 5** — Lemmas 10–14 and
 Theorems 3–4 (reorg resilience and dynamic availability), which carry the Appendix-A
 results across to the full protocol through the MFC-equivalent Algorithm-2 run Lemma 10
-constructs. What remains of the paper is Appendix C.2, partial synchrony: Lemmas 15–18 and
-Theorems 5–7 (accountable safety, liveness of the finalized chain, ebb-and-flow), whose
-statements are the `Prop`s in `Analysis/Theorems.lean`.
+constructs. Appendix C.2 (partial synchrony) is under way: **Lemmas 15–16 and Theorem 5** are proved,
+along with Theorem 6's safety half and Definition 7's finalized-prefixes-available
+conjunct. What remains of the paper is Appendix C.2's liveness chain — Lemmas 17–18,
+Theorem 6's liveness half and Theorem 7 — whose statements are the `Prop`s in
+`Analysis/Theorems.lean`.
 
 ## Layout
 
@@ -71,6 +73,9 @@ single call so the lists read without proof noise; the proof layer sits under
   `Analysis/Proofs/MfcEquiv` — Appendix C.1's transfer layer: the Algorithm-2 run built by
   replaying an Algorithm-5 run's schedule (`simulate`), its compliance, Definitions 8–9,
   and Lemmas 10–13. `MfcEquiv` holds Lemma 10's grand induction.
+* `Analysis/Proofs/Finality5` — Appendix C.2: the fin-vote invariants (Lemma 15), the
+  accountable-safety assembly (Theorem 5), and the finalized chain's order facts (Lemma 16,
+  safety, and the prefix relation to the available chain).
 * `Analysis/Proofs/Availability5` — Appendix C.1's results about Algorithm 5 itself:
   Lemma 14 and Theorems 3–4, over the order facts for `chainava` (`chAva_comparable`,
   `chAva_mono`) that the paper's proofs use silently.

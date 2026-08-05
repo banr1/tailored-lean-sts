@@ -2,6 +2,7 @@ import Examples.StsMultisetLog.majorum.Spec.Assumptions
 import Examples.StsMultisetLog.majorum.Spec.Security
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Analysis2
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Availability5
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Finality5
 
 /-!
 # Majorum's theorems, as statements
@@ -316,6 +317,39 @@ theorem theorem4 {x5 : Exec Pr5 S} {τ : Type}
       ∀ r : Time, r ≤ Q.slotLength * (t + 1) →
       ∀ tx ∈ poolSet r, ∃ b ∈ x5[a][vi].st.chAva, memTx tx b.txs) :=
   Availability5.theorem4 memTx poolSet hmonoP hcover H hκ hwin
+
+/-- **Theorem 5** (`Theorem 5, arXiv:2601.03862v1 p.22`, Accountable Safety). The finalized
+    chain is `n/3`-accountable: on a safety violation between two honest validators, the
+    messages sent name at least `n/3` validators, and no validator is ever named while
+    honest.
+
+    This one *is* the `Security.lean` rendering — `ThmAccountableSafety` with the naming
+    procedure supplied (`culprits5`: the validators whose own fin-votes in the log violate
+    E1 or E2) — because Definition 6 carries no probability layer and no hypothesis row of
+    its own. As in the paper, no corruption bound is assumed (`f ∈ [0, n]`); the two
+    conjuncts are Lemma 9's counting and Lemma 15. -/
+theorem theorem5 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hne : Nonempty Node) :
+    ThmAccountableSafety (fun p c => c[p].st.chFin) (fun a b => a ⪯ b)
+      Finality5.culprits5 (Fintype.card Node) x5 :=
+  Finality5.theorem5 H.wellformed.2.2.1 H.wellformed.2.2.2.1 H.oneTick H.wellformed.1
+    Fintype.card_pos
+
+/-- **The finalized chain is safe** — Theorem 6's safety half, and Definition 7's second
+    conjunct in part: any two validators' finalized chains are comparable. Each prefixes a
+    checkpoint finalized in its own view, and those nest by Lemma 8 once `f < n/3` rules out
+    the slashing alternative. -/
+theorem chFin_safe {x5 : Exec Pr5 S} (H : SettingGA Q S x5)
+    (i : Nat) (p : Node) (j : Nat) (q : Node) :
+    x5[i][p].st.chFin ⪯ x5[j][q].st.chFin ∨ x5[j][q].st.chFin ⪯ x5[i][p].st.chFin :=
+  Finality5.chFin_comparable H.wellformed.2.2.1 H.wellformed.2.2.2.1 H.oneTick
+    H.wellformed.1 H.resilience.1 H.resilience.2 i p j q
+
+/-- **The finalized chain is a prefix of the available chain** — Definition 7's third
+    conjunct, at every validator and round. -/
+theorem chFin_le_chAva {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (i : Nat) (p : Node) :
+    x5[i][p].st.chFin ⪯ x5[i][p].st.chAva :=
+  Finality5.chFin_le_chAva5 H.wellformed.2.2.1 H.wellformed.2.2.2.1 H.oneTick
+    H.wellformed.1 H.resilience.1 H.resilience.2 i p
 
 end Algorithm5Proved
 
