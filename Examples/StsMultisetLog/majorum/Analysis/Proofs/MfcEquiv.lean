@@ -2306,4 +2306,409 @@ theorem chFrozen5_le_voteMfc (hn : n = Fintype.card Node)
     have hj := gj_justified n x5[im][p].view
     exact justified_le_voteMfc hn H5 H2 hκ hwin2 hD hlbl hact (le_of_lt himk) hj
 
+/-! ### Quorum support, from certificates and across growing views -/
+
+/-- **A certificate's signers support its chain**, in any view holding the certified
+    votes: the certificate names one vote per signer, extending `ch` at slot `t`, and
+    those votes' senders are exactly the counted quorum. -/
+theorem support_of_cert {V : View Node M} {ch : Chain Tx} {t : Nat}
+    {cert : QCert Node Tx} (hcard : 2 * n ≤ 3 * (cert.image Prod.fst).card)
+    (hvotes : ∀ e ∈ cert, chainLe ch e.2.1 ∧ e.2.2 = t ∧
+      ∃ src tgt : Checkpoint (Chain Tx),
+        (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ : SignedMsg Node M) ∈ V) :
+    2 * n ≤ 3 * (((votes V).filter (fun sm => msgSlot sm.msg = t ∧
+      chainLe ch (msgChain sm.msg))).image SignedMsg.sender).card := by
+  have hsub : cert.image Prod.fst ⊆ ((votes V).filter (fun sm =>
+      msgSlot sm.msg = t ∧ chainLe ch (msgChain sm.msg))).image SignedMsg.sender := by
+    intro q hq
+    obtain ⟨e, he, hqe⟩ := Finset.mem_image.mp hq
+    obtain ⟨hle, hslot, src, tgt, hmem⟩ := hvotes e he
+    refine Finset.mem_image.mpr ⟨⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩, ?_, hqe⟩
+    refine Finset.mem_filter.mpr ⟨Finset.mem_filter.mpr ⟨hmem, trivial⟩, ?_, ?_⟩
+    · show e.2.2 = t
+      exact hslot
+    · show chainLe ch e.2.1 = true
+      exact hle
+  have := Finset.card_le_card hsub
+  omega
+
+/-- **Support only grows with the view**: the supporting votes of a smaller view are
+    votes of the larger one. -/
+theorem support_mono {V V' : View Node M} (hsub : V ⊆ V') {ch : Chain Tx} {t : Nat}
+    (h : 2 * n ≤ 3 * (((votes V).filter (fun sm => msgSlot sm.msg = t ∧
+      chainLe ch (msgChain sm.msg))).image SignedMsg.sender).card) :
+    2 * n ≤ 3 * (((votes V').filter (fun sm => msgSlot sm.msg = t ∧
+      chainLe ch (msgChain sm.msg))).image SignedMsg.sender).card := by
+  have hs : ((votes V).filter (fun sm => msgSlot sm.msg = t ∧
+        chainLe ch (msgChain sm.msg))) ⊆
+      ((votes V').filter (fun sm => msgSlot sm.msg = t ∧
+        chainLe ch (msgChain sm.msg))) := by
+    intro sm hsm
+    rw [Finset.mem_filter] at hsm ⊢
+    refine ⟨?_, hsm.2⟩
+    simp only [votes, Finset.mem_filter] at hsm ⊢
+    exact ⟨hsub hsm.1.1, hsm.1.2⟩
+  have := Finset.card_le_card (Finset.image_subset_image (f := SignedMsg.sender) hs)
+  omega
+
+set_option maxHeartbeats 1000000 in
+/-- **Algorithm 2's processed frozen chain is genesis or quorum-supported**, seen from
+    the voter's own view: the merge seed is `fastconfirmsimple`'s output (supported where
+    it was computed, hence in the grown view), and every proposal write carries the
+    certificate the Algorithm-2 validity check demands. -/
+theorem frozen2_supported_or_nil {x : Exec Pr2 S}
+    (hsync : SynchronizedClocks x) (hstepw : TimeStepwise x) (hdil : Diligent x)
+    (hone : OneTickPerReading x)
+    {k : Nat} {p : Node} {s1 : Nat}
+    (hact : p ∈ Active Q S ((s1 : Int) + 1))
+    (hlbl : x.lbl k = .tick p (Q.slotLength * (s1 + 1) + Q.delta)) :
+    (processProposals2 n proposer (x[k][p].view) (s1 + 1) (x[k][p].st)).chFrozen = [] ∨
+    2 * n ≤ 3 * (((votes (x[k][p].view)).filter (fun sm => msgSlot sm.msg = s1 ∧
+      chainLe (processProposals2 n proposer (x[k][p].view) (s1 + 1)
+        (x[k][p].st)).chFrozen (msgChain sm.msg))).image SignedMsg.sender).card := by
+  rcases processProposals2_chFrozen (n := n) (proposer := proposer) (x[k][p].view)
+    (s1 + 1) (x[k][p].st) with hseed | ⟨sm, hsmV, ⟨chp, qc, ck, hmsg⟩, hvalid⟩
+  · -- the merge seed: `fastconfirmsimple` at the merge tick, in a smaller view
+    obtain ⟨im, himk, -, -, -, hcf⟩ := frozen_at_vote_tick hsync hstepw hdil hone hact hlbl
+    rw [hseed, hcf]
+    rcases fastConfirmSimple_fst_cases (n := n) (x[im][p].view) s1 with h0 | hsupp
+    · exact Or.inl h0
+    · exact Or.inr (support_mono (view_mono_le (Pr' := Pr2) (le_of_lt himk) p) hsupp)
+  · -- a proposal write: its certificate is the quorum
+    obtain ⟨sd, m0⟩ := sm
+    have hm0 : m0 = Msg.propose chp ((processProposals2 n proposer (x[k][p].view)
+        (s1 + 1) (x[k][p].st)).chFrozen) qc ck (s1 + 1) := hmsg
+    subst hm0
+    have hvp : (⟨sd, Msg.propose chp ((processProposals2 n proposer (x[k][p].view)
+          (s1 + 1) (x[k][p].st)).chFrozen) qc ck (s1 + 1)⟩ :
+            SignedMsg Node M).sender = proposer (s1 + 1) ∧
+        proposedAt chp = s1 + 1 ∧
+        chainLe ((processProposals2 n proposer (x[k][p].view) (s1 + 1)
+          (x[k][p].st)).chFrozen) chp ∧
+        (((processProposals2 n proposer (x[k][p].view) (s1 + 1) (x[k][p].st)).chFrozen)
+            = [] ∨
+          ∃ cert : QCert Node Tx, qc = some cert ∧
+            2 * n ≤ 3 * (cert.image Prod.fst).card ∧
+            ∀ e ∈ cert, chainLe ((processProposals2 n proposer (x[k][p].view) (s1 + 1)
+                (x[k][p].st)).chFrozen) e.2.1 ∧
+              e.2.2 = s1 + 1 - 1 ∧
+              ∃ src tgt : Checkpoint (Chain Tx),
+                (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ : SignedMsg Node M)
+                  ∈ x[k][p].view) := hvalid
+    rcases hvp.2.2.2 with hnil | ⟨cert, -, hcard, hvotes⟩
+    · exact Or.inl hnil
+    · exact Or.inr (support_of_cert hcard (fun e he => by
+        obtain ⟨h1, h2, h3⟩ := hvotes e he
+        exact ⟨h1, by omega, h3⟩))
+
+/-! ### The image of an honest emission is the simulated tick's own send -/
+
+/-- What a tick's reaction sends enters the log, signed by the ticking validator. -/
+theorem tick_send_mem5 {x5 : Exec Pr5 S} {k : Nat} {p : Node} {t : Time}
+    (hlbl : x5.lbl k = .tick p t) {m : M}
+    (hm : m ∈ (handlerCore (components n kappa pool proposer) Q (pick5 x5 k p t) p t
+      (setClock p t (x5.cfg k))[p].view (setClock p t (x5.cfg k))[p].st).send) :
+    (⟨p, m⟩ : SignedMsg Node M) ∈ x5[k + 1].sent := by
+  rw [show x5[k + 1] = _ from exec5_succ_tick hlbl, applyNodeStepResult_sent]
+  exact Multiset.mem_add.mpr (Or.inr (Multiset.mem_map_of_mem _ hm))
+
+/-- **The table's value at an emission is the simulated tick's send**: the write branch
+    fires (the key is the ticking validator's own message), and the Algorithm-2 core does
+    send — the two cores' sends are simultaneously empty or not (`sends_align`). -/
+theorem tau_emitted_image {x5 : Exec Pr5 S}
+    {k : Nat} {p : Node} {t : Time} (hlbl : x5.lbl k = .tick p t)
+    {sm : SignedMsg Node M} (hsender : sm.sender = p)
+    (hsend : sm.msg ∈ (handlerCore (components n kappa pool proposer) Q
+      (pick5 x5 k p t) p t (setClock p t (x5.cfg k))[p].view
+      (setClock p t (x5.cfg k))[p].st).send) :
+    ∃ m2 ∈ (handler2Core Q n kappa pool proposer simBlank
+        (simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+          (setClock p t (simState x5 k).1)[p].st) p t
+        (setClock p t (simState x5 k).1)[p].view
+        (setClock p t (simState x5 k).1)[p].st).send,
+      (simState x5 (k + 1)).2 sm = ⟨p, m2⟩ := by
+  show ∃ m2 ∈ _, (simStep x5 k (simState x5 k)).2 sm = _
+  simp only [simStep, hlbl]
+  rw [if_pos ⟨hsender, hsend⟩]
+  cases hso : sendOf (handler2Core Q n kappa pool proposer simBlank
+      (simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+        (setClock p t (simState x5 k).1)[p].st) p t
+      (setClock p t (simState x5 k).1)[p].view
+      (setClock p t (simState x5 k).1)[p].st) with
+  | none =>
+      exfalso
+      have h2 : (handler2Core Q n kappa pool proposer simBlank
+          (simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+            (setClock p t (simState x5 k).1)[p].st) p t
+          (setClock p t (simState x5 k).1)[p].view
+          (setClock p t (simState x5 k).1)[p].st).send = 0 := by
+        unfold sendOf at hso
+        have hnil : (handler2Core Q n kappa pool proposer simBlank
+            (simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+              (setClock p t (simState x5 k).1)[p].st) p t
+            (setClock p t (simState x5 k).1)[p].view
+            (setClock p t (simState x5 k).1)[p].st).send.toList = [] := by
+          cases hl : (handler2Core Q n kappa pool proposer simBlank
+              (simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+                (setClock p t (simState x5 k).1)[p].st) p t
+              (setClock p t (simState x5 k).1)[p].view
+              (setClock p t (simState x5 k).1)[p].st).send.toList with
+          | nil => rfl
+          | cons a l => rw [hl] at hso; simp at hso
+        exact Multiset.toList_eq_nil.mp hnil
+      have hact : (setClock p t (simState x5 k).1)[p].st.activeAt
+          = (setClock p t (x5.cfg k))[p].st.activeAt := by
+        simp only [setClock_getElem, if_pos rfl, if_true]
+        exact sim_activeAt k p
+      rcases sends_align (Q := Q) (n := n) (kappa := kappa) (pool := pool)
+          (proposer := proposer)
+          (pk5 := pick5 x5 k p t)
+          (pk2 := simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+            (setClock p t (simState x5 k).1)[p].st) p t hact with ⟨h5, -⟩ | ⟨-, hne⟩
+      · rw [h5] at hsend
+        exact absurd hsend (Multiset.notMem_zero _)
+      · exact hne h2
+  | some m2 => exact ⟨m2, sendOf_mem hso, rfl⟩
+
+set_option maxHeartbeats 1000000 in
+/-- **A certified proposal's counterpart carries the same certificate**: the origin
+    dichotomy (`tau_id_or_emitted`) leaves two cases, and in both the simulated view
+    holds a slot-`s` proposal with the *same* `chC` and certificate. A pure injection is
+    its own image; an honest emission's image is the Algorithm-2 core's send at the same
+    tick, whose `chC` and certificate are `fastconfirmsimple`'s — congruence-equal to
+    Algorithm 5's, since a certificate rules out the `GJ` branch. -/
+theorem cert_counterpart (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
+    {k : Nat} (hTD : ∀ j, j ≤ k → TableDynEq x5 j)
+    {p : Node} {sm5 : SignedMsg Node M} (hsm5 : sm5 ∈ x5[k][p].view)
+    {chp chC : Chain Tx} {cert : QCert Node Tx} {ck : Checkpoint (Chain Tx)} {s : Nat}
+    (hmsg5 : sm5.msg = .propose chp chC (some cert) ck s)
+    (hpa : proposedAt chp = s) (hchp : chainLe chC chp) :
+    ∃ sm2 ∈ (simulate x5)[k][p].view, ∃ chp2 ck2,
+      sm2.sender = sm5.sender ∧ sm2.msg = .propose chp2 chC (some cert) ck2 s ∧
+      proposedAt chp2 = s ∧ chainLe chC chp2 := by
+  have H5' := H5
+  obtain ⟨⟨hmc5, hah5, hsync5, hmono5, -, -, -⟩, -, -, hone5, -, -, -, -⟩ := H5'
+  have hmem : (simState x5 k).2 sm5 ∈ (simState x5 k).1[p].view :=
+    view_image hone5 hmc5 hah5 hmono5 k p hsm5
+  rcases tau_id_or_emitted x5 k sm5 with hid | ⟨k', hk'k, t', hlbl', hsend'⟩
+  · -- a pure injection: its own image
+    rw [hid] at hmem
+    exact ⟨sm5, hmem, chp, ck, rfl, hmsg5, hpa, hchp⟩
+  · -- an honest emission: the simulated tick's own send
+    have hshape := (mem_handler_send hsend').2
+    have hmod : t' % Q.slotLength = 0 := by
+      rcases hshape with ⟨-, -, -, -, -, hmod⟩ | ⟨ch', src', tgt', hvote⟩
+      · exact hmod
+      · exact absurd (hmsg5.symm.trans hvote.1) (by simp)
+    obtain ⟨-, -, hm5⟩ := handler_propose_send hmod hsend'
+    -- the emitted fields, read off the core's send
+    rw [hmsg5] at hm5
+    simp only [setClock_getElem, if_pos rfl, if_true] at hm5
+    injection hm5 with hchp5 hchC5 hqc5 hgj5 hslot5
+    -- a certificate rules out the `GJ` branch, so the merge is `fastconfirmsimple`
+    have hqc5' : ((components n kappa pool proposer).fastConfirm
+        (x5.cfg k')[sm5.sender].view (t' / Q.slotLength - 1)).2 = some cert := hqc5.symm
+    have hfc : (components n kappa pool proposer).fastConfirm (x5.cfg k')[sm5.sender].view
+          (t' / Q.slotLength - 1)
+        = fastConfirmSimple n (x5.cfg k')[sm5.sender].view (t' / Q.slotLength - 1) := by
+      unfold Components.fastConfirm at hqc5' ⊢
+      rw [components_fastConfirmSimple, components_gj, components_prefixLe] at hqc5' ⊢
+      dsimp only at hqc5' ⊢
+      by_cases hg : chainLe (gj n (x5.cfg k')[sm5.sender].view).ch
+          (fastConfirmSimple n (x5.cfg k')[sm5.sender].view (t' / Q.slotLength - 1)).1
+      · rw [if_pos hg]
+      · exfalso
+        rw [if_neg hg] at hqc5'
+        exact absurd hqc5' (by simp)
+    rw [hfc] at hchC5 hqc5 hchp5
+    -- the simulated tick's send: the same `fastconfirmsimple`, by the skeleton congruence
+    have hskel : voteSkel (x5.cfg k')[sm5.sender].view
+        = voteSkel ((simState x5 k').1[sm5.sender].view) :=
+      voteSkel_eq_of_corr (viewCorr_of_tableDynEq hone5 hmc5 hah5 hmono5
+        (hTD k' (le_of_lt hk'k)) sm5.sender)
+    have hfcs2 : fastConfirmSimple n (x5.cfg k')[sm5.sender].view (t' / Q.slotLength - 1)
+        = fastConfirmSimple n ((simState x5 k').1[sm5.sender].view)
+          (t' / Q.slotLength - 1) := by
+      subst hn
+      exact fastConfirmSimple_congr hskel _ _
+    obtain ⟨m2, hm2mem, hm2eq⟩ := tau_emitted_image hlbl' rfl hsend'
+    obtain ⟨-, -, hm2⟩ := handler2_propose_send (n := n) hmod hm2mem
+    simp only [setClock_getElem, if_pos rfl, if_true] at hm2
+    -- the table's value at `k` is the value written at the emission
+    have hsent : sm5 ∈ (x5.cfg (k' + 1)).sent := by
+      have h := tick_send_mem5 hlbl' hsend'
+      rw [show (⟨sm5.sender, sm5.msg⟩ : SignedMsg Node M) = sm5 from rfl] at h
+      exact h
+    have hstab : (simState x5 k).2 sm5 = (simState x5 (k' + 1)).2 sm5 :=
+      tau_stable hone5 hmc5 hah5 hmono5 hsent (by omega)
+    rw [hstab, hm2eq] at hmem
+    subst hslot5
+    have hm2'' : m2 = Msg.propose (extend pool
+        (mfc ((simState x5 k').1[sm5.sender].view) ((simState x5 k').1[sm5.sender].view)
+          chC (t' / Q.slotLength)) (t' / Q.slotLength)) chC (some cert) simBlank
+        (t' / Q.slotLength) := by
+      rw [hm2, ← hfcs2, ← hchC5, ← hqc5]
+    refine ⟨⟨sm5.sender, m2⟩, hmem, _, simBlank, rfl, hm2'', proposedAt_extend _ _ _, ?_⟩
+    exact chainLe_trans (base_le_mfc _ _ _ _) (chainLe_extend _ _ _)
+
+/-- **A certificate's votes cross the correspondence**: each certified vote is identified
+    by signer, chain and slot, which is exactly what dynamic equivalence preserves — the
+    fin-vote fields stay existential. -/
+theorem cert_votes_transfer {V5 V2 : View Node M} (hcorr : ViewCorr V5 V2)
+    {ch : Chain Tx} {t : Nat} {cert : QCert Node Tx}
+    (hvotes : ∀ e ∈ cert, chainLe ch e.2.1 ∧ e.2.2 = t ∧
+      ∃ src tgt : Checkpoint (Chain Tx),
+        (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ : SignedMsg Node M) ∈ V5) :
+    ∀ e ∈ cert, chainLe ch e.2.1 ∧ e.2.2 = t ∧
+      ∃ src tgt : Checkpoint (Chain Tx),
+        (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ : SignedMsg Node M) ∈ V2 := by
+  intro e he
+  obtain ⟨h1, h2, src, tgt, hmem⟩ := hvotes e he
+  refine ⟨h1, h2, ?_⟩
+  obtain ⟨sm', hsm', hsend', hde⟩ := hcorr.1 _ hmem
+  rcases hm' : sm'.msg with ⟨chp', chC', qc', ck', τ'⟩ | ⟨e', src', tgt', τ'⟩ <;>
+    rw [hm'] at hde
+  · cases hde
+  · obtain ⟨hee, htt⟩ := hde
+    refine ⟨src', tgt', ?_⟩
+    have hsm'eq : sm' = ⟨e.1, Msg.vote e.2.1 src' tgt' e.2.2⟩ := by
+      cases sm' with
+      | mk sd mg =>
+          simp only at hsend' hm'
+          rw [← hsend', hm', ← hee, ← htt]
+    rw [← hsm'eq]
+    exact hsm'
+
+set_option maxHeartbeats 1000000 in
+/-- **A certified proposal's chain sits below the simulated vote-round fork choice** —
+    `h_b5`'s certificate case. The counterpart proposal in the simulated view carries the
+    same certificate, so it is Algorithm-2-valid there: either the simulated fold adopted
+    a chain extending it, or something not below it blocked the write — and the blocker
+    cannot happen, because both bases are quorum-supported at slot `s1`, hence comparable,
+    and the wrong orientation contradicts the blocker. -/
+theorem cert_le_voteMfc (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (H2 : SettingGA Q S (simulate x5))
+    {k : Nat} (hTD : ∀ j, j ≤ k → TableDynEq x5 j)
+    {p : Node} {s1 : Nat}
+    (hlbl : x5.lbl k = .tick p (Q.slotLength * (s1 + 1) + Q.delta))
+    (hact : p ∈ Active Q S ((s1 : Int) + 1))
+    {sm5 : SignedMsg Node M} (hsm5 : sm5 ∈ x5[k][p].view)
+    {chp chC : Chain Tx} {cert : QCert Node Tx} {ck : Checkpoint (Chain Tx)}
+    (hmsg5 : sm5.msg = .propose chp chC (some cert) ck (s1 + 1))
+    (hsender : sm5.sender = proposer (s1 + 1))
+    (hpa : proposedAt chp = s1 + 1) (hchp : chainLe chC chp)
+    (hcard : 2 * n ≤ 3 * (cert.image Prod.fst).card)
+    (hvotes : ∀ e ∈ cert, chainLe chC e.2.1 ∧ e.2.2 = s1 ∧
+      ∃ src tgt : Checkpoint (Chain Tx),
+        (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ : SignedMsg Node M) ∈ x5[k][p].view) :
+    chainLe chC
+      (mfc (processProposals2 n proposer ((simulate x5)[k][p].view) (s1 + 1)
+          ((simulate x5)[k][p].st)).vFrozen ((simulate x5)[k][p].view)
+        (processProposals2 n proposer ((simulate x5)[k][p].view) (s1 + 1)
+          ((simulate x5)[k][p].st)).chFrozen (s1 + 1)) := by
+  have H5' := H5
+  obtain ⟨⟨hmc5, hah5, -, hmono5, -, -, -⟩, -, -, hone5, -, -, -, -⟩ := H5'
+  have H2' := H2
+  obtain ⟨⟨hmc2, -, hsync2, hmono2, -, -, hdil2⟩, hstepw2, -, hone2, -, -,
+    ⟨hcb2, hfn2⟩, -⟩ := H2'
+  have hcorr : ViewCorr x5[k][p].view ((simulate x5)[k][p].view) :=
+    viewCorr_of_tableDynEq hone5 hmc5 hah5 hmono5 (hTD k (le_refl k)) p
+  obtain ⟨sm2, hsm2, chp2, ck2, hsend2, hmsg2, hpa2, hchp2⟩ :=
+    cert_counterpart hn H5 hTD hsm5 hmsg5 hpa hchp
+  have hvalid2 : ValidProposal2 n proposer ((simulate x5)[k][p].view) sm2 :=
+    validProposal2_of_cert hcorr hmsg2 (by rw [hsend2, hsender]) hpa2 hchp2 hcard
+      (fun e he => by
+        obtain ⟨h1, h2, h3⟩ := hvotes e he
+        exact ⟨h1, by omega, h3⟩)
+  -- the certificate's quorum, in the simulated view
+  have hsupp : 2 * n ≤ 3 * (((votes ((simulate x5)[k][p].view)).filter
+      (fun sm => msgSlot sm.msg = s1 ∧ chainLe chC (msgChain sm.msg))).image
+        SignedMsg.sender).card :=
+    support_of_cert hcard (cert_votes_transfer hcorr hvotes)
+  -- the simulated base is genesis or quorum-supported, hence comparable with `chC`
+  have hlbl2 : (simulate x5).lbl k
+      = .tick p (Q.slotLength * (s1 + 1) + Q.delta) := simLbl_tick_iff.mpr hlbl
+  have hcompar : chainLe chC ((processProposals2 n proposer ((simulate x5)[k][p].view)
+        (s1 + 1) ((simulate x5)[k][p].st)).chFrozen) ∨
+      chainLe ((processProposals2 n proposer ((simulate x5)[k][p].view) (s1 + 1)
+        ((simulate x5)[k][p].st)).chFrozen) chC := by
+    rcases frozen2_supported_or_nil hsync2 hstepw2 hdil2 hone2 hact hlbl2 with hnil | hsupp2
+    · rw [hnil]
+      exact Or.inr (chainLe_nil _)
+    · exact supported_comparable hsync2 hone2 hmc2 hmono2 hcb2 (hn ▸ hfn2)
+        (le_of_eq hn.symm) hsupp hsupp2
+  rcases processProposals2_chFrozen_lb ((simulate x5)[k][p].view) (s1 + 1)
+      ((simulate x5)[k][p].st) hsm2 hmsg2 hvalid2 with h | ⟨y, hy1, hy2⟩
+  · exact chainLe_trans h (base_le_mfc _ _ _ _)
+  · rcases hcompar with h | h
+    · exact chainLe_trans h (base_le_mfc _ _ _ _)
+    · exact absurd (chainLe_trans hy2 h) hy1
+
+set_option maxHeartbeats 1000000 in
+/-- **Condition 2.2's first cross-bound**, `h_b5`: Algorithm 5's processed frozen chain
+    sits below the *simulated* run's vote-round fork choice. Its three provenance cases —
+    the merge seed, a certified proposal's chain, a justified checkpoint's chain — are
+    `chFrozen5_le_voteMfc`, `cert_le_voteMfc` and `justified_le_voteMfc`; Algorithm 5's
+    validity contributes one more justified rung, covered by the same descent. -/
+theorem b5_le_voteMfc (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (H2 : SettingGA Q S (simulate x5))
+    (hκ : 1 ≤ kappa) (hwin2 : HonestProposalWindow (simulate x5))
+    {k : Nat} (hTD : ∀ j, j ≤ k → TableDynEq x5 j)
+    (hD : ∀ (j : Nat), j ≤ k → ∀ (q : Node), ∃ (a : Nat) (w : Node),
+      (simulate x5)[a].time ≤ x5[j].time ∧
+      chainLe x5[j][q].st.chAva ((simulate x5)[a][w].st.chi))
+    {p : Node} {s1 : Nat}
+    (hlbl : x5.lbl k = .tick p (Q.slotLength * (s1 + 1) + Q.delta))
+    (hact : p ∈ Active Q S ((s1 : Int) + 1)) :
+    chainLe (processProposals (components n kappa pool proposer) (x5[k][p].view) (s1 + 1)
+        (x5[k][p].st)).chFrozen
+      (mfc (processProposals2 n proposer ((simulate x5)[k][p].view) (s1 + 1)
+          ((simulate x5)[k][p].st)).vFrozen ((simulate x5)[k][p].view)
+        (processProposals2 n proposer ((simulate x5)[k][p].view) (s1 + 1)
+          ((simulate x5)[k][p].st)).chFrozen (s1 + 1)) := by
+  rcases processProposals_chFrozen (n := n) (kappa := kappa) (pool := pool)
+      (proposer := proposer) (x5[k][p].view) (s1 + 1) (x5[k][p].st) with
+    hseed | ⟨sm, hsmV, ⟨chp, qc, ck, hmsg⟩, hvalid⟩ | ⟨c, hj⟩
+  · rw [hseed]
+    exact chFrozen5_le_voteMfc hn H5 H2 hκ hwin2 hTD hD hlbl hact
+  · -- a proposal write: Algorithm 5's three validity rungs
+    obtain ⟨sd, m0⟩ := sm
+    have hm0 : m0 = Msg.propose chp
+        ((processProposals (components n kappa pool proposer) (x5[k][p].view) (s1 + 1)
+          (x5[k][p].st)).chFrozen) qc ck (s1 + 1) := hmsg
+    subst hm0
+    have hvp : (⟨sd, Msg.propose chp
+            ((processProposals (components n kappa pool proposer) (x5[k][p].view) (s1 + 1)
+              (x5[k][p].st)).chFrozen) qc ck (s1 + 1)⟩ : SignedMsg Node M).sender
+          = proposer (s1 + 1) ∧
+        proposedAt chp = s1 + 1 ∧
+        chainLe ((processProposals (components n kappa pool proposer) (x5[k][p].view)
+          (s1 + 1) (x5[k][p].st)).chFrozen) chp ∧
+        (((processProposals (components n kappa pool proposer) (x5[k][p].view) (s1 + 1)
+              (x5[k][p].st)).chFrozen) = [] ∨
+          (∃ cert : QCert Node Tx, qc = some cert ∧
+            2 * n ≤ 3 * (cert.image Prod.fst).card ∧
+            ∀ e ∈ cert, chainLe ((processProposals (components n kappa pool proposer)
+                (x5[k][p].view) (s1 + 1) (x5[k][p].st)).chFrozen) e.2.1 ∧
+              e.2.2 = s1 + 1 - 1 ∧
+              ∃ src tgt : Checkpoint (Chain Tx),
+                (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ : SignedMsg Node M)
+                  ∈ x5[k][p].view) ∨
+          (qc = none ∧ ((processProposals (components n kappa pool proposer)
+              (x5[k][p].view) (s1 + 1) (x5[k][p].st)).chFrozen) = ck.ch ∧
+            JustifiedIn n (x5[k][p].view) ck)) := hvalid
+    rcases hvp.2.2.2 with hnil | ⟨cert, hqc, hcard, hvotes⟩ | ⟨-, hck, hjck⟩
+    · rw [hnil]
+      exact chainLe_nil _
+    · subst hqc
+      exact cert_le_voteMfc hn H5 H2 hTD hlbl hact hsmV rfl hvp.1 hvp.2.1 hvp.2.2.1
+        hcard (fun e he => by
+          obtain ⟨h1, h2, h3⟩ := hvotes e he
+          exact ⟨h1, by omega, h3⟩)
+    · rw [hck]
+      exact justified_le_voteMfc hn H5 H2 hκ hwin2 hD hlbl hact (le_refl k) hjck
+  · exact justified_le_voteMfc hn H5 H2 hκ hwin2 hD hlbl hact (le_refl k)
+      (J := ⟨_, c⟩) hj
+
 end Majorum
