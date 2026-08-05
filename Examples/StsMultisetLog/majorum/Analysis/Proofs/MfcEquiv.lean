@@ -2171,4 +2171,28 @@ theorem validProposal2_of_cert {V5 V2 : View Node M}
     rw [← this]
     exact hsm'
 
+/-- **Every table entry is the identity or an honest emission's counterpart**: the
+    table is written only at ticks, at their own sends. The identity branch is the
+    pure-injection case — the same signed message exists verbatim in the simulated
+    run. -/
+theorem tau_id_or_emitted (x5 : Exec Pr5 S) (k : Nat) (sm : SignedMsg Node M) :
+    (simState x5 k).2 sm = sm ∨
+    ∃ k', k' < k ∧ ∃ t, x5.lbl k' = .tick sm.sender t ∧
+      sm.msg ∈ (handlerCore (components n kappa pool proposer) Q
+        (pick5 x5 k' sm.sender t) sm.sender t
+        (setClock sm.sender t (x5.cfg k'))[sm.sender].view
+        (setClock sm.sender t (x5.cfg k'))[sm.sender].st).send := by
+  induction k with
+  | zero => exact Or.inl rfl
+  | succ k ih =>
+      rcases tau_write x5 k sm with heq | ⟨p, t, hlbl, hsender, hsend⟩
+      · rcases ih with h | ⟨k', hk', rest⟩
+        · exact Or.inl (heq.trans h)
+        · exact Or.inr ⟨k', by omega, rest⟩
+      · refine Or.inr ⟨k, by omega, t, ?_, ?_⟩
+        · rw [hsender]
+          exact hlbl
+        · rw [hsender]
+          exact hsend
+
 end Majorum
