@@ -3352,4 +3352,54 @@ theorem b2_le_b5 (hn : n = Fintype.card Node)
       ⟨⟨chp5, qc5, ck5, hmsg5⟩, hvalid5⟩ ?_)
     exact valid5_chC_le_voteMfc hn H5 H2 hκ hwin2 hTD hD hlbl hgate hsm5V hmsg5 hvalid5
 
+set_option maxHeartbeats 1000000 in
+/-- **Condition 2.2, discharged at a tick**: the vote-round fork choices agree, at every
+    vote reading whose joining check is open. The two frozen views correspond
+    (`frozen_viewCorr`) and the two current views do (`viewCorr_of_tableDynEq`), so the
+    fork choices differ only in their bases — and those are cross-bounded:
+    `processProposals5_at_vote_tick` puts Algorithm 5's below the simulated output, and
+    `b2_le_b5` puts Algorithm 2's below Algorithm 5's. -/
+theorem agree_vote_at_tick (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (H2 : SettingGA Q S (simulate x5))
+    (hκ : 1 ≤ kappa) (hwin2 : HonestProposalWindow (simulate x5))
+    {k : Nat} (hTD : ∀ j, j ≤ k → TableDynEq x5 j)
+    (hD : ∀ (j : Nat), j ≤ k → ∀ (q : Node), ∃ (a : Nat) (w : Node),
+      (simulate x5)[a].time ≤ x5[j].time ∧
+      chainLe x5[j][q].st.chAva ((simulate x5)[a][w].st.chi))
+    {p : Node} {t : Time} (hlbl : x5.lbl k = .tick p t)
+    (hmod : t % Q.slotLength = Q.delta)
+    (hgate : x5[k][p].st.activeAt ≤ t) :
+    (components n kappa pool proposer).mfc
+        (processProposals (components n kappa pool proposer) x5[k][p].view
+          (t / Q.slotLength) x5[k][p].st).vFrozen x5[k][p].view
+        (processProposals (components n kappa pool proposer) x5[k][p].view
+          (t / Q.slotLength) x5[k][p].st).chFrozen (t / Q.slotLength)
+      = mfc (processProposals2 n proposer ((simulate x5)[k][p].view) (t / Q.slotLength)
+          ((simulate x5)[k][p].st)).vFrozen ((simulate x5)[k][p].view)
+        (processProposals2 n proposer ((simulate x5)[k][p].view) (t / Q.slotLength)
+          ((simulate x5)[k][p].st)).chFrozen (t / Q.slotLength) := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have H5' := H5
+  obtain ⟨⟨hmc5, hah5, hsync5, hmono5, -, -, -⟩, -, -, hone5, -, -, -, -⟩ := H5'
+  -- the reading, in slot form
+  have ht : t = Q.slotLength * (t / Q.slotLength) + Q.delta := by
+    have h := Nat.div_add_mod t Q.slotLength
+    omega
+  rw [components_mfc]
+  refine mfc_vote_agree ?_ ?_ ?_ ?_ ?_ ?_
+  · -- the frozen views correspond
+    rw [processProposals_vFrozen, processProposals2_vFrozen]
+    exact voteSkel_eq_of_corr (frozen_viewCorr hone5 hmc5 hah5 hmono5 k hTD p)
+  · exact voteSkel_eq_of_corr
+      (viewCorr_of_tableDynEq hone5 hmc5 hah5 hmono5 (hTD k (le_refl k)) p)
+  · rw [processProposals_vFrozen]
+    exact vFrozen_subset_view5 k p
+  · rw [processProposals2_vFrozen]
+    exact vFrozen_subset_view2 k p
+  · exact (processProposals5_at_vote_tick hn H5 H2 hκ hwin2 hTD hD (ht ▸ hlbl)
+      (ht ▸ hgate)).1.1
+  · exact chainLe_trans (b2_le_b5 hn H5 H2 hκ hwin2 hTD hD (ht ▸ hlbl) (ht ▸ hgate))
+      (base_le_mfc _ _ _ _)
+
 end Majorum
