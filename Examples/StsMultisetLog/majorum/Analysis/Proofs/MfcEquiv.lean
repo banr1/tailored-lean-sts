@@ -3090,4 +3090,79 @@ theorem valid2_counterpart5 (hn : n = Fintype.card Node)
           exact justifiedIn_mono hview5 hjust5
       exact ⟨m5, hm5V, chp5, c, qc5, gjp5, hm5msg, hv5, hAc⟩
 
+/-! ### Before the first merge, the frozen chain is still genesis -/
+
+/-- **Algorithm 5 enters its slot-`0` vote tick with a genesis frozen chain**: the field
+    moves only at merge readings (`3Δ`, not reached by time `Δ`) and at vote readings — and
+    this validator's only vote reading at or below `Δ` is *this* tick, by
+    `OneTickPerReading`. -/
+theorem chFrozen_early5 {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
+    (hmono : TimeMonotone x5) (hone : OneTickPerReading x5)
+    {k : Nat} {p : Node} (hlbl : x5.lbl k = .tick p Q.delta) :
+    x5[k][p].st.chFrozen = [] := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have key : ∀ m, m ≤ k → x5[m][p].st.chFrozen = [] := by
+    intro m
+    induction m with
+    | zero =>
+        intro _
+        show ((x5.cfg 0)[p]).st.chFrozen = []
+        rw [x5.init.2.1 p]
+        rfl
+    | succ m ih =>
+        intro hmk
+        have hcond : ∀ tr : Time, x5.lbl m = .tick p tr →
+            tr % Q.slotLength ≠ Q.delta ∧ tr % Q.slotLength ≠ 3 * Q.delta := by
+          intro tr hlblm
+          have htr : x5[m].time = tr := tick_reading5 hsync hlblm
+          have hle : x5[m].time ≤ Q.delta := by
+            have h1 := time_le_of_le hmono (show m ≤ k by omega)
+            have h2 : x5[k].time = Q.delta := tick_reading5 hsync hlbl
+            omega
+          have hmodle : tr % Q.slotLength ≤ tr := Nat.mod_le tr Q.slotLength
+          refine ⟨fun hmod => ?_, fun hmod => by omega⟩
+          have htrΔ : tr = Q.delta := by omega
+          rw [htrΔ] at hlblm
+          have := hone m k p Q.delta hlblm hlbl
+          omega
+        rw [(frozen_step5 hcond).2]
+        exact ih (by omega)
+  exact key k (le_refl k)
+
+/-- Algorithm 2's copy of `chFrozen_early5`, for the simulated run. -/
+theorem chFrozen_early2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
+    (hmono : TimeMonotone x) (hone : OneTickPerReading x)
+    {k : Nat} {p : Node} (hlbl : x.lbl k = .tick p Q.delta) :
+    x[k][p].st.chFrozen = [] := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have key : ∀ m, m ≤ k → x[m][p].st.chFrozen = [] := by
+    intro m
+    induction m with
+    | zero =>
+        intro _
+        show ((x.cfg 0)[p]).st.chFrozen = []
+        rw [x.init.2.1 p]
+        rfl
+    | succ m ih =>
+        intro hmk
+        have hcond : ∀ tr : Time, x.lbl m = .tick p tr →
+            tr % Q.slotLength ≠ Q.delta ∧ tr % Q.slotLength ≠ 3 * Q.delta := by
+          intro tr hlblm
+          have htr : x[m].time = tr := tick_reading hsync hlblm
+          have hle : x[m].time ≤ Q.delta := by
+            have h1 := time_le_of_le hmono (show m ≤ k by omega)
+            have h2 : x[k].time = Q.delta := tick_reading hsync hlbl
+            omega
+          have hmodle : tr % Q.slotLength ≤ tr := Nat.mod_le tr Q.slotLength
+          refine ⟨fun hmod => ?_, fun hmod => by omega⟩
+          have htrΔ : tr = Q.delta := by omega
+          rw [htrΔ] at hlblm
+          have := hone m k p Q.delta hlblm hlbl
+          omega
+        rw [(frozen_step2 hcond).2]
+        exact ih (by omega)
+  exact key k (le_refl k)
+
 end Majorum
