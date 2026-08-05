@@ -688,4 +688,101 @@ theorem handler_vote_fin_content {C : Components Node (Chain Tx) (QCert Node Tx)
   split_ifs at h <;> first | omega | simp at h
   all_goals simp_all
 
+/-- The vote-tick `chAva` fold output at step `k` of validator `w`, at reading `t` —
+    the chain the tick writes to `chAva` and, in the fresh-checkpoint mode, fin-votes
+    for. Named so `justified_le_of_chAva_le`'s hypothesis and the step induction spell
+    it identically. -/
+noncomputable def voteChAva (x5 : Exec Pr5 S) (k : Nat) (w : Node) (t : Time) :
+    Chain Tx :=
+  [(processProposals (components n kappa pool proposer)
+      x5[k][w].view (t / Q.slotLength) x5[k][w].st).chAva,
+    (components n kappa pool proposer).kappaPrefix (t / Q.slotLength)
+      ((components n kappa pool proposer).mfc
+        (processProposals (components n kappa pool proposer)
+          x5[k][w].view (t / Q.slotLength) x5[k][w].st).vFrozen
+        x5[k][w].view
+        (processProposals (components n kappa pool proposer)
+          x5[k][w].view (t / Q.slotLength) x5[k][w].st).chFrozen
+        (t / Q.slotLength)),
+    (processProposals (components n kappa pool proposer)
+      x5[k][w].view (t / Q.slotLength) x5[k][w].st).gjFrozen.ch].foldl
+    (fun acc ch => if (components n kappa pool proposer).prefixLe ch
+        ((components n kappa pool proposer).mfc
+          (processProposals (components n kappa pool proposer)
+            x5[k][w].view (t / Q.slotLength) x5[k][w].st).vFrozen
+          x5[k][w].view
+          (processProposals (components n kappa pool proposer)
+            x5[k][w].view (t / Q.slotLength) x5[k][w].st).chFrozen
+          (t / Q.slotLength)) then
+      (components n kappa pool proposer).maxCh acc ch
+    else acc)
+    (processProposals (components n kappa pool proposer)
+      x5[k][w].view (t / Q.slotLength) x5[k][w].st).chAva
+
+/-- **Condition 2.5/2.6's engine**: a checkpoint justified in *any* honest-reachable
+    view by step `i` is below any chain `M2` that dominates every earlier honest
+    vote-tick's `chAva` output. Strong induction on the checkpoint slot; the inner
+    claim quantifies over all (step, validator) pairs, so the fresh-checkpoint mode
+    hands off to the `chAva` bound and the stale mode *descends inside the fin-voter's
+    own view at its own step* — the target's chain equals its source's, the source is
+    the voter's processed `gjFrozen` (justified there), and link validity strictly
+    drops the slot. No `Relay`, no slack: justification is consumed where it lives. -/
+theorem justified_le_of_chAva_le {x5 : Exec Pr5 S}
+    (hsync : SynchronizedClocks x5) (hmc : S.MonotoneCorruption)
+    (hmono : TimeMonotone x5)
+    (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < n)
+    (hcard : Fintype.card Node ≤ n)
+    {i : Nat} {M2 : Chain Tx}
+    (hchAva : ∀ (k : Nat) (w : Node) (t : Time), k < i → x5.lbl k = .tick w t →
+      t % Q.slotLength = Q.delta → chainLe (voteChAva x5 k w t) M2)
+    (cJ : Nat) :
+    ∀ (J : Checkpoint (Chain Tx)), J.c = cJ →
+    ∀ (j : Nat) (q : Node), j ≤ i →
+      JustifiedIn n x5[j][q].view J → chainLe J.ch M2 := by
+  induction cJ using Nat.strong_induction_on with
+  | _ cJ IH =>
+  intro J hJc j q hji hJ
+  cases hJ with
+  | genesis => exact chainLe_nil M2
+  | @link C _ hC hlink =>
+      -- an honest-at-`j` link voter, its fin-vote, and that vote's provenance
+      obtain ⟨w, hwA, hwhon⟩ := exists_honest_of_quorum (r := (x5[j].time : Int))
+        hcb hfn hcard hlink.2.2
+      obtain ⟨sm, hsmV, hsmw, e, τ, hsmmsg⟩ := mem_linkVoters hwA
+      have hsmsent : sm ∈ x5[j].sent := views_sound x5 j q sm hsmV
+      have hhon : sm.sender ∉ S.adv (x5[j].time : Int) := by
+        rw [hsmw]
+        exact hwhon
+      obtain ⟨k, hkj, hlblk, htimek, -, -, pk, hpk, hsend⟩ :=
+        vote_provenance (C := components n kappa pool proposer) hsync hmc hmono
+          hsmsent hhon hsmmsg
+      -- the tick's send, in full
+      have hcontent := handler_vote_fin_content (voting_reading_mod Q τ) hsend
+      rw [voting_reading_div Q τ, hsmmsg] at hcontent
+      -- match the fin-vote against the send shape
+      injection hcontent with he hsrc htgt hslot
+      by_cases hmode : (processProposals (components n kappa pool proposer)
+          x5[k][sm.sender].view τ x5[k][sm.sender].st).gjFrozen.c = τ - 1
+      · -- fresh mode: the target's chain is the tick's `chAva` output
+        rw [if_pos hmode] at htgt
+        have hJch : J.ch = voteChAva x5 k sm.sender (Q.slotLength * τ + Q.delta) := by
+          rw [htgt]
+          unfold voteChAva
+          rw [voting_reading_div Q τ]
+        rw [hJch]
+        exact hchAva k sm.sender (Q.slotLength * τ + Q.delta)
+          (lt_of_lt_of_le hkj hji) hlblk (voting_reading_mod Q τ)
+      · -- stale mode: the target's chain is its source's; descend at the voter
+        rw [if_neg hmode] at htgt
+        have hCsrc : C = (processProposals (components n kappa pool proposer)
+            x5[k][sm.sender].view τ x5[k][sm.sender].st).gjFrozen := hsrc
+        have hJch : J.ch = C.ch := by
+          rw [htgt, hCsrc]
+        have hCjust : JustifiedIn n x5[k][sm.sender].view C := by
+          rw [hCsrc]
+          exact processProposals_gjFrozen_justified (gjFrozen_justified k sm.sender)
+        rw [hJch]
+        exact IH C.c (hJc ▸ hlink.1) C rfl k sm.sender
+          (le_of_lt (lt_of_lt_of_le hkj hji)) hCjust
+
 end Majorum
