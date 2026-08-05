@@ -2195,4 +2195,54 @@ theorem tau_id_or_emitted (x5 : Exec Pr5 S) (k : Nat) (sm : SignedMsg Node M) :
         · rw [hsender]
           exact hsend
 
+set_option maxHeartbeats 1000000 in
+/-- **A justified chain sits below the simulated vote-round fork choice** — the
+    composition three of 2.2's subcases share: descend to an earlier active vote
+    tick, ride the dominance invariant to a simulated confirmed chain, and bound by
+    Lemma 5's vote conjunct at the (Active) tick owner. -/
+theorem justified_le_voteMfc (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (H2 : SettingGA Q S (simulate x5))
+    (hκ : 1 ≤ kappa) (hwin2 : HonestProposalWindow (simulate x5))
+    {k : Nat}
+    (hD : ∀ (j : Nat), j ≤ k → ∀ (q : Node), ∃ (a : Nat) (w : Node),
+      (simulate x5)[a].time ≤ x5[j].time ∧
+      chainLe x5[j][q].st.chAva ((simulate x5)[a][w].st.chi))
+    {p : Node} {s1 : Nat} (hlbl : x5.lbl k = .tick p (Q.slotLength * (s1 + 1) + Q.delta))
+    (hact : p ∈ Active Q S ((s1 : Int) + 1))
+    {j : Nat} (hjk : j ≤ k) {q : Node}
+    {J : Checkpoint (Chain Tx)} (hJ : JustifiedIn n x5[j][q].view J) :
+    chainLe J.ch
+      (mfc (processProposals2 n proposer ((simulate x5)[k][p].view) (s1 + 1)
+          ((simulate x5)[k][p].st)).vFrozen ((simulate x5)[k][p].view)
+        (processProposals2 n proposer ((simulate x5)[k][p].view) (s1 + 1)
+          ((simulate x5)[k][p].st)).chFrozen (s1 + 1)) := by
+  subst hn
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc5, hah5, hsync5, hmono5, -, -, -⟩, -, -, hone5, -, -, ⟨hcb5, hfn5⟩, -⟩ :=
+    H5
+  have H2' := H2
+  obtain ⟨⟨hmc2, hah2, hsync2, hmono2, hcs2, hdiv2, hdil2⟩, hstepw2, hwpt2, hone2,
+    ⟨hsyn2, hrel2⟩, hslp, ⟨hcb, hfn⟩, hgst⟩ := H2'
+  rcases justified_to_voteChAva hsync5 hmc5 hmono5 hcb5 hfn5 (le_refl _)
+      (i := k) J.c _ rfl j q hjk hJ with hnil | hdesc
+  · rw [hnil]
+    exact chainLe_nil _
+  · obtain ⟨k', w, t', hk'k, hlbl', hmod', hgate', hle⟩ := hdesc
+    rw [← vote_tick_chAva hlbl' hmod' hgate'] at hle
+    obtain ⟨a, w2, hta, hdom⟩ := hD (k' + 1) (by omega) w
+    have hbound : chainLe J.ch ((simulate x5)[a][w2].st.chi) := chainLe_trans hle hdom
+    have hlbl2 : (simulate x5).lbl k
+        = .tick p (Q.slotLength * (s1 + 1) + Q.delta) := simLbl_tick_iff.mpr hlbl
+    have hab : (simulate x5)[a].time ≤ Q.slotLength * (s1 + 1) + Q.delta := by
+      refine le_trans hta ?_
+      have h1 : x5[k' + 1].time = x5[k'].time := tick_time5 hlbl'
+      have h2 : x5[k'].time ≤ x5[k].time := time_le_of_le hmono5 (le_of_lt hk'k)
+      have h3 : x5[k].time = Q.slotLength * (s1 + 1) + Q.delta :=
+        tick_reading5 hsync5 hlbl
+      omega
+    have hchi := (chi_le_mfc hsync2 hstepw2 hdiv2 hdil2 hone2 hwpt2 hmc2 hsyn2
+      hrel2 hslp hcb hfn (le_refl _) hgst hκ hwin2 a w2 k p s1).2 hact hlbl2 hab
+    exact chainLe_trans hbound hchi
+
 end Majorum
