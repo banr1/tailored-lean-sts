@@ -1747,6 +1747,16 @@ theorem justified_to_voteChAva {x5 : Exec Pr5 S}
 /-! ### The frozen state at an active vote tick, on the Algorithm-5 side -/
 
 /-- The merge tick freezes the fast confirmation. -/
+theorem handler_merge_gjFrozen {C : Components Node (Chain Tx) (QCert Node Tx)}
+    {pick : Chain Tx} {p : Node} {r : Time} {V : View Node M}
+    {s : NodeState Node (Chain Tx) (QCert Node Tx)}
+    (hmod : r % Q.slotLength = 3 * Q.delta) :
+    (handlerCore C Q pick p r V s).state.gjFrozen = C.gj V := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  simp only [handlerCore, apply_ite NodeStepResult.state]
+  split_ifs <;> first | rfl | omega
+
 theorem handler_merge_chFrozen {C : Components Node (Chain Tx) (QCert Node Tx)}
     {pick : Chain Tx} {p : Node} {r : Time} {V : View Node M}
     {s : NodeState Node (Chain Tx) (QCert Node Tx)}
@@ -1764,25 +1774,28 @@ theorem handler_frozen_quiet {C : Components Node (Chain Tx) (QCert Node Tx)}
     {s : NodeState Node (Chain Tx) (QCert Node Tx)}
     (h1 : r % Q.slotLength ≠ Q.delta) (h2 : r % Q.slotLength ≠ 3 * Q.delta) :
     (handlerCore C Q pick p r V s).state.vFrozen = s.vFrozen ∧
-      (handlerCore C Q pick p r V s).state.chFrozen = s.chFrozen := by
+      (handlerCore C Q pick p r V s).state.chFrozen = s.chFrozen ∧
+      (handlerCore C Q pick p r V s).state.gjFrozen = s.gjFrozen := by
   simp only [handlerCore, apply_ite NodeStepResult.state]
   split_ifs <;>
     first
-      | exact ⟨rfl, rfl⟩
+      | exact ⟨rfl, rfl, rfl⟩
       | exact absurd ‹r % Q.slotLength = Q.delta› h1
       | exact absurd ‹r % Q.slotLength = 3 * Q.delta› h2
 
+set_option maxHeartbeats 800000 in
 /-- Off `p`'s vote and merge ticks, one step keeps `p`'s frozen fields. -/
 theorem frozen_step5 {x5 : Exec Pr5 S} {m : Nat} {p : Node}
     (hcond : ∀ tr : Time, x5.lbl m = .tick p tr →
       tr % Q.slotLength ≠ Q.delta ∧ tr % Q.slotLength ≠ 3 * Q.delta) :
     x5[m + 1][p].st.vFrozen = x5[m][p].st.vFrozen ∧
-      x5[m + 1][p].st.chFrozen = x5[m][p].st.chFrozen := by
+      x5[m + 1][p].st.chFrozen = x5[m][p].st.chFrozen ∧
+      x5[m + 1][p].st.gjFrozen = x5[m][p].st.gjFrozen := by
   have h5 : x5[m + 1] = _ := exec5_succ (x5 := x5) m
   cases h : x5.lbl m with
   | advance t =>
       rw [h5, h]
-      exact ⟨rfl, rfl⟩
+      exact ⟨rfl, rfl, rfl⟩
   | tick q t =>
       rw [h5, h]
       by_cases hq : p = q
@@ -1791,14 +1804,17 @@ theorem frozen_step5 {x5 : Exec Pr5 S} {m : Nat} {p : Node}
         have hfr := handler_frozen_quiet (C := components n kappa pool proposer)
           (Q := Q) (pick := pick5 x5 m p t) (p := p) (r := t)
           (V := x5[m][p].view) (s := x5[m][p].st) hph.1 hph.2
-        constructor
+        refine ⟨?_, ?_, ?_⟩
         · simp only [applyNodeStepResult_getElem, setClock_getElem, if_pos rfl,
             if_true]
           exact hfr.1
         · simp only [applyNodeStepResult_getElem, setClock_getElem, if_pos rfl,
             if_true]
-          exact hfr.2
-      · constructor <;>
+          exact hfr.2.1
+        · simp only [applyNodeStepResult_getElem, setClock_getElem, if_pos rfl,
+            if_true]
+          exact hfr.2.2
+      · refine ⟨?_, ?_, ?_⟩ <;>
           · simp only [applyNodeStepResult_getElem, setClock_getElem, if_true,
               if_neg (fun hh => hq (Eq.symm hh))]
             rfl
@@ -1806,11 +1822,11 @@ theorem frozen_step5 {x5 : Exec Pr5 S} {m : Nat} {p : Node}
       rw [h5, h]
       by_cases hq : p = q
       · subst hq
-        constructor <;>
+        refine ⟨?_, ?_, ?_⟩ <;>
           · simp only [applyNodeStepResult_getElem, receive_getElem, if_pos rfl,
               if_true]
             rfl
-      · constructor <;>
+      · refine ⟨?_, ?_, ?_⟩ <;>
           · simp only [applyNodeStepResult_getElem, receive_getElem,
               if_neg (fun hh => hq (Eq.symm hh))]
             rfl
@@ -1818,22 +1834,23 @@ theorem frozen_step5 {x5 : Exec Pr5 S} {m : Nat} {p : Node}
       rw [h5, h]
       by_cases hq : p = q
       · subst hq
-        constructor <;>
+        refine ⟨?_, ?_, ?_⟩ <;>
           · simp only [applyNodeStepResult_getElem, if_pos rfl, if_true]
             rfl
-      · constructor <;>
+      · refine ⟨?_, ?_, ?_⟩ <;>
           · simp only [applyNodeStepResult_getElem,
               if_neg (fun hh => hq (Eq.symm hh))]
             rfl
   | custom q ev => exact ev.elim
   | adversarial q msg =>
       rw [h5, h]
-      exact ⟨rfl, rfl⟩
+      exact ⟨rfl, rfl, rfl⟩
 
+set_option maxHeartbeats 1000000 in
 /-- **The frozen state at an active vote tick, traced to its merge** — Algorithm 5's
     `frozen_at_vote_tick`: the merge tick at `4Δt+3Δ` exists inside the activity
-    window and froze that moment's view and fast confirmation; no reading in between
-    can rewrite them. -/
+    window and froze that moment's view, fast confirmation and greatest justified
+    checkpoint; no reading in between can rewrite them. -/
 theorem frozen_at_vote_tick5 {x5 : Exec Pr5 S}
     (hsync : SynchronizedClocks x5) (hstepw : TimeStepwise x5) (hdil : Diligent x5)
     (hone : OneTickPerReading x5)
@@ -1843,7 +1860,8 @@ theorem frozen_at_vote_tick5 {x5 : Exec Pr5 S}
       x5.lbl im = .tick p (Q.slotLength * t + 3 * Q.delta) ∧
       x5[j][p].st.vFrozen = x5[im][p].view ∧
       x5[j][p].st.chFrozen
-        = ((components n kappa pool proposer).fastConfirm x5[im][p].view t).1 := by
+        = ((components n kappa pool proposer).fastConfirm x5[im][p].view t).1 ∧
+      x5[j][p].st.gjFrozen = gj n x5[im][p].view := by
   have hmono := hstepw.timeMonotone
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
@@ -1876,7 +1894,8 @@ theorem frozen_at_vote_tick5 {x5 : Exec Pr5 S}
       omega
   have hmstate : x5[im + 1][p].st.vFrozen = x5[im][p].view ∧
       x5[im + 1][p].st.chFrozen
-        = ((components n kappa pool proposer).fastConfirm x5[im][p].view t).1 := by
+        = ((components n kappa pool proposer).fastConfirm x5[im][p].view t).1 ∧
+      x5[im + 1][p].st.gjFrozen = gj n x5[im][p].view := by
     have hget : x5[im + 1][p].st
         = (handlerCore (components n kappa pool proposer) Q
           (pick5 x5 im p (Q.slotLength * t + 3 * Q.delta)) p
@@ -1886,11 +1905,14 @@ theorem frozen_at_vote_tick5 {x5 : Exec Pr5 S}
       simp only [applyNodeStepResult_getElem, setClock_getElem, if_pos rfl, if_true]
       rfl
     rw [hget, handler_merge_vFrozen (merge_reading_mod Q t),
-      handler_merge_chFrozen (merge_reading_mod Q t), merge_reading_div Q t]
-    exact ⟨rfl, rfl⟩
+      handler_merge_chFrozen (merge_reading_mod Q t),
+      handler_merge_gjFrozen (merge_reading_mod Q t), merge_reading_div Q t,
+      components_gj]
+    exact ⟨rfl, rfl, rfl⟩
   have hpers : ∀ m, im + 1 ≤ m → m ≤ j →
       x5[m][p].st.vFrozen = x5[im + 1][p].st.vFrozen ∧
-        x5[m][p].st.chFrozen = x5[im + 1][p].st.chFrozen := by
+        x5[m][p].st.chFrozen = x5[im + 1][p].st.chFrozen ∧
+        x5[m][p].st.gjFrozen = x5[im + 1][p].st.gjFrozen := by
     intro m
     induction m with
     | zero => omega
@@ -1898,7 +1920,7 @@ theorem frozen_at_vote_tick5 {x5 : Exec Pr5 S}
         intro h1 h2
         rcases Nat.eq_or_lt_of_le h1 with heq | hlt
         · rw [← heq]
-          exact ⟨rfl, rfl⟩
+          exact ⟨rfl, rfl, rfl⟩
         · have hprev := ih (by omega) (by omega)
           have hcond : ∀ tr : Time, x5.lbl m = .tick p tr →
               tr % Q.slotLength ≠ Q.delta ∧ tr % Q.slotLength ≠ 3 * Q.delta := by
@@ -1922,10 +1944,11 @@ theorem frozen_at_vote_tick5 {x5 : Exec Pr5 S}
               have := hone m im p _ hltr hlblm
               omega
           have hstep := frozen_step5 hcond
-          exact ⟨hstep.1.trans hprev.1, hstep.2.trans hprev.2⟩
+          exact ⟨hstep.1.trans hprev.1, hstep.2.1.trans hprev.2.1,
+            hstep.2.2.trans hprev.2.2⟩
   have hsj := hpers j (by omega) (le_refl j)
-  rw [hmstate.1, hmstate.2] at hsj
-  exact ⟨im, himj, htim, hlblm, hsj.1, hsj.2⟩
+  rw [hmstate.1, hmstate.2.1, hmstate.2.2] at hsj
+  exact ⟨im, himj, htim, hlblm, hsj.1, hsj.2.1, hsj.2.2⟩
 
 /-! ### The prefix-guarded fold is a maximum, under comparability -/
 
@@ -2220,7 +2243,7 @@ theorem chFrozen_early5 {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
           rw [htrΔ] at hlblm
           have := hone m k p Q.delta hlblm hlbl
           omega
-        rw [(frozen_step5 hcond).2]
+        rw [(frozen_step5 hcond).2.1]
         exact ih (by omega)
   exact key k (le_refl k)
 
@@ -2370,7 +2393,7 @@ theorem chFrozen5_le_voteMfc (hn : n = Fintype.card Node)
     have hcast : (((s1 + 1 : Nat)) : Int) = (s1 : Int) + 1 := by push_cast; omega
     rw [← hcast]
     exact hA
-  obtain ⟨im, himk, htim, hlblm, -, hcf⟩ :=
+  obtain ⟨im, himk, htim, hlblm, -, hcf, -⟩ :=
     frozen_at_vote_tick5 hsync5 hstepw5 hdil5 hone5 hact hlbl
   rw [hcf]
   unfold Components.fastConfirm
@@ -3262,7 +3285,7 @@ theorem seed2_le_seed5 (hn : n = Fintype.card Node)
     have hcast : (((s1 + 1 : Nat)) : Int) = (s1 : Int) + 1 := by push_cast; omega
     rw [← hcast]
     exact hA
-  obtain ⟨im, himk, -, hlblm, -, hcf5⟩ :=
+  obtain ⟨im, himk, -, hlblm, -, hcf5, -⟩ :=
     frozen_at_vote_tick5 hsync5 hstepw5 hdil5 hone5 hact hlbl
   have hlbl2 : (simulate x5).lbl k
       = .tick p (Q.slotLength * (s1 + 1) + Q.delta) := simLbl_tick_iff.mpr hlbl
