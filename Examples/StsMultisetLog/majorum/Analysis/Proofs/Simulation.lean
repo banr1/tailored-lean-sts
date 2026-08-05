@@ -81,6 +81,71 @@ theorem sendOf_mem {res : NodeStepResult (NodeState2 Node Tx) M} {m : M}
       subst h
       exact List.mem_cons_self
 
+/-- An Algorithm-5 tick step, inverted: some admissible pick ran the deterministic
+    core. The relational vote choice (tenth finding) makes this an existential where it
+    used to be an equation. -/
+theorem exec5_tick {x5 : Exec Pr5 S} {k : Nat} {p : Node} {t : Time}
+    (h : x5.lbl k = .tick p t) :
+    ∃ pk ∈ (components n kappa pool proposer).votePicks Q
+        (setClock p t (x5.cfg k))[p].view t (setClock p t (x5.cfg k))[p].st,
+      x5.cfg (k + 1) = applyNodeStepResult p
+        (handlerCore (components n kappa pool proposer) Q pk p t
+          (setClock p t (x5.cfg k))[p].view (setClock p t (x5.cfg k))[p].st)
+        (setClock p t (x5.cfg k)) := by
+  have hstep := x5.step k
+  rw [h] at hstep
+  obtain ⟨-, heff⟩ := hstep
+  simp only [spec] at heff
+  rw [nodeStep_iff_exists] at heff
+  obtain ⟨res, hres, hpost⟩ := heff
+  rw [protocol_step_tick] at hres
+  obtain ⟨pk, hpk, rfl⟩ := mem_handler_iff.mp hres
+  refine ⟨pk, ?_, ?_⟩
+  · simpa [setClock_getElem] using hpk
+  · rw [hpost]
+    simp [setClock_getElem]
+
+/-- The pick the original tick at step `k` actually used — by choice from `exec5_tick`;
+    a placeholder off the tick labels. -/
+noncomputable def pick5 (x5 : Exec Pr5 S) (k : Nat) (p : Node) (t : Time) : Chain Tx :=
+  @dite _ (x5.lbl k = .tick p t) (Classical.propDecidable _)
+    (fun h => (exec5_tick (x5 := x5) h).choose) (fun _ => [])
+
+theorem pick5_mem {x5 : Exec Pr5 S} {k : Nat} {p : Node} {t : Time}
+    (h : x5.lbl k = .tick p t) :
+    pick5 x5 k p t ∈ (components n kappa pool proposer).votePicks Q
+      (setClock p t (x5.cfg k))[p].view t (setClock p t (x5.cfg k))[p].st := by
+  unfold pick5
+  rw [dif_pos h]
+  exact (exec5_tick h).choose_spec.1
+
+theorem exec5_succ_tick {x5 : Exec Pr5 S} {k : Nat} {p : Node} {t : Time}
+    (h : x5.lbl k = .tick p t) :
+    x5.cfg (k + 1) = applyNodeStepResult p
+      (handlerCore (components n kappa pool proposer) Q (pick5 x5 k p t) p t
+        (setClock p t (x5.cfg k))[p].view (setClock p t (x5.cfg k))[p].st)
+      (setClock p t (x5.cfg k)) := by
+  unfold pick5
+  rw [dif_pos h]
+  exact (exec5_tick h).choose_spec.2
+
+/-- The simulated tick's pick: the original's, when admissible in the simulated view —
+    that it *is* admissible at every honest tick is stage C's content, not the
+    construction's — and any admissible pick otherwise, keeping the construction total
+    and every step legal. -/
+noncomputable def simPick (x5 : Exec Pr5 S) (k : Nat) (p : Node) (t : Time)
+    (V2 : View Node M) (s2 : NodeState2 Node Tx) : Chain Tx :=
+  @ite _ (pick5 x5 k p t ∈ votePicks2 Q n proposer V2 t s2) (Classical.propDecidable _)
+    (pick5 x5 k p t) (votePicks2_nonempty Q n proposer V2 t s2).choose
+
+theorem simPick_mem (x5 : Exec Pr5 S) (k : Nat) (p : Node) (t : Time)
+    (V2 : View Node M) (s2 : NodeState2 Node Tx) :
+    simPick x5 k p t V2 s2 ∈ votePicks2 Q n proposer V2 t s2 := by
+  unfold simPick
+  split_ifs with h
+  · exact h
+  · exact (votePicks2_nonempty Q n proposer V2 t s2).choose_spec
+
 /-- One step of the simulation: the Algorithm-2 configuration, and the correspondence
     table pairing each Algorithm-5 message with the simulated execution's counterpart.
     Every branch is the framework's effect term for the (translated) action, verbatim,
@@ -93,10 +158,11 @@ noncomputable def simStep (x5 : Exec Pr5 S) (k : Nat) :
     | .advance t => ({ c2 with time := t }, τ)
     | .tick p t =>
         let pre2 := setClock p t c2
-        let res2 := handler2Core Q n kappa pool proposer simBlank p t
+        let res2 := handler2Core Q n kappa pool proposer simBlank
+          (simPick x5 k p t pre2[p].view pre2[p].st) p t
           pre2[p].view pre2[p].st
         let pre5 := setClock p t (x5.cfg k)
-        let res5 := handler (components n kappa pool proposer) Q p t
+        let res5 := handlerCore (components n kappa pool proposer) Q (pick5 x5 k p t) p t
           pre5[p].view pre5[p].st
         (applyNodeStepResult p res2 pre2,
          fun sm =>
@@ -147,15 +213,15 @@ Everything the step obligations need: the simulated clock face matches the origi
 time, per-validator clocks, `activeAt` — and the table maps the original log into the
 simulated one. None of this says anything about *content*; that is stage C. -/
 
-/-- Algorithm 5 is deterministic, so its every step is the applied handler: the
-    successor configuration, resolved. -/
+/-- Algorithm 5's every step, resolved: deterministic except at ticks, whose reaction
+    is the core at the pick `exec5_tick` extracted. -/
 theorem exec5_succ {x5 : Exec Pr5 S} (k : Nat) :
     x5.cfg (k + 1) =
       match x5.lbl k with
       | .advance t => { x5.cfg k with time := t }
       | .tick p t =>
           applyNodeStepResult p
-            (handler (components n kappa pool proposer) Q p t
+            (handlerCore (components n kappa pool proposer) Q (pick5 x5 k p t) p t
               (setClock p t (x5.cfg k))[p].view (setClock p t (x5.cfg k))[p].st)
             (setClock p t (x5.cfg k))
       | .deliver p m =>
@@ -173,15 +239,7 @@ theorem exec5_succ {x5 : Exec Pr5 S} (k : Nat) :
   | advance t =>
       rw [h] at hstep
       exact hstep.2
-  | tick p t =>
-      rw [h] at hstep
-      obtain ⟨-, heff⟩ := hstep
-      simp only [spec] at heff
-      rw [nodeStep_iff_exists] at heff
-      obtain ⟨res, hres, hpost⟩ := heff
-      rw [protocol_step_tick] at hres
-      rw [hpost, hres]
-      simp [setClock_getElem]
+  | tick p t => exact exec5_succ_tick h
   | deliver p m =>
       rw [h] at hstep
       obtain ⟨-, heff⟩ := hstep
@@ -315,13 +373,14 @@ theorem sim_activeAt {x5 : Exec Pr5 S} (k : Nat) (q : Node) :
 /-- The two handlers send together or not at all: the branch guards read only the
     phase, the proposer, and `activeAt` — equal across the simulation. -/
 theorem sends_align {view5 : View Node M} {st5 : NodeState Node (Chain Tx) (QCert Node Tx)}
-    {view2 : View Node M} {st2 : NodeState2 Node Tx} (p : Node) (t : Time)
+    {view2 : View Node M} {st2 : NodeState2 Node Tx} {pk5 pk2 : Chain Tx}
+    (p : Node) (t : Time)
     (hact : st2.activeAt = st5.activeAt) :
-    ((handler (components n kappa pool proposer) Q p t view5 st5).send = 0 ∧
-      (handler2Core Q n kappa pool proposer simBlank p t view2 st2).send = 0) ∨
-    ((handler (components n kappa pool proposer) Q p t view5 st5).send ≠ 0 ∧
-      (handler2Core Q n kappa pool proposer simBlank p t view2 st2).send ≠ 0) := by
-  simp only [handler, handler2Core, components, apply_ite NodeStepResult.send, hact]
+    ((handlerCore (components n kappa pool proposer) Q pk5 p t view5 st5).send = 0 ∧
+      (handler2Core Q n kappa pool proposer simBlank pk2 p t view2 st2).send = 0) ∨
+    ((handlerCore (components n kappa pool proposer) Q pk5 p t view5 st5).send ≠ 0 ∧
+      (handler2Core Q n kappa pool proposer simBlank pk2 p t view2 st2).send ≠ 0) := by
+  simp only [handlerCore, handler2Core, components, apply_ite NodeStepResult.send, hact]
   split_ifs <;>
     first
       | exact Or.inl ⟨rfl, rfl⟩
@@ -345,10 +404,12 @@ theorem sim_table {x5 : Exec Pr5 S} (k : Nat) (sm : SignedMsg Node M) :
       | tick p t =>
           simp only [simStep, h]
           by_cases hcond : sm.sender = p ∧ sm.msg ∈
-              (handler (components n kappa pool proposer) Q p t
+              (handlerCore (components n kappa pool proposer) Q (pick5 x5 k p t) p t
                 (setClock p t (x5.cfg k))[p].view (setClock p t (x5.cfg k))[p].st).send
           · rw [if_pos hcond]
-            cases hso : sendOf (handler2Core Q n kappa pool proposer simBlank p t
+            cases hso : sendOf (handler2Core Q n kappa pool proposer simBlank
+                (simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+                  (setClock p t (simState x5 k).1)[p].st) p t
                 (setClock p t (simState x5 k).1)[p].view
                 (setClock p t (simState x5 k).1)[p].st) with
             | none =>
@@ -359,7 +420,9 @@ theorem sim_table {x5 : Exec Pr5 S} (k : Nat) (sm : SignedMsg Node M) :
                   exact Multiset.mem_add.mpr (Or.inl h1)
             | some m2 =>
                 refine Or.inr ?_
-                have hm2 : m2 ∈ (handler2Core Q n kappa pool proposer simBlank p t
+                have hm2 : m2 ∈ (handler2Core Q n kappa pool proposer simBlank
+                    (simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+                      (setClock p t (simState x5 k).1)[p].st) p t
                     (setClock p t (simState x5 k).1)[p].view
                     (setClock p t (simState x5 k).1)[p].st).send := sendOf_mem hso
                 simp only [applyNodeStepResult_sent]
@@ -416,12 +479,14 @@ theorem sim_sent {x5 : Exec Pr5 S} (k : Nat) :
           simp only [simStep, h]
           simp only [applyNodeStepResult_sent] at hsm ⊢
           by_cases hcond : sm.sender = p ∧ sm.msg ∈
-              (handler (components n kappa pool proposer) Q p t
+              (handlerCore (components n kappa pool proposer) Q (pick5 x5 k p t) p t
                 (setClock p t (x5.cfg k))[p].view (setClock p t (x5.cfg k))[p].st).send
           · rw [if_pos hcond]
             -- the original handler sent something, so the simulated one did too
             have halign := sends_align (Q := Q) (n := n) (kappa := kappa) (pool := pool)
-              (proposer := proposer)
+              (proposer := proposer) (pk5 := pick5 x5 k p t)
+              (pk2 := simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+                (setClock p t (simState x5 k).1)[p].st)
               (view5 := (setClock p t (x5.cfg k))[p].view)
               (st5 := (setClock p t (x5.cfg k))[p].st)
               (view2 := (setClock p t (simState x5 k).1)[p].view)
@@ -431,7 +496,9 @@ theorem sim_sent {x5 : Exec Pr5 S} (k : Nat) :
             rcases halign with ⟨h50, -⟩ | ⟨-, h2ne⟩
             · rw [h50] at hcond
               cases hcond.2
-            · have hne : (handler2Core Q n kappa pool proposer simBlank p t
+            · have hne : (handler2Core Q n kappa pool proposer simBlank
+                  (simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+                    (setClock p t (simState x5 k).1)[p].st) p t
                   (setClock p t (simState x5 k).1)[p].view
                   (setClock p t (simState x5 k).1)[p].st).send.toList ≠ [] := by
                 intro h0
@@ -439,7 +506,9 @@ theorem sim_sent {x5 : Exec Pr5 S} (k : Nat) :
                   have := congrArg Multiset.ofList h0
                   simpa [Multiset.coe_toList] using this)
               obtain ⟨m2, hm2⟩ := List.exists_mem_of_ne_nil _ hne
-              cases hso : sendOf (handler2Core Q n kappa pool proposer simBlank p t
+              cases hso : sendOf (handler2Core Q n kappa pool proposer simBlank
+                  (simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+                    (setClock p t (simState x5 k).1)[p].st) p t
                   (setClock p t (simState x5 k).1)[p].view
                   (setClock p t (simState x5 k).1)[p].st) with
               | none =>
@@ -448,7 +517,9 @@ theorem sim_sent {x5 : Exec Pr5 S} (k : Nat) :
                   rcases List.head?_eq_none_iff.mp hso with h0
                   exact hne h0
               | some m2' =>
-                  have hm2' : m2' ∈ (handler2Core Q n kappa pool proposer simBlank p t
+                  have hm2' : m2' ∈ (handler2Core Q n kappa pool proposer simBlank
+                      (simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+                        (setClock p t (simState x5 k).1)[p].st) p t
                       (setClock p t (simState x5 k).1)[p].view
                       (setClock p t (simState x5 k).1)[p].st).send := sendOf_mem hso
                   exact Multiset.mem_add.mpr
@@ -518,12 +589,17 @@ noncomputable def simulate (x5 : Exec Pr5 S) : Exec Pr2 S where
         · show NodeStep Pr2 p .tick (setClock p t (simState x5 k).1)
             (simState x5 (k + 1)).1
           rw [nodeStep_iff_exists]
-          refine ⟨handler2Core Q n kappa pool proposer simBlank p
+          refine ⟨handler2Core Q n kappa pool proposer simBlank
+            (simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+              (setClock p t (simState x5 k).1)[p].st) p
             (setClock p t (simState x5 k).1)[p].clock
             (setClock p t (simState x5 k).1)[p].view
             (setClock p t (simState x5 k).1)[p].st, ?_, ?_⟩
           · rw [protocol2_step_tick, mem_handler2_iff]
-            exact ⟨simBlank, rfl⟩
+            refine ⟨simBlank, _, ?_, rfl⟩
+            simpa [setClock_getElem] using simPick_mem x5 k p t
+              (setClock p t (simState x5 k).1)[p].view
+              (setClock p t (simState x5 k).1)[p].st
           · show (simStep x5 k (simState x5 k)).1 = _
             simp only [simStep, h]
             simp [setClock_getElem]

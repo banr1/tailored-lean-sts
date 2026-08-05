@@ -30,6 +30,8 @@ depend on the fork-choice.
 
 set_option autoImplicit false
 
+attribute [local instance] Set.monad
+
 namespace Majorum
 
 open the framework's flat multiset-log flavour
@@ -126,20 +128,117 @@ theorem emitted_of_mem_sent {NS : Type} {Pr' : Protocol Node (Msg (Chain Tx) QC)
         have h2 : Multiset.count sm x[n].sent = 0 := Multiset.count_eq_zero.mpr hn
         omega
 
+/-! ### The deterministic core, and the inversion through it -/
+
+/-- The deterministic core of `handler`: Algorithm 5's four phase actions with the vote
+    phase's proposal choice given — meaningful only under `pick ∈ C.votePicks …`, which
+    is how `mem_handler_iff` hands it over (the tenth finding's nondeterminism, resolved
+    into a parameter here, exactly as `handler2Core`'s). -/
+noncomputable def handlerCore (C : Components Node (Chain Tx) QC) (Q : Params)
+    (pick : Chain Tx) (p : Node) (r : Time) (V : View Node (Msg (Chain Tx) QC))
+    (s : NodeState Node (Chain Tx) QC) :
+    NodeStepResult (NodeState Node (Chain Tx) QC) (Msg (Chain Tx) QC) :=
+  let slot : Nat := r / Q.slotLength
+  let phase : Nat := r % Q.slotLength
+  if phase = 0 then
+    if p = C.proposer slot ∧ s.activeAt ≤ r then
+      let cq := C.fastConfirm V (slot - 1)
+      let chMFC := C.mfc V V cq.1 slot
+      let chp := C.extend chMFC slot
+      { state := s, send := {.propose chp cq.1 cq.2 (C.gj V) slot} }
+    else { state := s, send := 0 }
+  else if phase = Q.delta then
+    let s' := processProposals C V slot s
+    let chMFC := C.mfc s'.vFrozen V s'.chFrozen slot
+    let chAva :=
+      [s'.chAva, C.kappaPrefix slot chMFC, s'.gjFrozen.ch].foldl
+        (fun acc ch => if C.prefixLe ch chMFC then C.maxCh acc ch else acc) s'.chAva
+    let chFin := C.commonPrefix chAva (C.gf V).ch
+    let target : Checkpoint (Chain Tx) :=
+      if s'.gjFrozen.c = slot - 1 then ⟨chAva, slot⟩ else ⟨s'.gjFrozen.ch, slot⟩
+    { state := if s.activeAt ≤ r then { s' with chAva := chAva, chFin := chFin } else s',
+      send := if s.activeAt ≤ r then {.vote pick s'.gjFrozen target slot} else 0 }
+  else if phase = 2 * Q.delta then
+    let fastcand := (C.fastConfirm V slot).1
+    let chAva := if C.prefixLe fastcand s.chAva then s.chAva else fastcand
+    { state := { s with chAva := chAva, chFin := (C.gf V).ch }, send := 0 }
+  else if phase = 3 * Q.delta then
+    { state := { s with vFrozen := V, chFrozen := (C.fastConfirm V slot).1,
+                        gjFrozen := C.gj V },
+      send := 0 }
+  else
+    { state := s, send := 0 }
+
+/-- The vote phase's choice set is never empty. -/
+theorem votePicks_nonempty (C : Components Node (Chain Tx) QC) (Q : Params)
+    (V : View Node (Msg (Chain Tx) QC)) (r : Time) (s : NodeState Node (Chain Tx) QC) :
+    (C.votePicks Q V r s).Nonempty :=
+  pickSet_nonempty _ _
+
+/-- Membership in the vote branch's nondeterministic assignment followed by a
+    deterministic continuation. -/
+theorem mem_pick {γ β : Type} {F : Finset γ} {f : γ → β} {res : β} :
+    (res ∈ do { let c ← (↑F : Set γ); pure (f c) }) ↔ ∃ c ∈ F, res = f c := by
+  rw [Set.bind_def]
+  simp only [Set.pure_def, Set.mem_iUnion, Set.mem_singleton_iff, exists_prop,
+    Finset.mem_coe]
+
+/-- Membership in a deterministic branch, phrased with the vacuous choice the
+    deterministic core still binds. -/
+theorem mem_pure_pick {γ β : Type} {F : Finset γ} (hF : F.Nonempty) {b res : β} :
+    (res ∈ (pure b : Set β)) ↔ ∃ c ∈ F, res = b := by
+  obtain ⟨c, hc⟩ := hF
+  simp only [Set.pure_def, Set.mem_singleton_iff]
+  exact ⟨fun h => ⟨c, hc, h⟩, fun ⟨_, _, h⟩ => h⟩
+
+/-- **The inversion lemma**: membership in Algorithm 5's handler is exactly "the
+    deterministic core, for some admissible pick". -/
+theorem mem_handler_iff {p : Node} {r : Time} {V : View Node (Msg (Chain Tx) QC)}
+    {s : NodeState Node (Chain Tx) QC}
+    {res : NodeStepResult (NodeState Node (Chain Tx) QC) (Msg (Chain Tx) QC)} :
+    res ∈ handler C Q p r V s ↔
+      ∃ pick ∈ C.votePicks Q V r s, res = handlerCore C Q pick p r V s := by
+  have hpk := votePicks_nonempty C Q V r s
+  simp only [handler, handlerCore]
+  split_ifs <;>
+    first
+      | exact mem_pick
+      | exact mem_pure_pick hpk
+
+/-! `simp only [protocol]` is the wrong tool for reducing `(protocol C Q).step …`: as a
+simp rewrite it also unfolds `protocol C Q` inside the *type arguments* of every term in
+the hypothesis, and a later `subst` splices those into the goal, leaving terms that are
+defeq to the clean spelling but never again syntactically equal to it. These three
+definitional lemmas rewrite exactly the proposition and nothing else. -/
+
+theorem protocol_step_tick {p : Node} {r : Time} {V : View Node (Msg (Chain Tx) QC)}
+    {s : NodeState Node (Chain Tx) QC} {res} :
+    (protocol C Q).step p r V s .tick res ↔ res ∈ handler C Q p r V s := Iff.rfl
+
+theorem protocol_step_recv {p : Node} {r : Time} {V : View Node (Msg (Chain Tx) QC)}
+    {s : NodeState Node (Chain Tx) QC} {m : SignedMsg Node (Msg (Chain Tx) QC)} {res} :
+    (protocol C Q).step p r V s (.recv m) res ↔ res = { state := s, send := 0 } := Iff.rfl
+
+theorem protocol_step_wake {p : Node} {r : Time} {V : View Node (Msg (Chain Tx) QC)}
+    {s : NodeState Node (Chain Tx) QC} {res} :
+    (protocol C Q).step p r V s .wake res ↔
+      res = { state := { s with activeAt := activationRound Q r }, send := 0 } := Iff.rfl
+
 /-! ### What the handler can send -/
 
 /-- The handler's sends have a rigid shape: only once active, and only a propose message at
     the propose reading or a vote at the vote reading, each carrying the reading's own
     slot. Every other phase sends nothing. -/
-theorem mem_handler_send {p : Node} {r : Time} {V : View Node (Msg (Chain Tx) QC)}
+theorem mem_handler_send {pick : Chain Tx} {p : Node} {r : Time}
+    {V : View Node (Msg (Chain Tx) QC)}
     {s : NodeState Node (Chain Tx) QC} {m : Msg (Chain Tx) QC}
-    (h : m ∈ (handler C Q p r V s).send) :
+    (h : m ∈ (handlerCore C Q pick p r V s).send) :
     s.activeAt ≤ r ∧
       ((∃ chp chC qc gj, m = .propose chp chC qc gj (r / Q.slotLength) ∧
           r % Q.slotLength = 0) ∨
         (∃ ch src tgt, m = .vote ch src tgt (r / Q.slotLength) ∧
           r % Q.slotLength = Q.delta)) := by
-  simp only [handler, apply_ite NodeStepResult.send] at h
+  simp only [handlerCore, apply_ite NodeStepResult.send] at h
   -- the sends-nothing leaves close on `m ∈ 0`; the two sending leaves survive with
   -- `h : m = …` and their guards in context, retrieved anonymously so the proof does not
   -- depend on how `split_ifs` numbers the leaf tree
@@ -150,11 +249,13 @@ theorem mem_handler_send {p : Node} {r : Time} {V : View Node (Msg (Chain Tx) QC
       | exact ⟨‹s.activeAt ≤ r›, Or.inr ⟨_, _, _, rfl, ‹r % Q.slotLength = Q.delta›⟩⟩
 
 /-- The handler sends at most one message per step: every branch is a singleton or empty. -/
-theorem handler_send_subsingleton {p : Node} {r : Time} {V : View Node (Msg (Chain Tx) QC)}
+theorem handler_send_subsingleton {pick : Chain Tx} {p : Node} {r : Time}
+    {V : View Node (Msg (Chain Tx) QC)}
     {s : NodeState Node (Chain Tx) QC} {m m' : Msg (Chain Tx) QC}
-    (h : m ∈ (handler C Q p r V s).send) (h' : m' ∈ (handler C Q p r V s).send) :
+    (h : m ∈ (handlerCore C Q pick p r V s).send)
+    (h' : m' ∈ (handlerCore C Q pick p r V s).send) :
     m = m' := by
-  simp only [handler, apply_ite NodeStepResult.send] at h h'
+  simp only [handlerCore, apply_ite NodeStepResult.send] at h h'
   split_ifs at h h' <;> simp_all
 
 /-! ### What one step can contribute -/
@@ -168,14 +269,18 @@ theorem emitted_step {x : Exec Pr S} {k : Nat} {sm : SignedMsg Node (Msg (Chain 
     (∃ t : Time, x.lbl k = .tick sm.sender t ∧
         sm.sender ∈ S.awake ((x[k].time : Int)) ∧
         x[k + 1].time = x[k].time ∧ x[k + 1][sm.sender].clock = t ∧
-        sm.msg ∈ (handler C Q sm.sender t x[k][sm.sender].view x[k][sm.sender].st).send) ∨
+        ∃ pick ∈ C.votePicks Q x[k][sm.sender].view t x[k][sm.sender].st,
+          sm.msg ∈ (handlerCore C Q pick sm.sender t
+            x[k][sm.sender].view x[k][sm.sender].st).send) ∨
       sm.sender ∈ S.adv ((x[k].time : Int)) := by
   have hstep := x.step k
   refine hstep.elimR (motive := fun a c c' => sm ∈ c'.sent - c.sent →
       (∃ t : Time, a = Action.tick sm.sender t ∧
           sm.sender ∈ S.awake ((c.time : Int)) ∧ c'.time = c.time ∧
           c'[sm.sender].clock = t ∧
-          sm.msg ∈ (handler C Q sm.sender t c[sm.sender].view c[sm.sender].st).send) ∨
+          ∃ pick ∈ C.votePicks Q c[sm.sender].view t c[sm.sender].st,
+            sm.msg ∈ (handlerCore C Q pick sm.sender t
+              c[sm.sender].view c[sm.sender].st).send) ∨
         sm.sender ∈ S.adv ((c.time : Int)))
     ?_ ?_ ?_ ?_ ?_ ?_ hem
   · -- advance: the log does not move
@@ -187,24 +292,25 @@ theorem emitted_step {x : Exec Pr S} {k : Nat} {sm : SignedMsg Node (Msg (Chain 
       simp [Multiset.count_sub]
     rw [hz] at hem'
     simp at hem'
-  · -- tick: the graph of the handler, so the delta is the handler's send
+  · -- tick: some admissible reaction of the handler, so the delta is its send
     intro d d' q t hen hns hem'
     rw [nodeStep_iff_exists] at hns
     obtain ⟨res, hstep', rfl⟩ := hns
-    simp only [protocol] at hstep'
-    subst hstep'
+    rw [protocol_step_tick] at hstep'
+    obtain ⟨pk, hpk, rfl⟩ := mem_handler_iff.mp hstep'
     rw [← setClock_sent q t d, applyNodeStepResult_sent_sub] at hem'
     obtain ⟨mm, hmm, hsm⟩ := Multiset.mem_map.mp hem'
     subst hsm
     simp only [spec] at hen
-    refine Or.inl ⟨t, rfl, hen, rfl, ?_, ?_⟩
+    refine Or.inl ⟨t, rfl, hen, rfl, ?_, pk, ?_, ?_⟩
     · simp [setClock_getElem]
+    · simpa [setClock_getElem] using hpk
     · simpa [setClock_getElem] using hmm
   · -- deliver: the recv reaction sends nothing
     intro d d' q m hen hns hem'
     rw [nodeStep_iff_exists] at hns
     obtain ⟨res, hstep', rfl⟩ := hns
-    simp only [protocol] at hstep'
+    rw [protocol_step_recv] at hstep'
     subst hstep'
     rw [← receive_sent q m d, applyNodeStepResult_sent_sub] at hem'
     simp at hem'
@@ -212,7 +318,7 @@ theorem emitted_step {x : Exec Pr S} {k : Nat} {sm : SignedMsg Node (Msg (Chain 
     intro d d' q hen hns hem'
     rw [nodeStep_iff_exists] at hns
     obtain ⟨res, hstep', rfl⟩ := hns
-    simp only [protocol] at hstep'
+    rw [protocol_step_wake] at hstep'
     subst hstep'
     rw [applyNodeStepResult_sent_sub] at hem'
     simp at hem'
@@ -251,12 +357,15 @@ theorem vote_provenance {x : Exec Pr S} (hsync : SynchronizedClocks x)
     ∃ k, k < i ∧ x.lbl k = .tick sm.sender (Q.slotLength * s + Q.delta) ∧
       x[k].time = Q.slotLength * s + Q.delta ∧
       x[k][sm.sender].st.activeAt ≤ Q.slotLength * s + Q.delta ∧
-      sm.msg ∈ (handler C Q sm.sender (Q.slotLength * s + Q.delta)
-        x[k][sm.sender].view x[k][sm.sender].st).send := by
+      sm ∈ x[k + 1].sent - x[k].sent ∧
+      ∃ pick ∈ C.votePicks Q x[k][sm.sender].view (Q.slotLength * s + Q.delta)
+        x[k][sm.sender].st,
+        sm.msg ∈ (handlerCore C Q pick sm.sender (Q.slotLength * s + Q.delta)
+          x[k][sm.sender].view x[k][sm.sender].st).send := by
   obtain ⟨k, hki, hem⟩ := emitted_of_mem_sent hmem
   have hhonk : sm.sender ∉ S.adv ((x[k].time : Int)) := fun hadv =>
     hhon (hmc _ _ (by exact_mod_cast time_le_of_le hmono (Nat.le_of_lt hki)) hadv)
-  rcases emitted_step hem with ⟨t, hlbl, hawake, htime, hclock, hsend⟩ | hadv
+  rcases emitted_step hem with ⟨t, hlbl, hawake, htime, hclock, pk, hpk, hsend⟩ | hadv
   · obtain ⟨hactive, hshape⟩ := mem_handler_send hsend
     -- the vote's slot pins the reading: `t = 4Δs + Δ`
     have ht : t = Q.slotLength * s + Q.delta := by
@@ -277,7 +386,7 @@ theorem vote_provenance {x : Exec Pr S} (hsync : SynchronizedClocks x)
       have := hsync (k + 1) sm.sender hawake'
       rw [hclock] at this
       omega
-    exact ⟨k, hki, hlbl, htimek, hactive, hsend⟩
+    exact ⟨k, hki, hlbl, htimek, hactive, hem, pk, hpk, hsend⟩
   · exact absurd hadv hhonk
 
 /-- An honest vote for slot `s` cannot be in the log before `voting(s)`. -/
@@ -288,14 +397,37 @@ theorem voting_le_of_vote_mem {x : Exec Pr S} (hsync : SynchronizedClocks x)
     (hmem : sm ∈ x[i].sent) (hhon : sm.sender ∉ S.adv ((x[i].time : Int)))
     (hmsg : sm.msg = .vote e src tgt s) :
     Q.slotLength * s + Q.delta ≤ x[i].time := by
-  obtain ⟨k, hki, -, htimek, -, -⟩ := vote_provenance hsync hmc hmono hmem hhon hmsg
+  obtain ⟨k, hki, -, htimek, -, -, -⟩ := vote_provenance hsync hmc hmono hmem hhon hmsg
   rw [← htimek]
   exact time_le_of_le hmono (Nat.le_of_lt hki)
 
+/-- Two messages emitted by one tick are equal: the step's log delta is one reaction's
+    send, and every reaction the handler admits sends at most one message — whatever the
+    pick. -/
+theorem tick_sends_subsingleton5 {x : Exec Pr S} {k : Nat} {p : Node} {t : Time}
+    (hlbl : x.lbl k = .tick p t)
+    {sm sm' : SignedMsg Node (Msg (Chain Tx) QC)}
+    (h : sm ∈ x[k + 1].sent - x[k].sent) (h' : sm' ∈ x[k + 1].sent - x[k].sent) :
+    sm = sm' := by
+  have hstep : Step Pr S (x.lbl k) x[k] x[k + 1] := x.step k
+  rw [hlbl] at hstep
+  obtain ⟨-, heff⟩ := hstep
+  simp only [spec] at heff
+  rw [nodeStep_iff_exists] at heff
+  obtain ⟨res, hres, hpost⟩ := heff
+  rw [protocol_step_tick] at hres
+  obtain ⟨pk, -, rfl⟩ := mem_handler_iff.mp hres
+  rw [hpost, ← setClock_sent p t x[k], applyNodeStepResult_sent_sub] at h h'
+  obtain ⟨mm, hmm, hsm⟩ := Multiset.mem_map.mp h
+  obtain ⟨mm', hmm', hsm'⟩ := Multiset.mem_map.mp h'
+  rw [← hsm, ← hsm']
+  rw [show mm = mm' from handler_send_subsingleton
+    (by simpa [setClock_getElem] using hmm) (by simpa [setClock_getElem] using hmm')]
+
 /-- **One honest validator, one slot, one vote.** Two votes in the log by the same honest
     sender for the same slot are the same message. This is `OneTickPerReading`'s one job:
-    both votes come from ticks at the same reading, so from the *same* tick, whose handler
-    sends at most one message. -/
+    both votes come from ticks at the same reading, so from the *same* tick, whose every
+    admissible reaction sends at most one message. -/
 theorem honest_vote_unique {x : Exec Pr S} (hsync : SynchronizedClocks x)
     (hone : OneTickPerReading x) (hmc : S.MonotoneCorruption) (hmono : TimeMonotone x)
     {i j : Nat} {sm sm' : SignedMsg Node (Msg (Chain Tx) QC)}
@@ -306,16 +438,12 @@ theorem honest_vote_unique {x : Exec Pr S} (hsync : SynchronizedClocks x)
     (hs : sm'.sender = sm.sender)
     (hmsg : sm.msg = .vote e src tgt s) (hmsg' : sm'.msg = .vote e' src' tgt' s) :
     sm' = sm := by
-  obtain ⟨k, -, hlbl, -, -, hsend⟩ := vote_provenance hsync hmc hmono hm hh hmsg
-  obtain ⟨k', -, hlbl', -, -, hsend'⟩ := vote_provenance hsync hmc hmono hm' hh' hmsg'
+  obtain ⟨k, -, hlbl, -, -, hem, -⟩ := vote_provenance hsync hmc hmono hm hh hmsg
+  obtain ⟨k', -, hlbl', -, -, hem', -⟩ := vote_provenance hsync hmc hmono hm' hh' hmsg'
   rw [hs] at hlbl'
   have hk : k' = k := hone k' k sm.sender _ hlbl' hlbl
   subst hk
-  rw [hs] at hsend'
-  have hmm : sm.msg = sm'.msg := handler_send_subsingleton hsend hsend'
-  cases sm
-  cases sm'
-  simp_all
+  exact tick_sends_subsingleton5 hlbl hem' hem
 
 /-! ### The activation round is trustworthy
 
@@ -343,11 +471,12 @@ theorem processProposals_vFrozen (C : Components Node (Chain Tx) QC)
           split_ifs <;> rfl
 
 /-- Every branch of the handler keeps the frozen view or freezes the current one. -/
-theorem handler_vFrozen (C : Components Node (Chain Tx) QC) (Q : Params) (p : Node)
+theorem handler_vFrozen (C : Components Node (Chain Tx) QC) (Q : Params)
+    (pick : Chain Tx) (p : Node)
     (r : Time) (V : View Node (Msg (Chain Tx) QC)) (s : NodeState Node (Chain Tx) QC) :
-    (handler C Q p r V s).state.vFrozen = s.vFrozen ∨
-      (handler C Q p r V s).state.vFrozen = V := by
-  simp only [handler, apply_ite NodeStepResult.state]
+    (handlerCore C Q pick p r V s).state.vFrozen = s.vFrozen ∨
+      (handlerCore C Q pick p r V s).state.vFrozen = V := by
+  simp only [handlerCore, apply_ite NodeStepResult.state]
   split_ifs <;>
     first
       | exact Or.inl rfl
@@ -387,10 +516,11 @@ theorem processProposals_activeAt (C : Components Node (Chain Tx) QC)
           split_ifs <;> rfl
 
 /-- Neither does any branch of the handler: activation is written by wake events alone. -/
-theorem handler_activeAt (p : Node) (r : Time) (V : View Node (Msg (Chain Tx) QC))
+theorem handler_activeAt (pick : Chain Tx) (p : Node) (r : Time)
+    (V : View Node (Msg (Chain Tx) QC))
     (s : NodeState Node (Chain Tx) QC) :
-    (handler C Q p r V s).state.activeAt = s.activeAt := by
-  simp only [handler, apply_ite NodeStepResult.state]
+    (handlerCore C Q pick p r V s).state.activeAt = s.activeAt := by
+  simp only [handlerCore, apply_ite NodeStepResult.state]
   split_ifs <;> simp [processProposals_activeAt]
 
 /-- `activationRound` is monotone in the wake round. -/
@@ -455,25 +585,6 @@ theorem mem_awakeThroughout [Fintype Node] {p : Node} {a b : Int} :
     obtain ⟨har, hrb⟩ := Finset.mem_Icc.mp hr
     exact Finset.singleton_subset_iff.mpr (h r har hrb)
 
-/-! `simp only [protocol]` is the wrong tool for reducing `(protocol C Q).step …`: as a
-simp rewrite it also unfolds `protocol C Q` inside the *type arguments* of every term in
-the hypothesis, and a later `subst` splices those into the goal, leaving terms that are
-defeq to the clean spelling but never again syntactically equal to it. These three
-definitional lemmas rewrite exactly the proposition and nothing else. -/
-
-theorem protocol_step_tick {p : Node} {r : Time} {V : View Node (Msg (Chain Tx) QC)}
-    {s : NodeState Node (Chain Tx) QC} {res} :
-    (protocol C Q).step p r V s .tick res ↔ res = handler C Q p r V s := Iff.rfl
-
-theorem protocol_step_recv {p : Node} {r : Time} {V : View Node (Msg (Chain Tx) QC)}
-    {s : NodeState Node (Chain Tx) QC} {m : SignedMsg Node (Msg (Chain Tx) QC)} {res} :
-    (protocol C Q).step p r V s (.recv m) res ↔ res = { state := s, send := 0 } := Iff.rfl
-
-theorem protocol_step_wake {p : Node} {r : Time} {V : View Node (Msg (Chain Tx) QC)}
-    {s : NodeState Node (Chain Tx) QC} {res} :
-    (protocol C Q).step p r V s .wake res ↔
-      res = { state := { s with activeAt := activationRound Q r }, send := 0 } := Iff.rfl
-
 /-- A wake event writes the activation round of its own round: the wake handler computes
     it from the clock, and the clock of a (necessarily awake) waking validator reads real
     time. -/
@@ -518,7 +629,7 @@ theorem activeAt_lb_step {x : Exec Pr S} (hsync : SynchronizedClocks x) {m : Nat
     rw [nodeStep_iff_exists] at hns
     obtain ⟨res, hres, rfl⟩ := hns
     rw [protocol_step_tick] at hres
-    subst hres
+    obtain ⟨pk, -, rfl⟩ := mem_handler_iff.mp hres
     by_cases hq : q = p
     · subst hq
       simpa [applyNodeStepResult_getElem, handler_activeAt, setClock_getElem] using h
@@ -571,7 +682,8 @@ theorem mem_active_of_honest_vote [Fintype Node] {x : Exec Pr S}
     (hmsg : sm.msg = .vote e src tgt t) :
     sm.sender ∈ Active Q S (t : Int) := by
   have hmono := hstepw.timeMonotone
-  obtain ⟨j, hji, hlbl, htj, hgate, -⟩ := vote_provenance hsync hmc hmono hmem hhon hmsg
+  obtain ⟨j, hji, hlbl, htj, hgate, -, -⟩ :=
+    vote_provenance hsync hmc hmono hmem hhon hmsg
   -- the voter is awake at `voting(t)`: the tick's own enabling condition
   have hstepj : Step Pr S (x.lbl j) x[j] x[j + 1] := x.step j
   rw [hlbl] at hstepj

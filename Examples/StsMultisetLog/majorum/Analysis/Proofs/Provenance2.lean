@@ -29,15 +29,18 @@ open the framework's flat multiset-log flavour
 
 variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx]
   {Q : Params} {S : Schedule Node} {n kappa : Nat} {pool : Nat → Tx} {proposer : Nat → Node}
-  {dot : Checkpoint (Chain Tx)}
+  {dot : Checkpoint (Chain Tx)} {pick : Chain Tx}
 
 local notation "Pr2" => protocol2 Q n kappa pool proposer
 
 /-! ### The deterministic core, and the inversion through it -/
 
 /-- The deterministic core of `handler2`: Algorithm 2's four phase actions with the
-    blank filler given. The proof layer works over this — `mem_handler2_iff` recovers it
-    from the protocol's `Set`-valued handler below.
+    blank filler and the vote phase's proposal choice given — the latter meaningful only
+    under `pick ∈ votePicks2 …`, which is how `mem_handler2_iff` hands it over (the tenth
+    finding's nondeterminism, resolved into a parameter here). The proof layer works
+    over this — `mem_handler2_iff` recovers it from the protocol's `Set`-valued handler
+    below.
 
     Differences from Algorithm 5's handler, all of them the *absence* of finality: no
     `gjFrozen`, votes carry the placeholder `dot` in the fin-vote fields, the propose
@@ -45,7 +48,8 @@ local notation "Pr2" => protocol2 Q n kappa pool proposer
     28 assigns whenever a quorum exists, with no greatest-justified floor), and the one
     output chain is `chi`. The joining gates are the same. -/
 noncomputable def handler2Core (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
-    (proposer : Nat → Node) (dot : Checkpoint (Chain Tx)) (p : Node) (r : Time)
+    (proposer : Nat → Node) (dot : Checkpoint (Chain Tx)) (pick : Chain Tx) (p : Node)
+    (r : Time)
     (V : View Node (Msg (Chain Tx) (QCert Node Tx))) (s : NodeState2 Node Tx) :
     NodeStepResult (NodeState2 Node Tx) (Msg (Chain Tx) (QCert Node Tx)) :=
   let slot : Nat := r / Q.slotLength
@@ -69,17 +73,9 @@ noncomputable def handler2Core (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
           (fun acc c => if chainLe c chMFC then (if chainLe acc c then c else acc) else acc)
           s'.chi
       else s'.chi
-    let proposedNow : Option (Chain Tx) :=
-      V.toList.findSome? (fun sm => match sm.msg with
-        | .propose chp _ _ _ t' =>
-            if sm.sender == proposer slot && t' == slot && proposedAt chp == slot &&
-                slotsIncreasing chp && chainLe chMFC chp then some chp
-            else none
-        | .vote .. => none)
-    let ch := proposedNow.getD chMFC
     { state := { s' with chi := chi },
       -- a joining validator executes silently
-      send := if s.activeAt ≤ r then {.vote ch dot dot slot} else 0 }
+      send := if s.activeAt ≤ r then {.vote pick dot dot slot} else 0 }
   else if phase = 2 * Q.delta then
     -- Fast Confirm, lines 26–29, with Algorithm 5's line-23 guard (see `handler2`)
     let fq := fastConfirmSimple n V slot
@@ -94,33 +90,61 @@ noncomputable def handler2Core (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
   else
     { state := s, send := 0 }
 
-/-- Membership in a nondeterministic assignment followed by a deterministic
-    continuation — Event-B's `x :∈ S; y := f(x)`, inverted. -/
-theorem mem_assign {α β : Type} {f : α → β} {res : β} :
-    (res ∈ do { let x ← (Set.univ : Set α); pure (f x) }) ↔ ∃ x, res = f x := by
-  rw [Set.bind_def]
-  simp [Set.pure_def, eq_comm]
+/-- The vote phase's choice set is never empty: some pick always exists. -/
+theorem votePicks2_nonempty (Q : Params) (n : Nat) (proposer : Nat → Node)
+    (V : View Node (Msg (Chain Tx) (QCert Node Tx))) (r : Time)
+    (s : NodeState2 Node Tx) : (votePicks2 Q n proposer V r s).Nonempty :=
+  pickSet_nonempty _ _
 
-/-- Membership in a deterministic branch, phrased with the vacuous choice the
+/-- Membership in a nondeterministic assignment followed by a deterministic
+    continuation — Event-B's `x :∈ S; y := f(x)`, inverted; a pick threaded through
+    vacuously, from any inhabitant of its choice set. -/
+theorem mem_assign {α γ β : Type} {F : Finset γ} (hF : F.Nonempty) {f : α → β} {res : β} :
+    (res ∈ do { let x ← (Set.univ : Set α); pure (f x) }) ↔
+      ∃ x c, c ∈ F ∧ res = f x := by
+  rw [Set.bind_def]
+  obtain ⟨c, hc⟩ := hF
+  simp only [Set.pure_def, Set.mem_iUnion, Set.mem_univ, Set.mem_singleton_iff,
+    exists_prop, true_and]
+  exact ⟨fun ⟨x, hx⟩ => ⟨x, c, hc, hx⟩, fun ⟨x, _, _, hx⟩ => ⟨x, hx⟩⟩
+
+/-- Membership in the two nondeterministic assignments of the vote branch — the blank
+    from anywhere, the pick from its choice set — followed by a deterministic
+    continuation. -/
+theorem mem_assign₂ {α γ β : Type} {F : Finset γ} {f : α → γ → β} {res : β} :
+    (res ∈ do { let x ← (Set.univ : Set α); let c ← (↑F : Set γ); pure (f x c) }) ↔
+      ∃ x c, c ∈ F ∧ res = f x c := by
+  rw [Set.bind_def]
+  simp only [Set.pure_def, Set.mem_iUnion, Set.mem_univ, Set.mem_singleton_iff,
+    exists_prop, true_and, Set.bind_def, Finset.mem_coe]
+
+/-- Membership in a deterministic branch, phrased with the vacuous choices the
     deterministic core still binds. -/
-theorem mem_pure_exists {α β : Type} [Nonempty α] {b res : β} :
-    (res ∈ (pure b : Set β)) ↔ ∃ _ : α, res = b := by
-  simp [Set.pure_def]
+theorem mem_pure_exists {α γ β : Type} [Nonempty α] {F : Finset γ} (hF : F.Nonempty)
+    {b res : β} :
+    (res ∈ (pure b : Set β)) ↔ ∃ (_ : α) (c : γ), c ∈ F ∧ res = b := by
+  obtain ⟨c, hc⟩ := hF
+  simp only [Set.pure_def, Set.mem_singleton_iff]
+  exact ⟨fun h => ⟨Classical.arbitrary α, c, hc, h⟩, fun ⟨_, _, _, h⟩ => h⟩
 
 /-- **The inversion lemma**: membership in the handler is exactly "the deterministic
-    core, for some filler". The one bridge the proof layer needs. -/
+    core, for some filler and some admissible pick". The one bridge the proof layer
+    needs. -/
 theorem mem_handler2_iff {Q : Params} {n kappa : Nat} {pool : Nat → Tx}
     {proposer : Nat → Node} {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     {res : NodeStepResult (NodeState2 Node Tx) (Msg (Chain Tx) (QCert Node Tx))} :
     res ∈ handler2 Q n kappa pool proposer p r V s ↔
-      ∃ dot, res = handler2Core Q n kappa pool proposer dot p r V s := by
+      ∃ dot pick, pick ∈ votePicks2 Q n proposer V r s ∧
+        res = handler2Core Q n kappa pool proposer dot pick p r V s := by
   haveI hne : Nonempty (Checkpoint (Chain Tx)) := ⟨⟨[], 0⟩⟩
+  have hpk := votePicks2_nonempty Q n proposer V r s
   simp only [handler2, handler2Core]
   split_ifs <;>
     first
-      | exact mem_assign
-      | exact mem_pure_exists (α := Checkpoint (Chain Tx))
+      | exact mem_assign₂
+      | exact mem_assign hpk
+      | exact mem_pure_exists (α := Checkpoint (Chain Tx)) hpk
 
 /-! ### Reducing `protocol2`'s step, projection-precisely
 
@@ -151,7 +175,7 @@ theorem protocol2_step_wake {p : Node} {r : Time}
 theorem mem_handler2_send {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     {m : Msg (Chain Tx) (QCert Node Tx)}
-    (h : m ∈ (handler2Core Q n kappa pool proposer dot p r V s).send) :
+    (h : m ∈ (handler2Core Q n kappa pool proposer dot pick p r V s).send) :
     s.activeAt ≤ r ∧
       ((∃ chp chC qc, m = .propose chp chC qc dot (r / Q.slotLength) ∧
           r % Q.slotLength = 0) ∨
@@ -168,8 +192,8 @@ theorem mem_handler2_send {p : Node} {r : Time}
 theorem handler2_send_subsingleton {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     {m m' : Msg (Chain Tx) (QCert Node Tx)}
-    (h : m ∈ (handler2Core Q n kappa pool proposer dot p r V s).send)
-    (h' : m' ∈ (handler2Core Q n kappa pool proposer dot p r V s).send) : m = m' := by
+    (h : m ∈ (handler2Core Q n kappa pool proposer dot pick p r V s).send)
+    (h' : m' ∈ (handler2Core Q n kappa pool proposer dot pick p r V s).send) : m = m' := by
   simp only [handler2Core, apply_ite NodeStepResult.send] at h h'
   split_ifs at h h' <;> simp_all
 
@@ -180,18 +204,22 @@ theorem handler2_send_subsingleton {p : Node} {r : Time}
 theorem emitted_step2 {x : Exec Pr2 S} {k : Nat}
     {sm : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))}
     (hem : sm ∈ x[k + 1].sent - x[k].sent) :
-    (∃ (t : Time) (dot : Checkpoint (Chain Tx)), x.lbl k = .tick sm.sender t ∧
+    (∃ (t : Time) (dot : Checkpoint (Chain Tx)) (pk : Chain Tx),
+        pk ∈ votePicks2 Q n proposer x[k][sm.sender].view t x[k][sm.sender].st ∧
+        x.lbl k = .tick sm.sender t ∧
         sm.sender ∈ S.awake ((x[k].time : Int)) ∧
         x[k + 1].time = x[k].time ∧ x[k + 1][sm.sender].clock = t ∧
-        sm.msg ∈ (handler2Core Q n kappa pool proposer dot sm.sender t
+        sm.msg ∈ (handler2Core Q n kappa pool proposer dot pk sm.sender t
           x[k][sm.sender].view x[k][sm.sender].st).send) ∨
       sm.sender ∈ S.adv ((x[k].time : Int)) := by
   have hstep : Step Pr2 S (x.lbl k) x[k] x[k + 1] := x.step k
   refine hstep.elimR (motive := fun a c c' => sm ∈ c'.sent - c.sent →
-      (∃ (t : Time) (dot : Checkpoint (Chain Tx)), a = Action.tick sm.sender t ∧
+      (∃ (t : Time) (dot : Checkpoint (Chain Tx)) (pk : Chain Tx),
+          pk ∈ votePicks2 Q n proposer c[sm.sender].view t c[sm.sender].st ∧
+          a = Action.tick sm.sender t ∧
           sm.sender ∈ S.awake ((c.time : Int)) ∧ c'.time = c.time ∧
           c'[sm.sender].clock = t ∧
-          sm.msg ∈ (handler2Core Q n kappa pool proposer dot sm.sender t
+          sm.msg ∈ (handler2Core Q n kappa pool proposer dot pk sm.sender t
             c[sm.sender].view c[sm.sender].st).send) ∨
         sm.sender ∈ S.adv ((c.time : Int)))
     ?_ ?_ ?_ ?_ ?_ ?_ hem
@@ -204,17 +232,18 @@ theorem emitted_step2 {x : Exec Pr2 S} {k : Nat}
       simp [Multiset.count_sub]
     rw [hz] at hem'
     simp at hem'
-  · -- tick: the graph of `handler2`, for the filler this tick chose
+  · -- tick: the graph of `handler2`, for the filler and pick this tick chose
     intro d d' q t hen hns hem'
     rw [nodeStep_iff_exists] at hns
     obtain ⟨res, hres, rfl⟩ := hns
     rw [protocol2_step_tick, mem_handler2_iff] at hres
-    obtain ⟨dt, rfl⟩ := hres
+    obtain ⟨dt, pk, hpk, rfl⟩ := hres
     rw [← setClock_sent q t d, applyNodeStepResult_sent_sub] at hem'
     obtain ⟨mm, hmm, hsm⟩ := Multiset.mem_map.mp hem'
     subst hsm
     simp only [spec] at hen
-    refine Or.inl ⟨t, dt, rfl, hen, rfl, ?_, ?_⟩
+    refine Or.inl ⟨t, dt, pk, ?_, rfl, hen, rfl, ?_, ?_⟩
+    · simpa [setClock_getElem] using hpk
     · simp [setClock_getElem]
     · simpa [setClock_getElem] using hmm
   · -- deliver: the recv reaction sends nothing
@@ -255,7 +284,7 @@ theorem handler2_propose_send {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     {m : Msg (Chain Tx) (QCert Node Tx)}
     (hmod : r % Q.slotLength = 0)
-    (h : m ∈ (handler2Core Q n kappa pool proposer dot p r V s).send) :
+    (h : m ∈ (handler2Core Q n kappa pool proposer dot pick p r V s).send) :
     p = proposer (r / Q.slotLength) ∧ s.activeAt ≤ r ∧
       m = .propose
         (extend pool (mfc V V (fastConfirmSimple n V (r / Q.slotLength - 1)).1
@@ -292,7 +321,7 @@ theorem vote_provenance2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
   obtain ⟨k, hki, hem⟩ := emitted_of_mem_sent hmem
   have hhonk : sm.sender ∉ S.adv ((x[k].time : Int)) := fun hadv =>
     hhon (hmc _ _ (by exact_mod_cast time_le_of_le hmono (Nat.le_of_lt hki)) hadv)
-  rcases emitted_step2 hem with ⟨t, dt, hlbl, hawake, htime, hclock, hsend⟩ | hadv
+  rcases emitted_step2 hem with ⟨t, dt, pk, hpk, hlbl, hawake, htime, hclock, hsend⟩ | hadv
   · obtain ⟨hactive, hshape⟩ := mem_handler2_send hsend
     -- the vote's slot pins the reading: `t = 4Δs + Δ`
     have ht : t = Q.slotLength * s + Q.delta := by
@@ -353,7 +382,7 @@ theorem propose_provenance2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
   obtain ⟨k, hki, hem⟩ := emitted_of_mem_sent hmem
   have hhonk : sm.sender ∉ S.adv ((x[k].time : Int)) := fun hadv =>
     hhon (hmc _ _ (by exact_mod_cast time_le_of_le hmono (Nat.le_of_lt hki)) hadv)
-  rcases emitted_step2 hem with ⟨t, dt, hlbl, hawake, htime, hclock, hsend⟩ | hadv
+  rcases emitted_step2 hem with ⟨t, dt, pk, hpk, hlbl, hawake, htime, hclock, hsend⟩ | hadv
   · obtain ⟨hactive, hshape⟩ := mem_handler2_send hsend
     have hmods : t % Q.slotLength = 0 ∧ t / Q.slotLength = s := by
       rcases hshape with ⟨chp', chC', qc', heq, hmod0⟩ | ⟨ch', heq, -⟩
@@ -399,7 +428,7 @@ theorem tick_sends_subsingleton {x : Exec Pr2 S} {k : Nat} {p : Node} {t : Time}
   rw [nodeStep_iff_exists] at heff
   obtain ⟨res, hres, hpost⟩ := heff
   rw [protocol2_step_tick, mem_handler2_iff] at hres
-  obtain ⟨dt, rfl⟩ := hres
+  obtain ⟨dt, pk, hpk, rfl⟩ := hres
   rw [hpost, ← setClock_sent p t x[k], applyNodeStepResult_sent_sub] at h h'
   obtain ⟨m, hm, rfl⟩ := Multiset.mem_map.mp h
   obtain ⟨m', hm', heq'⟩ := Multiset.mem_map.mp h'
@@ -410,8 +439,9 @@ theorem tick_delta_send {x : Exec Pr2 S} {k : Nat} {p : Node} {t : Time}
     (hlbl : x.lbl k = .tick p t)
     {sm : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))}
     (h : sm ∈ x[k + 1].sent - x[k].sent) :
-    ∃ dt : Checkpoint (Chain Tx), sm.sender = p ∧
-      sm.msg ∈ (handler2Core Q n kappa pool proposer dt p t
+    ∃ (dt : Checkpoint (Chain Tx)) (pk : Chain Tx),
+      pk ∈ votePicks2 Q n proposer x[k][p].view t x[k][p].st ∧ sm.sender = p ∧
+      sm.msg ∈ (handler2Core Q n kappa pool proposer dt pk p t
         x[k][p].view x[k][p].st).send := by
   have hstep : Step Pr2 S (x.lbl k) x[k] x[k + 1] := x.step k
   rw [hlbl] at hstep
@@ -420,10 +450,11 @@ theorem tick_delta_send {x : Exec Pr2 S} {k : Nat} {p : Node} {t : Time}
   rw [nodeStep_iff_exists] at heff
   obtain ⟨res, hres, hpost⟩ := heff
   rw [protocol2_step_tick, mem_handler2_iff] at hres
-  obtain ⟨dt, rfl⟩ := hres
+  obtain ⟨dt, pk, hpk, rfl⟩ := hres
   rw [hpost, ← setClock_sent p t x[k], applyNodeStepResult_sent_sub] at h
   obtain ⟨m, hm, rfl⟩ := Multiset.mem_map.mp h
-  exact ⟨dt, rfl, by simpa [setClock_getElem] using hm⟩
+  exact ⟨dt, pk, by simpa [setClock_getElem] using hpk, rfl,
+    by simpa [setClock_getElem] using hm⟩
 
 /-- **One honest validator, one slot, one vote** — for Algorithm 2. Both votes come from
     ticks at the same reading, hence from the *same* tick (`OneTickPerReading`), whose
@@ -466,7 +497,7 @@ theorem processProposals2_activeAt (V : View Node (Msg (Chain Tx) (QCert Node Tx
 /-- Neither does any branch of `handler2`: activation is written by wake events alone. -/
 theorem handler2_activeAt (p : Node) (r : Time)
     (V : View Node (Msg (Chain Tx) (QCert Node Tx))) (s : NodeState2 Node Tx) :
-    (handler2Core Q n kappa pool proposer dot p r V s).state.activeAt = s.activeAt := by
+    (handler2Core Q n kappa pool proposer dot pick p r V s).state.activeAt = s.activeAt := by
   simp only [handler2Core, apply_ite NodeStepResult.state]
   split_ifs <;> simp [processProposals2_activeAt]
 
@@ -506,7 +537,7 @@ theorem activeAt_lb_step2 {x : Exec Pr2 S} (hsync : SynchronizedClocks x) {m : N
     rw [nodeStep_iff_exists] at hns
     obtain ⟨res, hres, rfl⟩ := hns
     rw [protocol2_step_tick, mem_handler2_iff] at hres
-    obtain ⟨dt, rfl⟩ := hres
+    obtain ⟨dt, pk, hpk, rfl⟩ := hres
     by_cases hq : q = p
     · subst hq
       simpa [applyNodeStepResult_getElem, handler2_activeAt, setClock_getElem] using h
@@ -987,8 +1018,8 @@ theorem processProposals2_chFrozen_lb (V : View Node (Msg (Chain Tx) (QCert Node
 theorem handler2_frozen {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     (h1 : r % Q.slotLength ≠ Q.delta) (h2 : r % Q.slotLength ≠ 3 * Q.delta) :
-    (handler2Core Q n kappa pool proposer dot p r V s).state.vFrozen = s.vFrozen ∧
-      (handler2Core Q n kappa pool proposer dot p r V s).state.chFrozen = s.chFrozen := by
+    (handler2Core Q n kappa pool proposer dot pick p r V s).state.vFrozen = s.vFrozen ∧
+      (handler2Core Q n kappa pool proposer dot pick p r V s).state.chFrozen = s.chFrozen := by
   simp only [handler2Core, apply_ite NodeStepResult.state]
   split_ifs <;>
     first
@@ -1000,7 +1031,7 @@ theorem handler2_frozen {p : Node} {r : Time}
 theorem handler2_merge {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     (hmod : r % Q.slotLength = 3 * Q.delta) :
-    (handler2Core Q n kappa pool proposer dot p r V s).state =
+    (handler2Core Q n kappa pool proposer dot pick p r V s).state =
       { s with vFrozen := V, chFrozen := (fastConfirmSimple n V (r / Q.slotLength)).1 } := by
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
@@ -1012,7 +1043,7 @@ theorem handler2_merge {p : Node} {r : Time}
 theorem handler2_fastconfirm {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     (hmod : r % Q.slotLength = 2 * Q.delta) :
-    (handler2Core Q n kappa pool proposer dot p r V s).state =
+    (handler2Core Q n kappa pool proposer dot pick p r V s).state =
       if (fastConfirmSimple n V (r / Q.slotLength)).2.isSome then
         { s with chi :=
             if chainLe (fastConfirmSimple n V (r / Q.slotLength)).1 s.chi then s.chi
@@ -1028,7 +1059,7 @@ theorem handler2_fastconfirm {p : Node} {r : Time}
 theorem handler2_chi {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     (h1 : r % Q.slotLength ≠ Q.delta) (h2 : r % Q.slotLength ≠ 2 * Q.delta) :
-    (handler2Core Q n kappa pool proposer dot p r V s).state.chi = s.chi := by
+    (handler2Core Q n kappa pool proposer dot pick p r V s).state.chi = s.chi := by
   simp only [handler2Core, apply_ite NodeStepResult.state]
   split_ifs <;>
     first
@@ -1041,7 +1072,7 @@ theorem handler2_chi {p : Node} {r : Time}
 theorem handler2_vote_state {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     (hmod : r % Q.slotLength = Q.delta) :
-    (handler2Core Q n kappa pool proposer dot p r V s).state =
+    (handler2Core Q n kappa pool proposer dot pick p r V s).state =
       { processProposals2 n proposer V (r / Q.slotLength) s with
         chi :=
           if s.activeAt ≤ r then
@@ -1065,95 +1096,91 @@ theorem handler2_vote_state {p : Node} {r : Time}
   simp only [handler2Core, apply_ite NodeStepResult.state]
   split_ifs <;> first | rfl | omega
 
-/-- The chain the vote phase settles on extends this tick's fork-choice: `proposedNow`
-    filters on exactly that, and its absence falls back to the fork-choice itself. -/
-theorem chainLe_getD_findSome (l : List (SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))))
-    (chMFC : Chain Tx) (slot : Nat) (pr : Node) :
-    chainLe chMFC ((l.findSome? (fun sm => match sm.msg with
-      | .propose chp _ _ _ t' =>
-          if sm.sender == pr && t' == slot && proposedAt chp == slot &&
-              slotsIncreasing chp && chainLe chMFC chp then some chp
-          else none
-      | .vote .. => none)).getD chMFC) := by
-  cases hfind : l.findSome? (fun sm => match sm.msg with
-      | .propose chp _ _ _ t' =>
-          if sm.sender == pr && t' == slot && proposedAt chp == slot &&
-              slotsIncreasing chp && chainLe chMFC chp then some chp
-          else none
-      | .vote .. => none) with
-  | none => simp [chainLe_refl]
-  | some chp =>
-      obtain ⟨a, -, hfa⟩ := List.exists_of_findSome?_eq_some hfind
-      simp only [Option.getD_some]
-      revert hfa
-      cases a.msg with
-      | vote e src tgt s₁ => intro h; cases h
-      | propose chp' chC' qc' ck' t' =>
-          dsimp only
-          split_ifs with hcond
-          · intro h
-            injection h with h
-            subst h
-            simp only [Bool.and_eq_true] at hcond
-            exact hcond.2
-          · intro h
-            cases h
+/-- Membership in the vote hits, unpacked: a slot proposal from the slot's proposer,
+    structurally sorted, proposed at the slot, extending the fork-choice output. -/
+theorem mem_voteHits2 {prop : Nat → Node} {V : View Node (Msg (Chain Tx) (QCert Node Tx))}
+    {slot : Nat} {chMFC c : Chain Tx} :
+    c ∈ voteHits2 prop V slot chMFC ↔
+      ∃ sm ∈ V, (∃ chC qc ck, sm.msg = .propose c chC qc ck slot) ∧
+        sm.sender = prop slot ∧ proposedAt c = slot ∧
+        slotsIncreasing c ∧ chainLe chMFC c := by
+  unfold voteHits2
+  rw [Finset.mem_biUnion]
+  constructor
+  · rintro ⟨sm, hsm, hc⟩
+    revert hc
+    cases hmsg : sm.msg with
+    | vote e src tgt t' =>
+        intro hc
+        exact absurd hc (Finset.notMem_empty c)
+    | propose chp chC qc ck t' =>
+        dsimp only
+        split_ifs with hcond
+        · intro hc
+          rw [Finset.mem_singleton] at hc
+          subst hc
+          simp only [Bool.and_eq_true, beq_iff_eq] at hcond
+          obtain ⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩ := hcond
+          exact ⟨sm, hsm, ⟨chC, qc, ck, by subst h2; exact hmsg⟩, h1, h3, h4, h5⟩
+        · intro hc
+          exact absurd hc (Finset.notMem_empty c)
+  · rintro ⟨sm, hsm, ⟨chC, qc, ck, hmsg⟩, h1, h3, h4, h5⟩
+    refine ⟨sm, hsm, ?_⟩
+    rw [hmsg]
+    dsimp only
+    rw [if_pos (by simp [h1, h3, h4, h5])]
+    exact Finset.mem_singleton_self c
 
-/-- The vote phase's send, with the joining check open: one vote, for a chain extending
-    this tick's fork-choice over the processed state. -/
+/-- Every admissible pick extends the vote tick's fork-choice output: a hit passes the
+    filter's prefix conjunct, and the fallback is the fork-choice itself. -/
+theorem chainLe_of_votePicks2 {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {r : Time}
+    {s : NodeState2 Node Tx}
+    (h : pick ∈ votePicks2 Q n proposer V r s) :
+    chainLe (mfc (processProposals2 n proposer V (r / Q.slotLength) s).vFrozen V
+      (processProposals2 n proposer V (r / Q.slotLength) s).chFrozen (r / Q.slotLength))
+      pick := by
+  simp only [votePicks2] at h
+  rcases mem_pickSet.mp h with ⟨-, rfl⟩ | hhit
+  · exact chainLe_refl _
+  · obtain ⟨sm, -, -, -, -, -, hle⟩ := mem_voteHits2.mp hhit
+    exact hle
+
+/-- The vote phase's send, with the joining check open: one vote, for the pick — which,
+    admissible, extends this tick's fork-choice over the processed state. -/
 theorem handler2_vote_send {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
-    (hmod : r % Q.slotLength = Q.delta) (hgate : s.activeAt ≤ r) :
-    ∃ ch, (handler2Core Q n kappa pool proposer dot p r V s).send
-        = {Msg.vote ch dot dot (r / Q.slotLength)} ∧
+    (hmod : r % Q.slotLength = Q.delta) (hgate : s.activeAt ≤ r)
+    (hpk : pick ∈ votePicks2 Q n proposer V r s) :
+    (handler2Core Q n kappa pool proposer dot pick p r V s).send
+        = {Msg.vote pick dot dot (r / Q.slotLength)} ∧
       chainLe (mfc (processProposals2 n proposer V (r / Q.slotLength) s).vFrozen V
-        (processProposals2 n proposer V (r / Q.slotLength) s).chFrozen (r / Q.slotLength)) ch := by
+        (processProposals2 n proposer V (r / Q.slotLength) s).chFrozen (r / Q.slotLength))
+        pick := by
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
+  refine ⟨?_, chainLe_of_votePicks2 hpk⟩
   simp only [handler2Core, apply_ite NodeStepResult.send]
-  split_ifs <;>
-    first
-      | omega
-      | exact ⟨_, rfl, chainLe_getD_findSome _ _ _ _⟩
+  split_ifs <;> first | rfl | omega
 
-/-- The vote phase's chain choice, named: the first slot-`slot` proposal from the slot's
-    proposer extending `chMFC`, or `chMFC`. Definitionally the term inside `handler2Core`'s
-    vote branch — a proof-layer name for it, so `handler2_vote_send_eq` can expose the sent
-    chain exactly. -/
-noncomputable def voteChoice (prop : Nat → Node)
-    (V : View Node (Msg (Chain Tx) (QCert Node Tx))) (slot : Nat) (chMFC : Chain Tx) :
-    Chain Tx :=
-  (V.toList.findSome? (fun sm => match sm.msg with
-    | .propose chp _ _ _ t' =>
-        if sm.sender == prop slot && t' == slot && proposedAt chp == slot &&
-            slotsIncreasing chp && chainLe chMFC chp then some chp
-        else none
-    | .vote .. => none)).getD chMFC
-
-/-- The vote phase's send, exactly: one vote for `voteChoice`. -/
+/-- The vote phase's send, exactly: one vote for the pick. Shape only — no
+    admissibility needed. -/
 theorem handler2_vote_send_eq {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     (hmod : r % Q.slotLength = Q.delta) (hgate : s.activeAt ≤ r) :
-    (handler2Core Q n kappa pool proposer dot p r V s).send
-      = {Msg.vote (voteChoice proposer V (r / Q.slotLength)
-          (mfc (processProposals2 n proposer V (r / Q.slotLength) s).vFrozen V
-            (processProposals2 n proposer V (r / Q.slotLength) s).chFrozen
-            (r / Q.slotLength))) dot dot (r / Q.slotLength)} := by
+    (handler2Core Q n kappa pool proposer dot pick p r V s).send
+      = {Msg.vote pick dot dot (r / Q.slotLength)} := by
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
-  simp only [handler2Core, voteChoice, apply_ite NodeStepResult.send]
+  simp only [handler2Core, apply_ite NodeStepResult.send]
   split_ifs <;> first | rfl | omega
 
-/-- The vote phase's send content, whichever it is: the `voteChoice`. -/
+/-- The vote phase's send content, whichever it is: the pick. -/
 theorem handler2_vote_content {p : Node} {r : Time}
     {V : View Node (Msg (Chain Tx) (QCert Node Tx))} {s : NodeState2 Node Tx}
     {m : Msg (Chain Tx) (QCert Node Tx)}
     (hmod : r % Q.slotLength = Q.delta)
-    (h : m ∈ (handler2Core Q n kappa pool proposer dot p r V s).send) :
-    m = Msg.vote (voteChoice proposer V (r / Q.slotLength)
-      (mfc (processProposals2 n proposer V (r / Q.slotLength) s).vFrozen V
-        (processProposals2 n proposer V (r / Q.slotLength) s).chFrozen
-        (r / Q.slotLength))) dot dot (r / Q.slotLength) := by
+    (h : m ∈ (handler2Core Q n kappa pool proposer dot pick p r V s).send) :
+    m = Msg.vote pick dot dot (r / Q.slotLength) := by
   by_cases hgate : s.activeAt ≤ r
   · rw [handler2_vote_send_eq hmod hgate] at h
     exact Multiset.mem_singleton.mp h
@@ -1180,16 +1207,17 @@ theorem fastConfirmSimple_snd_spec {V : View Node (Msg (Chain Tx) (QCert Node Tx
 
 /-! ### One tick, precisely: state, time, reading, emission -/
 
-/-- A tick step, described whole: for the filler this tick chose, the ticking
+/-- A tick step, described whole: for the filler and pick this tick chose, the ticking
     validator's successor state is the handler's, and every handler send is in the next
     log. One existential, so state facts and emissions about the same tick agree on the
-    filler. -/
+    filler and the pick. -/
 theorem tick_effect {x : Exec Pr2 S} {k : Nat} {p : Node} {t : Time}
     (hlbl : x.lbl k = .tick p t) :
-    ∃ dt : Checkpoint (Chain Tx),
+    ∃ (dt : Checkpoint (Chain Tx)) (pk : Chain Tx),
+      pk ∈ votePicks2 Q n proposer x[k][p].view t x[k][p].st ∧
       x[k + 1][p].st =
-        (handler2Core Q n kappa pool proposer dt p t x[k][p].view x[k][p].st).state ∧
-      ∀ m ∈ (handler2Core Q n kappa pool proposer dt p t x[k][p].view x[k][p].st).send,
+        (handler2Core Q n kappa pool proposer dt pk p t x[k][p].view x[k][p].st).state ∧
+      ∀ m ∈ (handler2Core Q n kappa pool proposer dt pk p t x[k][p].view x[k][p].st).send,
         (⟨p, m⟩ : SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[k + 1].sent := by
   have hstep : Step Pr2 S (x.lbl k) x[k] x[k + 1] := x.step k
   rw [hlbl] at hstep
@@ -1198,8 +1226,8 @@ theorem tick_effect {x : Exec Pr2 S} {k : Nat} {p : Node} {t : Time}
   rw [nodeStep_iff_exists] at heff
   obtain ⟨res, hres, hpost⟩ := heff
   rw [protocol2_step_tick, mem_handler2_iff] at hres
-  obtain ⟨dt, rfl⟩ := hres
-  refine ⟨dt, ?_, ?_⟩
+  obtain ⟨dt, pk, hpk, rfl⟩ := hres
+  refine ⟨dt, pk, by simpa [setClock_getElem] using hpk, ?_, ?_⟩
   · rw [hpost, applyNodeStepResult_getElem, if_pos rfl]
     dsimp only
     simp [setClock_getElem]
@@ -1264,12 +1292,12 @@ theorem frozen_step2 {x : Exec Pr2 S} {m : Nat} {p : Node}
     rw [nodeStep_iff_exists] at hns
     obtain ⟨res, hres, rfl⟩ := hns
     rw [protocol2_step_tick, mem_handler2_iff] at hres
-    obtain ⟨dt, rfl⟩ := hres
+    obtain ⟨dt, pk, hpk, rfl⟩ := hres
     by_cases hq : q = p
     · subst hq
       have hph := hc t rfl
       have hfr := handler2_frozen (Q := Q) (n := n) (kappa := kappa) (pool := pool)
-        (proposer := proposer) (dot := dt) (p := q) (r := t)
+        (proposer := proposer) (dot := dt) (pick := pk) (p := q) (r := t)
         (V := (setClock q t d)[q].view) (s := (setClock q t d)[q].st) hph.1 hph.2
       constructor
       · simpa [applyNodeStepResult_getElem, setClock_getElem] using hfr.1
@@ -1371,12 +1399,12 @@ theorem chi_step2_quiet {x : Exec Pr2 S} {m : Nat} {p : Node}
     rw [nodeStep_iff_exists] at hns
     obtain ⟨res, hres, rfl⟩ := hns
     rw [protocol2_step_tick, mem_handler2_iff] at hres
-    obtain ⟨dt, rfl⟩ := hres
+    obtain ⟨dt, pk, hpk, rfl⟩ := hres
     by_cases hq : q = p
     · subst hq
       have hph := hc t rfl
       have hfr := handler2_chi (Q := Q) (n := n) (kappa := kappa) (pool := pool)
-        (proposer := proposer) (dot := dt) (p := q) (r := t)
+        (proposer := proposer) (dot := dt) (pick := pk) (p := q) (r := t)
         (V := (setClock q t d)[q].view) (s := (setClock q t d)[q].st) hph.1 hph.2
       simpa [applyNodeStepResult_getElem, setClock_getElem] using hfr
     · simp [applyNodeStepResult_getElem, setClock_getElem, hq]
@@ -1407,6 +1435,7 @@ theorem chi_step2_quiet {x : Exec Pr2 S} {m : Nat} {p : Node}
     intro d q mm hen _
     rfl
 
+set_option maxHeartbeats 2000000 in
 /-- **One step of the confirmed chain**: it is unchanged, or the step is its owner's
     vote tick with the joining check open and `chi` becomes the κ-deep prefix of that
     tick's fork choice, or it is the owner's fast-confirm tick with a certificate and
@@ -1430,12 +1459,12 @@ theorem chi_step2 {x : Exec Pr2 S} {m : Nat} {p : Node} :
   obtain ⟨tr, hr⟩ := hlp
   by_cases hph1 : tr % Q.slotLength = Q.delta
   · -- the vote phase
-    obtain ⟨dt, hst, -⟩ := tick_effect hr
+    obtain ⟨dt, pk, hpkk, hst, -⟩ := tick_effect hr
     have htr : tr = Q.slotLength * (tr / Q.slotLength) + Q.delta := by
       conv_lhs => rw [← Nat.div_add_mod tr Q.slotLength]
       rw [hph1]
     have hstate := handler2_vote_state (Q := Q) (n := n) (kappa := kappa) (pool := pool)
-      (proposer := proposer) (dot := dt) (p := p) (r := tr)
+      (proposer := proposer) (dot := dt) (pick := pk) (p := p) (r := tr)
       (V := x[m][p].view) (s := x[m][p].st) hph1
     rw [hstate] at hst
     by_cases hguard : (x[m][p].st).activeAt ≤ tr
@@ -1471,12 +1500,12 @@ theorem chi_step2 {x : Exec Pr2 S} {m : Nat} {p : Node} :
       exact processProposals2_chi _ _ _
   · by_cases hph2 : tr % Q.slotLength = 2 * Q.delta
     · -- the fast-confirm phase
-      obtain ⟨dt, hst, -⟩ := tick_effect hr
+      obtain ⟨dt, pk, -, hst, -⟩ := tick_effect hr
       have htr : tr = Q.slotLength * (tr / Q.slotLength) + 2 * Q.delta := by
         conv_lhs => rw [← Nat.div_add_mod tr Q.slotLength]
         rw [hph2]
       have hstate := handler2_fastconfirm (Q := Q) (n := n) (kappa := kappa)
-        (pool := pool) (proposer := proposer) (dot := dt) (p := p) (r := tr)
+        (pool := pool) (proposer := proposer) (dot := dt) (pick := pk) (p := p) (r := tr)
         (V := x[m][p].view) (s := x[m][p].st) hph2
       rw [hstate] at hst
       by_cases hq : (fastConfirmSimple n (x[m][p].view) (tr / Q.slotLength)).2.isSome
@@ -1540,7 +1569,7 @@ theorem activeAt_le_voting {x : Exec Pr2 S} (hsync : SynchronizedClocks x)
         rw [nodeStep_iff_exists] at hns
         obtain ⟨res, hres, rfl⟩ := hns
         rw [protocol2_step_tick, mem_handler2_iff] at hres
-        obtain ⟨dt, rfl⟩ := hres
+        obtain ⟨dt, pk, hpk, rfl⟩ := hres
         by_cases hq : q = p
         · subst hq
           simpa [applyNodeStepResult_getElem, handler2_activeAt, setClock_getElem] using h
@@ -2048,7 +2077,7 @@ theorem frozen_at_vote_tick {x : Exec Pr2 S}
       rw [htj, htim] at this
       omega
   have hmstate : x[im + 1][p].st = { x[im][p].st with vFrozen := x[im][p].view, chFrozen := (fastConfirmSimple n (x[im][p].view) t).1 } := by
-    obtain ⟨dm, hst, -⟩ := tick_effect hlblm
+    obtain ⟨dm, pkm, -, hst, -⟩ := tick_effect hlblm
     rw [hst, handler2_merge (merge_reading_mod Q t), merge_reading_div Q t]
   have hpers : ∀ m, im + 1 ≤ m → m ≤ j →
       x[m][p].st.vFrozen = x[im + 1][p].st.vFrozen ∧
@@ -2453,18 +2482,18 @@ theorem activeVotesExtend_of_le_mfc {x : Exec Pr2 S}
     refine activeAt_le_voting hsync hmono (t1 := t + 1) ?_ (le_of_eq htj)
     intro r h1 h2
     refine mem_awakeThroughout.mp hp _ ?_ ?_ <;> rw [hvot1] <;> omega
-  obtain ⟨dotj, -, hemit⟩ := tick_effect hlblj
-  obtain ⟨chS, hsend, hchS⟩ :=
+  obtain ⟨dotj, pkj, hpkj, -, hemit⟩ := tick_effect hlblj
+  obtain ⟨hsend, hchS⟩ :=
     handler2_vote_send (Q := Q) (n := n) (kappa := kappa) (pool := pool)
-      (proposer := proposer) (dot := dotj) (p := p) (V := x[j][p].view) (s := x[j][p].st)
-      (voting_reading_mod Q (t + 1)) hgate
+      (proposer := proposer) (dot := dotj) (pick := pkj) (p := p) (V := x[j][p].view)
+      (s := x[j][p].st) (voting_reading_mod Q (t + 1)) hgate hpkj
   rw [voting_reading_div Q (t + 1)] at hsend hchS
-  have hchain : chainLe ch chS := chainLe_trans (hmfc p hp j hlblj) hchS
-  have hmem : ⟪vote, chS, dotj, dotj, (t + 1), p⟫ ∈ x[j + 1].sent := by
+  have hchain : chainLe ch pkj := chainLe_trans (hmfc p hp j hlblj) hchS
+  have hmem : ⟪vote, pkj, dotj, dotj, (t + 1), p⟫ ∈ x[j + 1].sent := by
     refine hemit _ ?_
     rw [hsend]
     exact Multiset.mem_singleton_self _
-  exact ⟨j + 1, chS, dotj, dotj, by rw [tick_time hlblj, htj], hmem, hchain⟩
+  exact ⟨j + 1, pkj, dotj, dotj, by rw [tick_time hlblj, htj], hmem, hchain⟩
 
 /-- `activeVotesExtend_of_le_mfc`, slot-generic: the production works at any slot,
     including `0`. -/
@@ -2498,18 +2527,18 @@ theorem activeVotesExtend_of_le_mfc' {x : Exec Pr2 S}
     refine activeAt_le_voting hsync hmono (t1 := u) ?_ (le_of_eq htj)
     intro r h1 h2
     refine mem_awakeThroughout.mp hp _ ?_ ?_ <;> rw [hvotu] <;> omega
-  obtain ⟨dotj, -, hemit⟩ := tick_effect hlblj
-  obtain ⟨chS, hsend, hchS⟩ :=
+  obtain ⟨dotj, pkj, hpkj, -, hemit⟩ := tick_effect hlblj
+  obtain ⟨hsend, hchS⟩ :=
     handler2_vote_send (Q := Q) (n := n) (kappa := kappa) (pool := pool)
-      (proposer := proposer) (dot := dotj) (p := p) (V := x[j][p].view) (s := x[j][p].st)
-      (voting_reading_mod Q u) hgate
+      (proposer := proposer) (dot := dotj) (pick := pkj) (p := p) (V := x[j][p].view)
+      (s := x[j][p].st) (voting_reading_mod Q u) hgate hpkj
   rw [voting_reading_div Q u] at hsend hchS
-  have hchain : chainLe ch chS := chainLe_trans (hmfc p hp j hlblj) hchS
-  have hmem : ⟪vote, chS, dotj, dotj, u, p⟫ ∈ x[j + 1].sent := by
+  have hchain : chainLe ch pkj := chainLe_trans (hmfc p hp j hlblj) hchS
+  have hmem : ⟪vote, pkj, dotj, dotj, u, p⟫ ∈ x[j + 1].sent := by
     refine hemit _ ?_
     rw [hsend]
     exact Multiset.mem_singleton_self _
-  exact ⟨j + 1, chS, dotj, dotj, by rw [tick_time hlblj, htj], hmem, hchain⟩
+  exact ⟨j + 1, pkj, dotj, dotj, by rw [tick_time hlblj, htj], hmem, hchain⟩
 
 set_option maxHeartbeats 4000000 in
 /-- **The honest-chain invariant**: every honest vote in the log carries a slot-sorted
@@ -2545,7 +2574,7 @@ theorem honest_vote_chain {x : Exec Pr2 S}
     have h := hstep.1
     simp only [spec] at h
     exact h
-  obtain ⟨dt, -, hsend⟩ := tick_delta_send hlblj hem
+  obtain ⟨dt, pkd, hpkd, -, hsend⟩ := tick_delta_send hlblj hem
   have hcontent := handler2_vote_content (voting_reading_mod Q s) hsend
   rw [voting_reading_div Q s, hmsg] at hcontent
   injection hcontent with hE hsrc htgt hslot
@@ -2790,32 +2819,13 @@ theorem honest_vote_chain {x : Exec Pr2 S}
           exact hprefix_ok im smq sq2 (by omega) hlogq hhonq ⟨eq', sq1, tq1, hmq⟩
             (by omega) _ (votesFor_extends hsmq1)
   -- the vote itself: a checked proposal, or the fork-choice
-  rw [voteChoice]
-  cases hfind : (x[j][sm.sender].view).toList.findSome? (fun sm' => match sm'.msg with
-      | .propose chp' _ _ _ t' =>
-          if sm'.sender == proposer s && t' == s && proposedAt chp' == s &&
-              slotsIncreasing chp' && chainLe chMFC chp' then some chp'
-          else none
-      | .vote .. => none) with
-  | none =>
-      simpa using hMFCok
-  | some c =>
-      simp only [Option.getD_some]
-      obtain ⟨a, -, hfa⟩ := List.exists_of_findSome?_eq_some hfind
-      obtain ⟨asd, am⟩ := a
-      revert hfa
-      cases am with
-      | vote e1 s1 t1 sl1 => intro h; cases h
-      | propose chpa chca qca cka ta =>
-          dsimp only
-          split_ifs with hcnd
-          · intro h
-            injection h with h
-            subst h
-            simp only [Bool.and_eq_true, beq_iff_eq] at hcnd
-            exact ⟨hcnd.1.2, le_of_eq hcnd.1.1.2⟩
-          · intro h
-            cases h
+  have hpkd' := hpkd
+  simp only [votePicks2] at hpkd'
+  rw [voting_reading_div Q s, ← hMFCdef] at hpkd'
+  rcases mem_pickSet.mp hpkd' with ⟨-, rfl⟩ | hhit
+  · simpa using hMFCok
+  · obtain ⟨sm', -, -, -, hpa, hsi, -⟩ := mem_voteHits2.mp hhit
+    exact ⟨hsi, le_of_eq hpa⟩
 
 set_option maxHeartbeats 3000000 in
 /-- **The vote-round fork choice is structurally sound**: at a vote tick of a validator
@@ -3541,10 +3551,10 @@ theorem activeVotesExtend_of_propose {x : Exec Pr2 S}
     refine activeAt_le_voting hsync hmono (t1 := t0 + 1) ?_ (le_of_eq htj)
     intro r h1 h2
     refine mem_awakeThroughout.mp hp _ ?_ ?_ <;> rw [hvott] <;> omega
-  obtain ⟨dotj, -, hemit⟩ := tick_effect hlblj
+  obtain ⟨dotj, pkj, hpkj, -, hemit⟩ := tick_effect hlblj
   have hsend := handler2_vote_send_eq (Q := Q) (n := n) (kappa := kappa) (pool := pool)
-    (proposer := proposer) (dot := dotj) (p := p) (V := x[j][p].view) (s := x[j][p].st)
-    (voting_reading_mod Q (t0 + 1)) hgate
+    (proposer := proposer) (dot := dotj) (pick := pkj) (p := p) (V := x[j][p].view)
+    (s := x[j][p].st) (voting_reading_mod Q (t0 + 1)) hgate
   rw [voting_reading_div Q (t0 + 1)] at hsend
   -- the proposal reaches `p`'s vote view, valid
   have hviewprop : (⟨vp, Msg.propose chp chC qc ck (t0 + 1)⟩ :
@@ -3715,78 +3725,41 @@ theorem activeVotesExtend_of_propose {x : Exec Pr2 S}
       refine chainLe_trans hle ?_
       rw [hchp, hchC]
       exact chainLe_extend _ _ _
-  -- the vote is the proposal itself
-  have hvote_eq : voteChoice proposer (x[j][p].view) (t0 + 1)
+  -- the vote is the proposal itself: `chp` qualifies, and every qualifier is pinned
+  -- to the proposer's one message
+  have hchpHit : chp ∈ voteHits2 proposer (x[j][p].view) (t0 + 1)
       (mfc (processProposals2 n proposer (x[j][p].view) (t0 + 1) (x[j][p].st)).vFrozen
         (x[j][p].view)
         (processProposals2 n proposer (x[j][p].view) (t0 + 1) (x[j][p].st)).chFrozen
-        (t0 + 1)) = chp := by
-    unfold voteChoice
-    have hcondtrue : ((⟨vp, Msg.propose chp chC qc ck (t0 + 1)⟩ :
-          SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))).sender == proposer (t0 + 1)
-        && ((t0 + 1 : Nat) == (t0 + 1)) && (proposedAt chp == (t0 + 1))
-        && slotsIncreasing chp
-        && chainLe (mfc (processProposals2 n proposer (x[j][p].view) (t0 + 1)
-          (x[j][p].st)).vFrozen (x[j][p].view)
-          (processProposals2 n proposer (x[j][p].view) (t0 + 1) (x[j][p].st)).chFrozen
-          (t0 + 1)) chp) = true := by
-      simp only [Bool.and_eq_true, beq_iff_eq]
-      exact ⟨⟨⟨⟨hvp_prop, trivial⟩, by rw [hchp]; exact proposedAt_extend _ _ _⟩,
-        hSIchp⟩, hchMFCchp⟩
-    cases hfind : (x[j][p].view).toList.findSome? (fun sm => match sm.msg with
-        | .propose chp' _ _ _ t' =>
-            if sm.sender == proposer (t0 + 1) && t' == (t0 + 1) &&
-                proposedAt chp' == (t0 + 1) && slotsIncreasing chp' &&
-                chainLe (mfc (processProposals2 n proposer (x[j][p].view) (t0 + 1)
-                  (x[j][p].st)).vFrozen (x[j][p].view)
-                  (processProposals2 n proposer (x[j][p].view) (t0 + 1)
-                    (x[j][p].st)).chFrozen (t0 + 1)) chp' then some chp'
-            else none
-        | .vote .. => none) with
-    | none =>
-        exfalso
-        have hall := List.findSome?_eq_none_iff.mp hfind
-          (⟨vp, Msg.propose chp chC qc ck (t0 + 1)⟩ :
-            SignedMsg Node (Msg (Chain Tx) (QCert Node Tx)))
-          (Finset.mem_toList.mpr hviewprop)
-        dsimp only at hall
-        rw [if_pos hcondtrue] at hall
-        cases hall
-    | some c =>
-        simp only [Option.getD_some]
-        obtain ⟨a, haV, hfa⟩ := List.exists_of_findSome?_eq_some hfind
-        obtain ⟨asd, am⟩ := a
-        revert hfa
-        cases am with
-        | vote e src tgt s₁ => intro h; cases h
-        | propose chpa chca qca cka ta =>
-            dsimp only
-            split_ifs with hcnd
-            · intro h
-              injection h with h
-              subst h
-              simp only [Bool.and_eq_true, beq_iff_eq] at hcnd
-              obtain ⟨⟨⟨⟨hsda, hta⟩, -⟩, -⟩, -⟩ := hcnd
-              subst hta
-              have hhon_a : asd ∉ S.adv ((x[j].time : Int)) := by
-                rw [hsda, ← hvp_prop]
-                refine hhon_le _ ?_
-                rw [htj]
-              obtain ⟨-, k', hk'j, hlblk', htk', hem', -, -, -⟩ :=
-                propose_provenance2 hsync hmc hmono
-                  (views_sound x j p _ (Finset.mem_toList.mp haV)) hhon_a rfl
-              have hlblk'' : x.lbl k' = .tick vp (Q.slotLength * (t0 + 1)) := by
-                rw [hlblk']
-                simp only [hsda, ← hvp_prop]
-              have hkk : k' = k := hone k' k vp _ hlblk'' hlblk
-              subst hkk
-              have heqmsg := tick_sends_subsingleton hlblk hem' hemk
-              have hinj := congrArg SignedMsg.msg heqmsg
-              injection hinj with h1 h2 h3 h4 h5
-            · intro h
-              cases h
-  rw [hvote_eq] at hsend
+        (t0 + 1)) :=
+    mem_voteHits2.mpr ⟨⟨vp, Msg.propose chp chC qc ck (t0 + 1)⟩, hviewprop,
+      ⟨chC, qc, ck, rfl⟩, hvp_prop, by rw [hchp]; exact proposedAt_extend _ _ _,
+      hSIchp, hchMFCchp⟩
+  have hvote_eq : pkj = chp := by
+    have hpkj' := hpkj
+    simp only [votePicks2] at hpkj'
+    rw [voting_reading_div Q (t0 + 1)] at hpkj'
+    rcases mem_pickSet.mp hpkj' with ⟨hempty, -⟩ | hhit
+    · exact absurd (hempty ▸ hchpHit) (Finset.notMem_empty chp)
+    · obtain ⟨sma, haV, ⟨chca, qca, cka, hamsg⟩, hsda, -, -, -⟩ :=
+        mem_voteHits2.mp hhit
+      have hhon_a : sma.sender ∉ S.adv ((x[j].time : Int)) := by
+        rw [hsda, ← hvp_prop]
+        refine hhon_le _ ?_
+        rw [htj]
+      obtain ⟨-, k', hk'j, hlblk', htk', hem', -, -, -⟩ :=
+        propose_provenance2 hsync hmc hmono (views_sound x j p _ haV) hhon_a hamsg
+      have hlblk'' : x.lbl k' = .tick vp (Q.slotLength * (t0 + 1)) := by
+        rw [hlblk']
+        simp only [hsda, ← hvp_prop]
+      have hkk : k' = k := hone k' k vp _ hlblk'' hlblk
+      subst hkk
+      have heqmsg := tick_sends_subsingleton hlblk hem' hemk
+      have hinj := congrArg SignedMsg.msg heqmsg
+      rw [hamsg] at hinj
+      injection hinj
   have hmem : ⟪vote, chp, dotj, dotj, (t0 + 1), p⟫ ∈ x[j + 1].sent := by
+    rw [← hvote_eq]
     refine hemit _ ?_
     rw [hsend]
     exact Multiset.mem_singleton_self _
@@ -3818,7 +3791,7 @@ theorem le_chi_at_fconf {x : Exec Pr2 S}
     simp only [spec] at h
     exact h
   -- the post-state chain
-  obtain ⟨dt, hst, -⟩ := tick_effect hj
+  obtain ⟨dt, pk, hpkk, hst, -⟩ := tick_effect hj
   rw [hst, handler2_fastconfirm (fconf_reading_mod Q t), fconf_reading_div Q t]
   -- every active's vote is in the view, supporting `chp`
   have hsub : Active Q S (t : Int) ⊆ (((votes (x[j][vi].view)).filter (fun sm =>
@@ -4290,9 +4263,9 @@ theorem le_chi_of_honest_proposal {x : Exec Pr2 S}
   have hold := (chi_le_mfc hsync hstepw hdiv hdil hone hwpt hmc hsyn hrel hslp hcb hfn
     hcard hgst hκ hwin j vi j vi s0 hActs0).2 hlblj (le_of_eq htj)
   -- … and the κ-deep write lands at or above `chp`
-  obtain ⟨dt, hst, -⟩ := tick_effect hlblj
+  obtain ⟨dt, pk, hpkk, hst, -⟩ := tick_effect hlblj
   have hvstate := handler2_vote_state (Q := Q) (n := n) (kappa := kappa) (pool := pool)
-    (proposer := proposer) (dot := dt) (p := vi)
+    (proposer := proposer) (dot := dt) (pick := pk) (p := vi)
     (r := Q.slotLength * (s0 + 1) + Q.delta)
     (V := x[j][vi].view) (s := x[j][vi].st) (voting_reading_mod Q (s0 + 1))
   rw [voting_reading_div Q (s0 + 1)] at hvstate

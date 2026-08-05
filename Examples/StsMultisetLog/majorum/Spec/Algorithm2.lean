@@ -64,6 +64,21 @@ structure NodeState2 (Node Tx : Type) [DecidableEq Node] [DecidableEq Tx] where
   /-- The first round from which this validator may send (`activationRound`). -/
   activeAt : Time
 
+/-- The vote phase's admissible chain choices — Algorithm 2's instance of
+    `Components.voteHits`/`votePicks`, spelled over the concrete chain functions: any
+    slot proposal from the slot's proposer, sorted, proposed at the slot and extending
+    the fork-choice output; the fork-choice output itself when none qualifies (the
+    paper's lines 22–23, with the tenth finding's nondeterministic reading of "if there
+    is one" — see `pickSet`). -/
+noncomputable def voteHits2 (proposer : Nat → Node)
+    (V : View Node (Msg (Chain Tx) (QCert Node Tx))) (slot : Nat) (chMFC : Chain Tx) :
+    Finset (Chain Tx) :=
+  V.biUnion (fun sm => match sm.msg with
+    | .propose chp _ _ _ t' =>
+        if sm.sender == proposer slot && t' == slot && proposedAt chp == slot &&
+            slotsIncreasing chp && chainLe chMFC chp then {chp} else ∅
+    | .vote .. => ∅)
+
 /-- Algorithm 2 lines 33–36: a valid slot-`t` proposal whose fast-confirmed chain extends
     the frozen one replaces it. Received during `[4Δt, 4Δt+Δ]`, processed at the vote
     reading, folded over the view — the same arrival-order caveat as Algorithm 5's
@@ -79,11 +94,24 @@ noncomputable def processProposals2 (n : Nat) (proposer : Nat → Node)
         else acc
     | .vote .. => acc) s
 
+/-- The vote phase's admissible chain choices at reading `r` over view `V` and state
+    `s` — Algorithm 2's instance of `Components.votePicks`: any qualifying proposal
+    chain, or the fork-choice output when none qualifies. Spelled once, here, so the
+    handler and the proof layer's inversion lemma agree syntactically. -/
+noncomputable def votePicks2 (Q : Params) (n : Nat) (proposer : Nat → Node)
+    (V : View Node (Msg (Chain Tx) (QCert Node Tx))) (r : Time)
+    (s : NodeState2 Node Tx) : Finset (Chain Tx) :=
+  let slot := r / Q.slotLength
+  let s' := processProposals2 n proposer V slot s
+  let chMFC := mfc s'.vFrozen V s'.chFrozen slot
+  pickSet (voteHits2 proposer V slot chMFC) chMFC
+
 /-- Algorithm 2's four phase actions, as one `do` block over the `Set` monad: `←` is a
     nondeterministic assignment — the blank finality fields, assigned any value at their
-    use sites in the propose and vote branches — and `return` marks each branch's
-    outcome. This is the protocol's handler; its deterministic core `handler2Core`,
-    which the proof layer works over, lives in `Provenance2.lean`. -/
+    use sites in the propose and vote branches, and the vote phase's proposal choice
+    (`votePicks2`, the tenth finding) — and `return` marks each branch's outcome. This
+    is the protocol's handler; its deterministic core `handler2Core`, which the proof
+    layer works over, lives in `Provenance2.lean`. -/
 noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     (proposer : Nat → Node) (p : Node) (r : Time)
     (V : View Node (Msg (Chain Tx) (QCert Node Tx))) (s : NodeState2 Node Tx) :
@@ -101,6 +129,11 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
       return { state := s, send := 0 }
   else if phase = Q.delta then
     let dot ← (Set.univ : Set (Checkpoint (Chain Tx)))
+    -- lines 22–23's "proposed chain …, if there is one": a nondeterministic choice
+    -- among the qualifying proposals — the paper's validator takes whichever arrived
+    -- first, an order its adversary controls; a `Finset` view has no arrival order, so
+    -- the choice is the adversary's directly (tenth finding, `CONTEXT.md` 2026-08-05)
+    let ch ← (↑(votePicks2 Q n proposer V r s) : Set (Chain Tx))
     let s' := processProposals2 n proposer V slot s
     let chMFC := mfc s'.vFrozen V s'.chFrozen slot
     -- Line 22 runs only once active: the κ-deep rule reads the *frozen* snapshots, and a
@@ -116,14 +149,6 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
           (fun acc c => if c ⪯ chMFC then (if acc ⪯ c then c else acc) else acc)
           s'.chi
       else s'.chi
-    let proposedNow : Option (Chain Tx) :=
-      V.toList.findSome? (fun sm => match sm.msg with
-        | .propose chp _ _ _ t' =>
-            if sm.sender == proposer slot && t' == slot && proposedAt chp == slot &&
-                slotsIncreasing chp && chMFC ⪯ chp then some chp
-            else none
-        | .vote .. => none)
-    let ch := proposedNow.getD chMFC
     return { state := { s' with chi := chi },
              send := if s.activeAt ≤ r then {.vote ch dot dot slot} else 0 }
   else if phase = 2 * Q.delta then
@@ -155,6 +180,11 @@ theorem handler2_nonempty (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
   simp only [handler2]
   split_ifs <;>
     first
+      | exact ⟨_, by
+          rw [Set.bind_def]
+          exact Set.mem_biUnion (Set.mem_univ (⟨[], 0⟩ : Checkpoint (Chain Tx)))
+            (Set.mem_biUnion
+              (Finset.mem_coe.mpr (pickSet_nonempty _ _).choose_spec) rfl)⟩
       | exact ⟨_, by
           rw [Set.bind_def]
           exact Set.mem_biUnion (Set.mem_univ (⟨[], 0⟩ : Checkpoint (Chain Tx))) rfl⟩

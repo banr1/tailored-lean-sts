@@ -1,4 +1,5 @@
 import Examples.StsMultisetLog.majorum.Spec.Assumptions
+import Mathlib.Data.Set.Functor
 
 /-!
 # Majorum, Algorithm 5
@@ -47,6 +48,8 @@ framework requires.
 -/
 
 set_option autoImplicit false
+
+attribute [local instance] Set.monad
 
 namespace Majorum
 
@@ -154,6 +157,48 @@ end Components
 
 variable [DecidableEq Node] [DecidableEq Chain] [DecidableEq QC]
 
+/-- The candidates a nondeterministic choice ranges over: the qualifying set, or the
+    fallback alone when nothing qualifies — the paper's "…, if there is one, or `chMFC`
+    otherwise" (Algorithm 2 lines 22–23 and Algorithm 5's vote phase, identically).
+
+    The indefinite article hides a choice: when *several* chains
+    qualify — an equivocating Byzantine proposer — the paper's validator takes whichever
+    arrived first, an order its adversary controls and aligns across executions in
+    Lemma 10's proof (adversary decision (iv)). A `Finset` view has no arrival order, and
+    resolving the choice by `Finset.toList` enumeration makes it a deterministic function
+    of the view that two corresponding executions cannot align — Lemma 10 is false that
+    way (tenth finding, `CONTEXT.md` 2026-08-05; user decision: render the choice as
+    genuine nondeterminism, in both algorithms). -/
+noncomputable def pickSet {α : Type} (hits : Finset α) (fallback : α) : Finset α :=
+  -- the classical instance, explicitly: a derived `DecidableEq (Finset α)` baked in
+  -- here makes every `whnf` of a `pickSet` application try to *evaluate* the emptiness
+  -- test on symbolic sets — deterministic timeouts three files downstream
+  @ite _ (hits = ∅) (Classical.propDecidable _) {fallback} hits
+
+theorem mem_pickSet {α : Type} {hits : Finset α} {fallback a : α} :
+    a ∈ pickSet hits fallback ↔ (hits = ∅ ∧ a = fallback) ∨ a ∈ hits := by
+  unfold pickSet
+  split_ifs with h <;> simp [h]
+
+theorem pickSet_nonempty {α : Type} (hits : Finset α) (fallback : α) :
+    (pickSet hits fallback).Nonempty := by
+  unfold pickSet
+  split_ifs with h
+  · exact ⟨fallback, Finset.mem_singleton_self _⟩
+  · exact Finset.nonempty_of_ne_empty h
+
+/-- The chains the vote phase may adopt from a proposal: those of the slot's proposals,
+    from the slot's proposer, structurally sorted, proposed at the slot, and extending
+    the fork-choice output — Algorithm 5's vote-phase filter (and Algorithm 2's,
+    identically), as a set instead of an enumeration-order pick. -/
+noncomputable def Components.voteHits (C : Components Node Chain QC)
+    (V : View Node (Msg Chain QC)) (slot : Nat) (chMFC : Chain) : Finset Chain :=
+  V.biUnion (fun sm => match sm.msg with
+    | .propose chp _ _ _ t' =>
+        if sm.sender == C.proposer slot && t' == slot && C.proposedAt chp == slot &&
+            C.sortedChain chp && C.prefixLe chMFC chp then {chp} else ∅
+    | .vote .. => ∅)
+
 /-- The round at which a validator waking at round `r` becomes active.
 
     "Joining Protocol" (§2): a validator waking at `r ∈ (voting(t-2)+Δ, voting(t-1)+Δ]`
@@ -194,10 +239,26 @@ noncomputable def processProposals (C : Components Node Chain QC)
         else acc
     | .vote .. => acc) s
 
-/-- Algorithm 5's four phase actions, dispatched on the round within the slot. -/
+/-- The vote phase's admissible chain choices at reading `r` over view `V` and state
+    `s`: any qualifying proposal chain, or the fork-choice output when none qualifies.
+    Factored out so the handler and the proof layer's inversion lemma spell it once. -/
+noncomputable def Components.votePicks (C : Components Node Chain QC) (Q : Params)
+    (V : View Node (Msg Chain QC)) (r : Time) (s : NodeState Node Chain QC) :
+    Finset Chain :=
+  let slot := r / Q.slotLength
+  let s' := processProposals C V slot s
+  let chMFC := C.mfc s'.vFrozen V s'.chFrozen slot
+  pickSet (C.voteHits V slot chMFC) chMFC
+
+/-- Algorithm 5's four phase actions, dispatched on the round within the slot, as a
+    `do` block over the `Set` monad: the one `←` is the vote phase's nondeterministic
+    adoption of a qualifying proposal (`votePicks` — the tenth finding: the paper leaves
+    the choice among several to the arrival order its adversary controls, so it is a
+    choice, not a function of the view). Every other branch is deterministic and
+    `return`s its one outcome. -/
 noncomputable def handler (C : Components Node Chain QC) (Q : Params) (p : Node) (r : Time)
     (V : View Node (Msg Chain QC)) (s : NodeState Node Chain QC) :
-    NodeStepResult (NodeState Node Chain QC) (Msg Chain QC) :=
+    Set (NodeStepResult (NodeState Node Chain QC) (Msg Chain QC)) := do
   let slot : Nat := r / Q.slotLength
   let phase : Nat := r % Q.slotLength
   if phase = 0 then
@@ -207,10 +268,11 @@ noncomputable def handler (C : Components Node Chain QC) (Q : Params) (p : Node)
       let cq := C.fastConfirm V (slot - 1)
       let chMFC := C.mfc V V cq.1 slot
       let chp := C.extend chMFC slot
-      { state := s, send := {.propose chp cq.1 cq.2 (C.gj V) slot} }
-    else { state := s, send := 0 }
+      return { state := s, send := {.propose chp cq.1 cq.2 (C.gj V) slot} }
+    else return { state := s, send := 0 }
   else if phase = Q.delta then
     -- Vote, `4Δt + Δ`, lines 10–20, after lines 29–38.
+    let ch ← (↑(C.votePicks Q V r s) : Set Chain)
     let s' := processProposals C V slot s
     let chMFC := C.mfc s'.vFrozen V s'.chFrozen slot
     let chAva :=
@@ -219,52 +281,63 @@ noncomputable def handler (C : Components Node Chain QC) (Q : Params) (p : Node)
     let chFin := C.commonPrefix chAva (C.gf V).ch
     let target : Checkpoint Chain :=
       if s'.gjFrozen.c = slot - 1 then ⟨chAva, slot⟩ else ⟨s'.gjFrozen.ch, slot⟩
-    let proposedNow : Option Chain :=
-      V.toList.findSome? (fun sm => match sm.msg with
-        | .propose chp _ _ _ t' =>
-            if sm.sender == C.proposer slot && t' == slot && C.proposedAt chp == slot &&
-                C.sortedChain chp && C.prefixLe chMFC chp then some chp
-            else none
-        | .vote .. => none)
-    let ch := proposedNow.getD chMFC
     -- the gate reads the *pre*-state's `activeAt`; `processProposals` never writes it,
     -- so the two agree, and the un-shadowed spelling is the one proofs can see through
     -- the output chains move only once active (fifth finding, as in Algorithm 2's
     -- line 22: the κ-deep rule reads the *frozen* snapshots, stale for a joiner);
     -- the listening state `s'` updates regardless
-    { state := if s.activeAt ≤ r then { s' with chAva := chAva, chFin := chFin } else s',
-      -- a joining validator "executes the protocol, but without sending any message"
-      send := if s.activeAt ≤ r then {.vote ch s'.gjFrozen target slot} else 0 }
+    return { state := if s.activeAt ≤ r then { s' with chAva := chAva, chFin := chFin }
+                      else s',
+             -- a joining validator "executes the protocol, but without sending any message"
+             send := if s.activeAt ≤ r then {.vote ch s'.gjFrozen target slot} else 0 }
   else if phase = 2 * Q.delta then
     -- Fast Confirm, `4Δt + 2Δ`, lines 21–24.
     let fastcand := (C.fastConfirm V slot).1
     let chAva := if C.prefixLe fastcand s.chAva then s.chAva else fastcand
-    { state := { s with chAva := chAva, chFin := (C.gf V).ch }, send := 0 }
+    return { state := { s with chAva := chAva, chFin := (C.gf V).ch }, send := 0 }
   else if phase = 3 * Q.delta then
     -- Merge, `4Δt + 3Δ`, lines 25–28.
-    { state := { s with vFrozen := V, chFrozen := (C.fastConfirm V slot).1,
-                        gjFrozen := C.gj V },
-      send := 0 }
+    let sM := { s with vFrozen := V, chFrozen := (C.fastConfirm V slot).1,
+                       gjFrozen := C.gj V }
+    return { state := sM, send := 0 }
   else
-    { state := s, send := 0 }
+    return { state := s, send := 0 }
 
-/-- Majorum as a framework protocol.
+omit [DecidableEq QC] in
+/-- Every branch of `handler` offers at least one result — the vote phase's choice set
+    is `pickSet`, which is never empty. -/
+theorem handler_nonempty (C : Components Node Chain QC) (Q : Params) (p : Node)
+    (r : Time) (V : View Node (Msg Chain QC)) (s : NodeState Node Chain QC) :
+    (handler C Q p r V s).Nonempty := by
+  simp only [handler]
+  split_ifs <;>
+    first
+      | exact ⟨_, rfl⟩
+      | exact ⟨_, by
+          rw [Set.bind_def]
+          exact Set.mem_biUnion
+            (Finset.mem_coe.mpr (pickSet_nonempty _ _).choose_spec) rfl⟩
 
-    Deterministic, so the relational `step` is the graph of `handler` — the idiom the
-    framework's examples use, which keeps the model computable. `Ev := Empty`: every action
-    is at a fixed round, so `tick` drives all of them and there is nothing for `custom` to
-    carry. -/
+/-- Majorum as a framework protocol: a tick may produce anything the `Set`-valued
+    handler contains — the vote phase's proposal choice is made anew at each tick
+    (tenth finding; everything else about the handler is deterministic). No
+    protocol-specific events: every action is at a fixed round, so `tick` drives all of
+    them and there is nothing for `custom` to carry. -/
 noncomputable def protocol (C : Components Node Chain QC) (Q : Params) :
     Protocol Node (Msg Chain QC) (NodeState Node Chain QC) Empty where
   init _ := { chAva := C.genesis, chFin := C.genesis, vFrozen := ∅,
               chFrozen := C.genesis, gjFrozen := ⟨C.genesis, 0⟩, activeAt := 0 }
-  step p r V s e res := res = match e with
-    | .tick => handler C Q p r V s
-    | .recv _ => { state := s, send := 0 }   -- filed into the view; processed at `vote(t)`
+  step p r V s e res := match e with
+    | .tick => res ∈ handler C Q p r V s
+    | .recv _ => res = { state := s, send := 0 }   -- filed into the view; vote reads it
     | .wake => -- the joining protocol starts: silent until the activation round
-        { state := { s with activeAt := activationRound Q r }, send := 0 }
+        res = { state := { s with activeAt := activationRound Q r }, send := 0 }
     | .custom ev => ev.elim
-  total _ _ _ _ _ := ⟨_, rfl⟩
+  total p r V s e := match e with
+    | .tick => handler_nonempty C Q p r V s
+    | .recv _ => ⟨_, rfl⟩
+    | .wake => ⟨_, rfl⟩
+    | .custom ev => ev.elim
   enabled _ _ ev := ev.elim
 
 end Majorum

@@ -46,7 +46,8 @@ theorem vFrozen_subset_view5 {x5 : Exec Pr5 S} (k : Nat) (p : Node) :
             intro a ha
             simp only [applyNodeStepResult_getElem, setClock_getElem,
               if_pos rfl, if_true] at ha ⊢
-            rcases handler_vFrozen (components n kappa pool proposer) Q q t
+            rcases handler_vFrozen (components n kappa pool proposer) Q
+                (pick5 x5 k q t) q t
                 (x5.cfg k)[q].view (x5.cfg k)[q].st with hfz | hfz
             · rw [hfz] at ha
               exact ih ha
@@ -102,7 +103,7 @@ theorem vFrozen_subset_view2 {x : Exec Pr2 S} (k : Nat) (p : Node) :
       have hview := tick_view (x := x) hr p
       by_cases hph3 : tr % Q.slotLength = 3 * Q.delta
       · -- the merge tick refreezes to its own view
-        obtain ⟨dt, hst, -⟩ := tick_effect hr
+        obtain ⟨dt, pk, -, hst, -⟩ := tick_effect hr
         rw [handler2_merge hph3] at hst
         intro a ha
         rw [hst] at ha
@@ -110,7 +111,7 @@ theorem vFrozen_subset_view2 {x : Exec Pr2 S} (k : Nat) (p : Node) :
         exact ha
       · by_cases hph1 : tr % Q.slotLength = Q.delta
         · -- the vote tick's proposal processing keeps the snapshot
-          obtain ⟨dt, hst, -⟩ := tick_effect hr
+          obtain ⟨dt, pk, -, hst, -⟩ := tick_effect hr
           rw [handler2_vote_state hph1] at hst
           have hfz : x[k + 1][p].st.vFrozen = x[k][p].st.vFrozen := by
             rw [hst, processProposals2_vFrozen]
