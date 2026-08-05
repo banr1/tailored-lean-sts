@@ -1264,4 +1264,66 @@ theorem lemma11_votes (hn : n = Fintype.card Node)
       (activeVotesExtend_transfer heq H5.wellformed.2.2.1 H5.wellformed.1
         H5.wellformed.2.2.2.1 H5.wellformed.2.1 H2.wellformed.2.2.1 h))
 
+set_option maxHeartbeats 1000000 in
+/-- **Lemma 11** (`Lemma 11, arXiv:2601.03862v1 p.20`, the analogue of Lemma 2, for
+    Algorithm 5): if every slot-`t` active votes an extension of `ch`, then at every
+    slot-`t+1` active's propose and vote ticks the fork choice extends `ch`, and every
+    slot-`t+1` active votes an extension of `ch`. Proof: transfer the votes to the
+    MFC-equivalent Algorithm-2 run, run Lemma 2's engines there
+    (`le_mfc_at_propose_of_ave`, `le_mfc_at_vote2`), and carry the fork-choice bounds
+    back through conditions 2.1 and 2.2. -/
+theorem lemma11 (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} {x2 : Exec Pr2 S}
+    (heq : MfcEquivalent x5 x2) (H5 : SettingGA Q S x5) (H2 : SettingGA Q S x2)
+    {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx}
+    (h : ActiveVotesExtend5 x5 t ch) :
+    (∀ (k : Nat) (vi : Node), vi ∈ Active Q S ((t : Int) + 1) →
+      x5.lbl k = .tick vi (Q.slotLength * (t + 1)) →
+      chainLe ch ((components n kappa pool proposer).mfc
+        x5[k][vi].view x5[k][vi].view
+        ((components n kappa pool proposer).fastConfirm x5[k][vi].view t).1
+        (t + 1))) ∧
+    (∀ (k : Nat) (vi : Node), vi ∈ Active Q S ((t : Int) + 1) →
+      x5.lbl k = .tick vi (Q.slotLength * (t + 1) + Q.delta) →
+      chainLe ch ((components n kappa pool proposer).mfc
+        (processProposals (components n kappa pool proposer)
+          x5[k][vi].view (t + 1) x5[k][vi].st).vFrozen
+        x5[k][vi].view
+        (processProposals (components n kappa pool proposer)
+          x5[k][vi].view (t + 1) x5[k][vi].st).chFrozen
+        (t + 1))) ∧
+    ActiveVotesExtend5 x5 (t + 1) ch := by
+  subst hn
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have hSL0 : 0 < Q.slotLength := by omega
+  have hvotes2 : ActiveVotesExtend2 x2 t ch :=
+    activeVotesExtend_transfer heq H5.wellformed.2.2.1 H5.wellformed.1
+      H5.wellformed.2.2.2.1 H5.wellformed.2.1 H2.wellformed.2.2.1 h
+  have H2' := H2
+  obtain ⟨⟨hmc2, hah2, hsync2, hmono2, hcs2, hdiv2, hdil2⟩, hstepw2, hwpt2, hone2,
+    ⟨hsyn2, hrel2⟩, hslp, ⟨hcb, hfn⟩, hgst⟩ := H2'
+  have hdivP : Q.slotLength * (t + 1) / Q.slotLength = t + 1 :=
+    Nat.mul_div_cancel_left _ hSL0
+  refine ⟨?_, ?_, lemma11_votes rfl heq H5 H2 ht h⟩
+  · -- the propose-round fork choice extends `ch`
+    intro k vi hvi hlbl
+    have h21 := heq.2.2.1 k vi _ hlbl (Nat.mul_mod_right _ _)
+    rw [hdivP] at h21
+    simp only [Nat.add_sub_cancel] at h21
+    rw [h21]
+    have hlbl2 := (heq.1 k vi _).mp hlbl
+    have htb : x2[k].time = Q.slotLength * (t + 1) := tick_reading hsync2 hlbl2
+    have hbound := le_mfc_at_propose_of_ave hsync2 hstepw2 hdil2 hwpt2 hone2 hmc2
+      hsyn2 hslp hcb hfn (le_refl _) hgst ht hvotes2 htb hvi
+    simpa using hbound
+  · -- the vote-round fork choice extends `ch`
+    intro k vi hvi hlbl
+    have h22 := heq.2.2.2.1 k vi _ hlbl (voting_reading_mod Q (t + 1))
+    rw [voting_reading_div Q (t + 1)] at h22
+    rw [h22]
+    have hlbl2 := (heq.1 k vi _).mp hlbl
+    exact le_mfc_at_vote2 hsync2 hstepw2 hdil2 hwpt2 hone2 hmc2 hsyn2 hslp hcb hfn
+      hgst ht hvotes2 hvi hlbl2
+
 end Majorum
