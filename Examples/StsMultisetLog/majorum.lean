@@ -22,10 +22,12 @@ working copy at the paper's own source — that copy was the original source and
 agrees with v1 on every statement rendered here, but it is not included here and its line
 numbers move.
 
-**Proved** (2026-08-04): Lemmas 2–7 and Theorems 1–2 for Algorithm 2, under `SettingGA`
-plus the de-probabilized Lemma 1 (`HonestProposalWindow`) and `1 ≤ κ`; and Appendix B —
+**Proved** (2026-08-06): Lemmas 2–7 and Theorems 1–2 for Algorithm 2, under `SettingGA`
+plus the de-probabilized Lemma 1 (`HonestProposalWindow`) and `1 ≤ κ`; Appendix B —
 Lemmas 8–9, the finality component's accountable-safety counting, assumption-free
-(`f ∈ [0, n]`). The rest of the paper's theorems remain `Prop`-valued statements.
+(`f ∈ [0, n]`); and **Appendix C's Lemmas 10–13 for Algorithm 5**, which carry the
+Appendix-A results across to the full protocol through the MFC-equivalent Algorithm-2 run
+Lemma 10 constructs. The rest of the paper's theorems remain `Prop`-valued statements.
 
 ## Layout
 
@@ -62,6 +64,11 @@ single call so the lists read without proof noise; the proof layer sits under
   (`theorem2_safety`, `theorem2_liveness`, `theorem2_liveness_txpool`).
 * `Analysis/Proofs/Finality` — Appendix B in full: Lemmas 8–9, `slash_of_links` and the
   E1/E2 evidence machinery, all view-local.
+* `Analysis/Proofs/Simulation`, `Analysis/Proofs/Transfer`, `Analysis/Proofs/Equivalence`,
+  `Analysis/Proofs/MfcEquiv` — Appendix C: the Algorithm-2 run built by replaying an
+  Algorithm-5 run's schedule (`simulate`), its compliance, Definitions 8–9, and Lemmas
+  10–13. `MfcEquiv` holds Lemma 10's grand induction and the transfers the later lemmas
+  ride.
 * `Analysis/Lemmas` — **one theorem per numbered lemma of the paper**, and nothing else;
   proofs are one call into `Proofs/Analysis2`.
 * `Analysis/Theorems` — the paper's theorems: the proved ones (`theorem1`, `theorem2`,

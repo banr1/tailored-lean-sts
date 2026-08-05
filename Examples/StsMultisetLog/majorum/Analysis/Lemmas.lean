@@ -1,5 +1,6 @@
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Analysis2
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Finality
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.MfcEquiv
 
 /-!
 # The paper's lemmas
@@ -46,6 +47,10 @@ variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx] [Fintype Node]
     The paper's "·" — the blank finality fields — is nondeterministic in the protocol
     itself: each tick fills it with any value. -/
 local notation "Pr2" => protocol2 Q (Fintype.card Node) kappa pool proposer
+
+/-- Algorithm 5, its quorum threshold instantiated with the structural validator count. -/
+local notation "Pr5" =>
+  protocol (components (Fintype.card Node) kappa pool proposer) Q
 
 /-- **Lemma 2** (`Lemma 2, arXiv:2601.03862v1 p.8`, for Algorithm 2). If, in slot `t`,
     all validators in `H_vote(t)` send vote messages for chains extending `ch`, then, in
@@ -236,5 +241,121 @@ theorem lemma9 {V1 V2 : View Node (Msg (Chain Tx) (QCert Node Tx))}
     ∃ W : Finset Node, Fintype.card Node ≤ 3 * W.card ∧
       ∀ w ∈ W, SlashableIn (V1 ∪ V2) w :=
   Finality.lemma9 (le_refl _) h1 h1le h2 h2le hc12 hc21
+
+/-- **Lemma 10** (`Lemma 10, arXiv:2601.03862v1 p.18`). For every compliant Algorithm-5
+    run there is a compliant Algorithm-2 run that is *MFC-equivalent* to it
+    (Definition 9): the two agree on ticks, on emissions up to dynamic equivalence
+    (Definition 8), on both rounds' fork-choice outputs, and the Algorithm-5 available
+    chains are dominated by the Algorithm-2 confirmed chains.
+
+    The witness is `simulate x5` — the original's own schedule replayed against Algorithm
+    2, with a table pairing each message with its counterpart. The paper argues the
+    equivalence "by construction"; here the construction is a definition and the
+    equivalence a mutual induction over the step index (`MfcEquiv.table_and_dominance`),
+    since conditions 2.1/2.2 at a tick need the table invariant *and* the dominance
+    invariant at earlier steps, and the dominance invariant's own step needs conditions
+    2.1/2.2. -/
+theorem lemma10 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5) :
+    ∃ x2 : Exec Pr2 S, SettingGA Q S x2 ∧ MfcEquiv.MfcEquivalent x5 x2 :=
+  ⟨simulate x5, MfcEquiv.lemma10 rfl H hκ hwin⟩
+
+/-- **Lemma 11** (`Lemma 11, arXiv:2601.03862v1 p.20`, the analogue of Lemma 2, for
+    Algorithm 5). If every slot-`t` active votes for a chain extending `ch`, then the fork
+    choice extends `ch` at every slot-`t+1` active's propose and vote ticks, and every
+    slot-`t+1` active votes for a chain extending `ch`.
+
+    Proved through Lemma 10: the votes transfer to the equivalent Algorithm-2 run, Lemma
+    2's engines run there, and the fork-choice bounds come back through conditions
+    2.1/2.2. -/
+theorem lemma11 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx}
+    (h : MfcEquiv.ActiveVotesExtend5 (kappa := kappa) (pool := pool) x5 t ch) :
+    (∀ (k : Nat) (vi : Node), vi ∈ Active Q S ((t : Int) + 1) →
+      x5.lbl k = .tick vi (Q.slotLength * (t + 1)) →
+      ch ⪯ (components (Fintype.card Node) kappa pool proposer).mfc
+        x5[k][vi].view x5[k][vi].view
+        ((components (Fintype.card Node) kappa pool proposer).fastConfirm
+          x5[k][vi].view t).1 (t + 1)) ∧
+    (∀ (k : Nat) (vi : Node), vi ∈ Active Q S ((t : Int) + 1) →
+      x5.lbl k = .tick vi (Q.slotLength * (t + 1) + Q.delta) →
+      ch ⪯ (components (Fintype.card Node) kappa pool proposer).mfc
+        (processProposals (components (Fintype.card Node) kappa pool proposer)
+          x5[k][vi].view (t + 1) x5[k][vi].st).vFrozen
+        x5[k][vi].view
+        (processProposals (components (Fintype.card Node) kappa pool proposer)
+          x5[k][vi].view (t + 1) x5[k][vi].st).chFrozen (t + 1)) ∧
+    MfcEquiv.ActiveVotesExtend5 (kappa := kappa) (pool := pool) x5 (t + 1) ch :=
+  let hpair := MfcEquiv.lemma10 rfl H hκ hwin
+  MfcEquiv.lemma11 rfl hpair.2 H hpair.1 ht h
+
+/-- **Lemma 12** (`Lemma 12, arXiv:2601.03862v1 p.20`, the analogue of Lemma 4, for
+    Algorithm 5). An honest proposer's slot-`t` proposal is voted for by every active from
+    slot `t` on, and both rounds' fork choices extend it from slot `t+1` on.
+
+    Proved through Lemma 10: the proposal crosses to the equivalent run at its emitting
+    tick (condition 1 preserves the proposed chain and slot), Lemma 4 runs there, and the
+    votes and fork-choice bounds come back through the transfers. -/
+theorem lemma12 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {ck : Checkpoint (Chain Tx)} {i : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc ck t⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[i].sent)
+    (hhon_i : vp ∉ S.adv ((x5[i].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int))) :
+    (∀ t', t ≤ t' →
+      MfcEquiv.ActiveVotesExtend5 (kappa := kappa) (pool := pool) x5 t' chp) ∧
+    (∀ t₀, t ≤ t₀ →
+      (∀ (k : Nat) (vi : Node), vi ∈ Active Q S ((t₀ : Int) + 1) →
+        x5.lbl k = .tick vi (Q.slotLength * (t₀ + 1)) →
+        chp ⪯ (components (Fintype.card Node) kappa pool proposer).mfc
+          x5[k][vi].view x5[k][vi].view
+          ((components (Fintype.card Node) kappa pool proposer).fastConfirm
+            x5[k][vi].view t₀).1 (t₀ + 1)) ∧
+      (∀ (k : Nat) (vi : Node), vi ∈ Active Q S ((t₀ : Int) + 1) →
+        x5.lbl k = .tick vi (Q.slotLength * (t₀ + 1) + Q.delta) →
+        chp ⪯ (components (Fintype.card Node) kappa pool proposer).mfc
+          (processProposals (components (Fintype.card Node) kappa pool proposer)
+            x5[k][vi].view (t₀ + 1) x5[k][vi].st).vFrozen
+          x5[k][vi].view
+          (processProposals (components (Fintype.card Node) kappa pool proposer)
+            x5[k][vi].view (t₀ + 1) x5[k][vi].st).chFrozen (t₀ + 1))) :=
+  let hpair := MfcEquiv.lemma10 rfl H hκ hwin
+  MfcEquiv.lemma12 rfl hpair.2 H hpair.1 ht hsent hhon_i hhon_t
+
+/-- **Lemma 13** (`Lemma 13, arXiv:2601.03862v1 p.20`, the analogue of Lemma 5, for
+    Algorithm 5). Any validator's available chain at any round sits below every later
+    fork-choice output, in both rounds of every slot whose actives include the tick's
+    owner.
+
+    Proved through Lemma 10: the available chain is dominated by a confirmed chain of the
+    equivalent run (condition 2.3/2.4), Lemma 5 bounds that by the equivalent run's fork
+    choice, and conditions 2.1/2.2 carry the bound back. -/
+theorem lemma13 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (a : Nat) (vi : Node) (k : Nat) (vj : Node) (s0 : Nat)
+    (hv : vj ∈ Active Q S ((s0 : Int) + 1)) :
+    (x5.lbl k = .tick vj (Q.slotLength * (s0 + 1)) →
+      x5[a].time ≤ Q.slotLength * (s0 + 1) →
+      x5[a][vi].st.chAva ⪯
+        (components (Fintype.card Node) kappa pool proposer).mfc
+          x5[k][vj].view x5[k][vj].view
+          ((components (Fintype.card Node) kappa pool proposer).fastConfirm
+            x5[k][vj].view s0).1 (s0 + 1)) ∧
+    (x5.lbl k = .tick vj (Q.slotLength * (s0 + 1) + Q.delta) →
+      x5[a].time ≤ Q.slotLength * (s0 + 1) + Q.delta →
+      x5[a][vi].st.chAva ⪯
+        (components (Fintype.card Node) kappa pool proposer).mfc
+          (processProposals (components (Fintype.card Node) kappa pool proposer)
+            x5[k][vj].view (s0 + 1) x5[k][vj].st).vFrozen
+          x5[k][vj].view
+          (processProposals (components (Fintype.card Node) kappa pool proposer)
+            x5[k][vj].view (s0 + 1) x5[k][vj].st).chFrozen (s0 + 1)) :=
+  let hpair := MfcEquiv.lemma10 rfl H hκ hwin
+  MfcEquiv.lemma13 rfl hpair.2 H hpair.1 hκ
+    (MfcEquiv.window_transfer H hwin) a vi k vj s0 hv
 
 end Majorum

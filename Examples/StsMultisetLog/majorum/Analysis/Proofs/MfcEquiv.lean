@@ -15,7 +15,7 @@ the vote-round call sites.
 set_option autoImplicit false
 set_option synthInstance.maxSize 400
 
-namespace Majorum
+namespace Majorum.MfcEquiv
 
 open the framework's flat multiset-log flavour Classical
 
@@ -1141,17 +1141,6 @@ def MfcEquivalent (x5 : Exec Pr5 S) (x2 : Exec Pr2 S) : Prop :=
         (t / Q.slotLength)) ∧
   (∀ (k : Nat) (p : Node), ∃ (a : Nat) (w : Node), x2[a].time ≤ x5[k].time ∧
     chainLe x5[k][p].st.chAva x2[a][w].st.chi)
-
-/-- **Lemma 10's statement** (`Lemma 10, arXiv:2601.03862v1 p.18`): every compliant
-    Algorithm-5 run has an MFC-equivalent compliant Algorithm-2 run. Unproved — the
-    grand induction over `simulate x5` is stage C2's remaining proof; parked
-    (user decision, 2026-08-05) until the transfers validate this statement. -/
-def Lemma10Statement (Q : Params) (S : Schedule Node) (n kappa : Nat)
-    (pool : Nat → Tx) (proposer : Nat → Node) : Prop :=
-  ∀ x5 : Exec Pr5 S, SettingGA Q S x5 →
-    Fintype.card Node ≤ n → 3 * Q.f < n → 1 ≤ kappa →
-    HonestProposalWindow5 x5 →
-    ∃ x2 : Exec Pr2 S, SettingGA Q S x2 ∧ MfcEquivalent x5 x2
 
 /-! ### The transfers: Lemmas 11–13 consume `MfcEquivalent` -/
 
@@ -2940,7 +2929,8 @@ theorem processProposals_bounded {V : View Node M} {t : Nat}
       · exact absurd ⟨rfl, hvalid, hle⟩ h2
 
 /-- The view correspondence is symmetric, `SDynEq` being symmetric. -/
-theorem ViewCorr.symm {V5 V2 : View Node M} (h : ViewCorr V5 V2) : ViewCorr V2 V5 :=
+theorem _root_.Majorum.ViewCorr.symm {V5 V2 : View Node M}
+    (h : ViewCorr V5 V2) : ViewCorr V2 V5 :=
   ⟨fun sm hsm => let ⟨sm', hsm', hde⟩ := h.2 sm hsm; ⟨sm', hsm', hde.symm⟩,
     fun sm hsm => let ⟨sm', hsm', hde⟩ := h.1 sm hsm; ⟨sm', hsm', hde.symm⟩⟩
 
@@ -3805,4 +3795,4 @@ theorem lemma10 (hn : n = Fintype.card Node)
   · intro k q
     exact (key k k (le_refl k)).2 q
 
-end Majorum
+end Majorum.MfcEquiv
