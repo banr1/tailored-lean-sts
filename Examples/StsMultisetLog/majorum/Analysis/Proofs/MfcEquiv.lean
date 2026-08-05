@@ -565,4 +565,80 @@ theorem mfc_vote_agree {Vf5 V5 Vf2 V2 : View Node M} {b5 b2 : Chain Tx} {t : Nat
       = mfc Vf2 V2 b5 t := mfc_congr hskelF hskel hsub5 hsub2 b5 t
     _ = mfc Vf2 V2 b2 t := mfc_base_swap h2 h5
 
+/-! ### Algorithm 5's frozen greatest-justified checkpoint is justified -/
+
+/-- The proposal fold only ever adopts justified checkpoints. -/
+theorem processProposals_gjFrozen_justified {V : View Node M} {t : Nat}
+    {s : NodeState Node (Chain Tx) (QCert Node Tx)}
+    (h : JustifiedIn n V s.gjFrozen) :
+    JustifiedIn n V
+      (processProposals (components n kappa pool proposer) V t s).gjFrozen := by
+  unfold processProposals
+  generalize V.toList = l
+  induction l generalizing s with
+  | nil => exact h
+  | cons a l ih =>
+      rw [List.foldl_cons]
+      refine ih ?_
+      cases hmsg : a.msg with
+      | vote e src tgt t' => exact h
+      | propose chp chC qc gjp t' =>
+          dsimp only
+          split_ifs with hcond h1 h2 <;>
+            first
+              | exact h
+              | exact of_decide_eq_true hcond.2.2.1
+  
+/-- Algorithm 5's frozen greatest-justified checkpoint is justified in the current
+    view, always: genesis at start, `GJ` of the current view at merges, a
+    justification-checked proposal checkpoint at the vote reading — and justification
+    only grows with the view. -/
+theorem gjFrozen_justified {x5 : Exec Pr5 S} (k : Nat) (q : Node) :
+    JustifiedIn n (x5.cfg k)[q].view (x5.cfg k)[q].st.gjFrozen := by
+  induction k with
+  | zero =>
+      rw [x5.init.2.1 q]
+      exact .genesis
+  | succ k ih =>
+      have h5 := exec5_succ (x5 := x5) k
+      rw [h5]
+      cases h : x5.lbl k with
+      | advance t => exact ih
+      | tick q' t =>
+          by_cases hq : q = q'
+          · subst hq
+            simp only [applyNodeStepResult_getElem, setClock_getElem, if_pos rfl,
+              if_true]
+            have hgjV := gj_justified n (x5.cfg k)[q].view
+            rw [← congrFun (components_gj (Node := Node) (n := n) (kappa := kappa)
+              (pool := pool) (proposer := proposer)) (x5.cfg k)[q].view] at hgjV
+            simp only [handlerCore, apply_ite NodeStepResult.state]
+            split_ifs <;>
+              first
+                | exact ih
+                | exact processProposals_gjFrozen_justified ih
+                | exact hgjV
+          · simp only [applyNodeStepResult_getElem, setClock_getElem, if_true,
+              if_neg (fun hh => hq (Eq.symm hh))]
+            exact ih
+      | deliver q' m =>
+          by_cases hq : q = q'
+          · subst hq
+            simp only [applyNodeStepResult_getElem, receive_getElem, if_pos rfl,
+              if_true]
+            exact justifiedIn_mono (Finset.subset_insert m _) ih
+          · simp only [applyNodeStepResult_getElem, receive_getElem,
+              if_neg (fun hh => hq (Eq.symm hh))]
+            exact ih
+      | wake q' =>
+          by_cases hq : q = q'
+          · subst hq
+            simp only [applyNodeStepResult_getElem, if_pos rfl, if_true]
+            exact ih
+          · simp only [applyNodeStepResult_getElem,
+              if_neg (fun hh => hq (Eq.symm hh))]
+            exact ih
+      | custom q' ev => exact ev.elim
+      | adversarial q' m => exact ih
+
 end Majorum

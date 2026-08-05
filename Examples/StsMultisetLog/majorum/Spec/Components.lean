@@ -246,7 +246,7 @@ noncomputable def linkVoters (V : View Node (Msg (Chain Tx) QC))
 /-- A **supermajority link** `C → C'`: a *valid* fin-vote step — the paper's fin-vote
     validity, `C.c < C'.c ∧ C.ch ⪯ C'.ch` (p. 9) — cast by at least `2n/3` validators.
 
-    The validity conjuncts are load-carrying for Appendix B (2026-08-04): an earlier
+    Appendix B's proofs rest on the validity conjuncts (2026-08-04): an earlier
     rendering omitted them, and justification then admits links *into* checkpoint slot
     `0` and chain-incoherent links, making Lemma 8 false — its proof reads the source
     chain's prefix bound (`Ai ⪯ ch'ⱼ`) and the counter ordering from validity. -/

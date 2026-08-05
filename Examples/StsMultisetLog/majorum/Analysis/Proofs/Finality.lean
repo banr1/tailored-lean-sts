@@ -33,6 +33,49 @@ theorem third_inter [Fintype Node] {n : Nat} (hcard : Fintype.card Node ≤ n)
   have huniv : (Finset.univ : Finset Node).card = Fintype.card Node := Finset.card_univ
   omega
 
+/-- Justification is monotone in the view: a link's voters survive view growth. -/
+theorem justifiedIn_mono {n : Nat} {V V' : View Node (Msg (Chain Tx) QC)}
+    (hVV' : V ⊆ V') {C : Checkpoint (Chain Tx)} (h : JustifiedIn n V C) :
+    JustifiedIn n V' C := by
+  induction h with
+  | genesis => exact .genesis
+  | @link C₀ C₁ _ hlink ih =>
+      refine .link ih ⟨hlink.1, hlink.2.1, le_trans hlink.2.2 ?_⟩
+      have hsub : linkVoters V C₀ C₁ ⊆ linkVoters V' C₀ C₁ := by
+        unfold linkVoters
+        exact Finset.image_subset_image (Finset.filter_subset_filter _ (by
+          unfold votes
+          exact Finset.filter_subset_filter _ hVV'))
+      have := Finset.card_le_card hsub
+      omega
+
+/-- The greatest justified checkpoint is justified: the fold starts at genesis and
+    only ever adopts members of the justified-filtered set. -/
+theorem gj_justified (n : Nat) (V : View Node (Msg (Chain Tx) QC)) :
+    JustifiedIn n V (gj n V) := by
+  unfold gj greatestBySlot
+  have hfold : ∀ (l : List (Checkpoint (Chain Tx))) (b : Checkpoint (Chain Tx)),
+      JustifiedIn n V b → (∀ C ∈ l, JustifiedIn n V C) →
+      JustifiedIn n V
+        (l.foldl (fun best C => if best.c ≤ C.c then C else best) b) := by
+    intro l
+    induction l with
+    | nil =>
+        intro b hb _
+        exact hb
+    | cons a l ih =>
+        intro b hb hmem
+        rw [List.foldl_cons]
+        refine ih _ ?_ (fun C hC => hmem C (List.mem_cons_of_mem a hC))
+        by_cases hle : b.c ≤ a.c
+        · rw [if_pos hle]
+          exact hmem a List.mem_cons_self
+        · rw [if_neg hle]
+          exact hb
+  refine hfold _ _ .genesis ?_
+  intro C hC
+  exact (Finset.mem_filter.mp (Finset.mem_toList.mp hC)).2
+
 /-- A link voter's fin-vote, extracted: a vote message in the view, signed by it, with
     exactly the link's endpoints. -/
 theorem mem_linkVoters {V : View Node (Msg (Chain Tx) QC)}
