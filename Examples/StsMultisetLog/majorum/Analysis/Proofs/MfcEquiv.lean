@@ -348,4 +348,154 @@ theorem tableDynEq_step {x5 : Exec Pr5 S} {k : Nat} (h : TableDynEq x5 k)
   | custom q ev => exact ev.elim
   | adversarial q m' => simp only [simStep, hl]; exact h sm
 
+/-! ### The frozen views correspond: both runs freeze at the same merge ticks -/
+
+/-- Algorithm 5's core refreezes the view exactly at the merge phase. -/
+theorem handler_merge_vFrozen {C : Components Node (Chain Tx) (QCert Node Tx)}
+    {pick : Chain Tx} {p : Node} {r : Time} {V : View Node M}
+    {s : NodeState Node (Chain Tx) (QCert Node Tx)}
+    (hmod : r % Q.slotLength = 3 * Q.delta) :
+    (handlerCore C Q pick p r V s).state.vFrozen = V := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  simp only [handlerCore, apply_ite NodeStepResult.state]
+  split_ifs <;> first | rfl | omega
+
+/-- Off the merge phase, Algorithm 5's core keeps the frozen view. -/
+theorem handler_vFrozen_quiet {C : Components Node (Chain Tx) (QCert Node Tx)}
+    {pick : Chain Tx} {p : Node} {r : Time} {V : View Node M}
+    {s : NodeState Node (Chain Tx) (QCert Node Tx)}
+    (hmod : r % Q.slotLength ≠ 3 * Q.delta) :
+    (handlerCore C Q pick p r V s).state.vFrozen = s.vFrozen := by
+  simp only [handlerCore, apply_ite NodeStepResult.state]
+  split_ifs <;>
+    first
+      | rfl
+      | exact absurd ‹r % Q.slotLength = 3 * Q.delta› hmod
+      | exact processProposals_vFrozen C V _ s
+
+/-- Off the merge phase, Algorithm 2's core keeps the frozen view. -/
+theorem handler2_vFrozen_quiet {p : Node} {r : Time} {V : View Node M}
+    {s : NodeState2 Node Tx} {dot : Checkpoint (Chain Tx)} {pick : Chain Tx}
+    (hmod : r % Q.slotLength ≠ 3 * Q.delta) :
+    (handler2Core Q n kappa pool proposer dot pick p r V s).state.vFrozen
+      = s.vFrozen := by
+  simp only [handler2Core, apply_ite NodeStepResult.state]
+  split_ifs <;>
+    first
+      | rfl
+      | exact absurd ‹r % Q.slotLength = 3 * Q.delta› hmod
+      | exact processProposals2_vFrozen _ _ _
+
+/-- **The frozen views correspond** whenever the table has been `SDynEq` all along:
+    both runs freeze their current views at the same merge ticks, and those views
+    correspond by the table. -/
+theorem frozen_viewCorr {x5 : Exec Pr5 S} (hone : OneTickPerReading x5)
+    (hmc : S.MonotoneCorruption) (hah : S.AwakeHonest) (hmono : TimeMonotone x5)
+    (k : Nat) (hTD : ∀ j, j ≤ k → TableDynEq x5 j) (q : Node) :
+    ViewCorr (x5.cfg k)[q].st.vFrozen (simState x5 k).1[q].st.vFrozen := by
+  induction k with
+  | zero =>
+      rw [x5.init.2.1 q]
+      show ViewCorr ∅ (simState x5 0).1[q].st.vFrozen
+      exact ⟨fun sm hsm => absurd hsm (Finset.notMem_empty sm),
+        fun sm hsm => absurd hsm (Finset.notMem_empty sm)⟩
+  | succ k ih =>
+      have ih' := ih (fun j hj => hTD j (Nat.le_succ_of_le hj))
+      have h5 := exec5_succ (x5 := x5) k
+      rw [h5]
+      cases h : x5.lbl k with
+      | advance t =>
+          have e2 : (simState x5 (k + 1)).1[q].st.vFrozen
+              = (simState x5 k).1[q].st.vFrozen := by
+            show (simStep x5 k (simState x5 k)).1[q].st.vFrozen = _
+            simp only [simStep, h]
+            rfl
+          rw [e2]
+          exact ih'
+      | tick p t =>
+          by_cases hq : q = p
+          · subst hq
+            simp only [applyNodeStepResult_getElem, setClock_getElem, if_pos rfl,
+              if_true]
+            by_cases hph : t % Q.slotLength = 3 * Q.delta
+            · -- both refreeze to their current views, which correspond
+              rw [handler_merge_vFrozen hph]
+              have e2 : (simState x5 (k + 1)).1[q].st.vFrozen
+                  = (simState x5 k).1[q].view := by
+                show (simStep x5 k (simState x5 k)).1[q].st.vFrozen = _
+                simp only [simStep, h]
+                simp only [applyNodeStepResult_getElem, setClock_getElem, if_pos rfl,
+                  if_true]
+                rw [handler2_merge hph]
+              rw [e2]
+              exact viewCorr_of_tableDynEq hone hmc hah hmono
+                (hTD k (Nat.le_succ k)) q
+            · -- both keep their snapshots
+              rw [handler_vFrozen_quiet hph]
+              have e2 : (simState x5 (k + 1)).1[q].st.vFrozen
+                  = (simState x5 k).1[q].st.vFrozen := by
+                show (simStep x5 k (simState x5 k)).1[q].st.vFrozen = _
+                simp only [simStep, h]
+                simp only [applyNodeStepResult_getElem, setClock_getElem, if_pos rfl,
+                  if_true]
+                rw [handler2_vFrozen_quiet hph]
+              rw [e2]
+              exact ih'
+          · simp only [applyNodeStepResult_getElem, setClock_getElem, if_true,
+              if_neg (fun hh => hq (Eq.symm hh))]
+            have e2 : (simState x5 (k + 1)).1[q].st.vFrozen
+                = (simState x5 k).1[q].st.vFrozen := by
+              show (simStep x5 k (simState x5 k)).1[q].st.vFrozen = _
+              simp only [simStep, h]
+              simp [applyNodeStepResult_getElem, setClock_getElem,
+                if_neg (fun hh => hq (Eq.symm hh))]
+            rw [e2]
+            exact ih'
+      | deliver p m =>
+          have e2 : (simState x5 (k + 1)).1[q].st.vFrozen
+              = (simState x5 k).1[q].st.vFrozen := by
+            show (simStep x5 k (simState x5 k)).1[q].st.vFrozen = _
+            simp only [simStep, h]
+            by_cases hq : q = p
+            · subst hq
+              simp [applyNodeStepResult_getElem, receive_getElem]
+            · simp [applyNodeStepResult_getElem, receive_getElem,
+                if_neg (fun hh => hq (Eq.symm hh))]
+          rw [e2]
+          by_cases hq : q = p
+          · subst hq
+            simp only [applyNodeStepResult_getElem, receive_getElem, if_pos rfl,
+              if_true]
+            exact ih'
+          · simp only [applyNodeStepResult_getElem, receive_getElem,
+              if_neg (fun hh => hq (Eq.symm hh))]
+            exact ih'
+      | wake p =>
+          have e2 : (simState x5 (k + 1)).1[q].st.vFrozen
+              = (simState x5 k).1[q].st.vFrozen := by
+            show (simStep x5 k (simState x5 k)).1[q].st.vFrozen = _
+            simp only [simStep, h]
+            by_cases hq : q = p
+            · subst hq
+              simp only [applyNodeStepResult_getElem, if_pos rfl, if_true]
+            · simp [applyNodeStepResult_getElem, if_neg (fun hh => hq (Eq.symm hh))]
+          rw [e2]
+          by_cases hq : q = p
+          · subst hq
+            simp only [applyNodeStepResult_getElem, if_pos rfl, if_true]
+            exact ih'
+          · simp only [applyNodeStepResult_getElem,
+              if_neg (fun hh => hq (Eq.symm hh))]
+            exact ih'
+      | custom p ev => exact ev.elim
+      | adversarial p m =>
+          have e2 : (simState x5 (k + 1)).1[q].st.vFrozen
+              = (simState x5 k).1[q].st.vFrozen := by
+            show (simStep x5 k (simState x5 k)).1[q].st.vFrozen = _
+            simp only [simStep, h]
+            rfl
+          rw [e2]
+          exact ih'
+
 end Majorum
