@@ -1975,4 +1975,58 @@ theorem chainLe_foldl_of_comparable {l : List (Chain Tx)}
         · rw [if_neg h]
           exact ih hseed (fun d hd => hl d (List.mem_cons_of_mem c hd)) hvl
 
+/-! ### Nothing is justified before the first voting round -/
+
+/-- **Early views justify only genesis**: a supermajority link needs an honest
+    fin-voter, an honest fin-vote's target slot is its voting slot, and voting starts
+    at `Δ` — so by time `Δ` every link's target has checkpoint slot `0`, below which
+    link validity cannot reach. -/
+theorem justified_early {x5 : Exec Pr5 S}
+    (hsync : SynchronizedClocks x5) (hmc : S.MonotoneCorruption)
+    (hmono : TimeMonotone x5)
+    (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < n)
+    (hcard : Fintype.card Node ≤ n)
+    {j : Nat} (htime : x5[j].time ≤ Q.delta) {q : Node}
+    {J : Checkpoint (Chain Tx)} (hJ : JustifiedIn n x5[j][q].view J) :
+    J = ⟨[], 0⟩ := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  cases hJ with
+  | genesis => rfl
+  | @link C _ hC hlink =>
+      exfalso
+      obtain ⟨w, hwA, hwhon⟩ := exists_honest_of_quorum (r := ((x5[j].time : Int)))
+        hcb hfn hcard hlink.2.2
+      obtain ⟨sm, hsmV, hsmw, e, τ, hsmmsg⟩ := mem_linkVoters hwA
+      have hsmsent : sm ∈ x5[j].sent := views_sound x5 j q sm hsmV
+      have hhon : sm.sender ∉ S.adv ((x5[j].time : Int)) := by
+        rw [hsmw]
+        exact hwhon
+      obtain ⟨k, hkj, hlblk, htimek, -, -, pk, hpk, hsend⟩ :=
+        vote_provenance (C := components n kappa pool proposer) hsync hmc hmono
+          hsmsent hhon hsmmsg
+      -- the fin-vote's target slot is its voting slot; its tick's time bounds it
+      have hcontent := handler_vote_fin_content (voting_reading_mod Q τ) hsend
+      rw [voting_reading_div Q τ, hsmmsg] at hcontent
+      injection hcontent with he hsrc htgt hslot
+      -- the tick happened at `voting(τ) ≤ time j ≤ Δ`, so `τ = 0`
+      have hτ0 : τ = 0 := by
+        have h1 : Q.slotLength * τ + Q.delta = x5[k].time := htimek.symm
+        have h2 : x5[k].time ≤ x5[j].time := time_le_of_le hmono (le_of_lt hkj)
+        have h3 : Q.slotLength * τ = 0 := by omega
+        rcases Nat.mul_eq_zero.mp h3 with h | h
+        · omega
+        · exact h
+      -- but then the target's checkpoint slot is `0`, and the link descends below it
+      have hJc : J.c = 0 := by
+        subst hτ0
+        by_cases hmode : (processProposals (components n kappa pool proposer)
+            x5[k][sm.sender].view 0 x5[k][sm.sender].st).gjFrozen.c = 0 - 1
+        · rw [if_pos hmode] at htgt
+          rw [htgt]
+        · rw [if_neg hmode] at htgt
+          rw [htgt]
+      have := hlink.1
+      omega
+
 end Majorum
