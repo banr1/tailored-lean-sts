@@ -1,5 +1,6 @@
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Equivalence
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Finality
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Transfer
 
 /-!
 # MFC equivalence across the simulation (Lemma 10, stage C2)
@@ -125,5 +126,226 @@ theorem vFrozen_subset_view2 {x : Exec Pr2 S} (k : Nat) (p : Node) :
               | exact ⟨hph1, hph3⟩)).1
           rw [hfz]
           exact ih.trans (view_mono k p)
+
+/-! ### Definition 8, tablewise: the running invariant of the slot induction -/
+
+/-- `DynEq` is reflexive. -/
+theorem DynEq.refl (m : M) : DynEq m m := by
+  cases m <;> exact ⟨rfl, rfl⟩
+
+/-- The correspondence table is `SDynEq` at step `k` — Definition 8 for the simulation,
+    tablewise: every key corresponds to its image. The mutual slot induction's running
+    invariant. -/
+def TableDynEq (x5 : Exec Pr5 S) (k : Nat) : Prop :=
+  ∀ sm : SignedMsg Node M, SDynEq sm ((simState x5 k).2 sm)
+
+theorem tableDynEq_zero (x5 : Exec Pr5 S) : TableDynEq x5 0 :=
+  fun sm => ⟨rfl, DynEq.refl sm.msg⟩
+
+/-- An `SDynEq` table makes every validator's two views correspond in Definition 8's
+    set form — the shape `Majority_congr` and the skeleton layer consume. -/
+theorem viewCorr_of_tableDynEq {x5 : Exec Pr5 S} (hone : OneTickPerReading x5)
+    (hmc : S.MonotoneCorruption) (hah : S.AwakeHonest) (hmono : TimeMonotone x5)
+    {k : Nat} (h : TableDynEq x5 k) (q : Node) :
+    ViewCorr (x5.cfg k)[q].view (simState x5 k).1[q].view := by
+  constructor
+  · intro sm hsm
+    exact ⟨(simState x5 k).2 sm, view_image hone hmc hah hmono k q hsm, h sm⟩
+  · intro sm' hsm'
+    obtain ⟨m5, hm5, rfl⟩ := view_covered hone hmc hah hmono k q hsm'
+    exact ⟨m5, hm5, h m5⟩
+
+/-! ### The vote pick aligns across corresponding views -/
+
+/-- At the concrete instance, Algorithm 5's hit set *is* Algorithm 2's — elementwise;
+    the sets are built with independently synthesized `DecidableEq` instances, so this
+    is an `ext`, not a `rfl`. -/
+theorem components_voteHits (V : View Node M) (slot : Nat) (chMFC : Chain Tx) :
+    (components n kappa pool proposer).voteHits V slot chMFC
+      = voteHits2 proposer V slot chMFC := by
+  ext c
+  rw [mem_voteHits2]
+  unfold Components.voteHits
+  rw [Finset.mem_biUnion]
+  simp only [components]
+  constructor
+  · rintro ⟨sm, hsm, hc⟩
+    revert hc
+    cases hmsg : sm.msg with
+    | vote e src tgt t' =>
+        intro hc
+        exact absurd hc (Finset.notMem_empty c)
+    | propose chp chC qc ck t' =>
+        dsimp only
+        split_ifs with hcond
+        · intro hc
+          rw [Finset.mem_singleton] at hc
+          subst hc
+          simp only [Bool.and_eq_true, beq_iff_eq] at hcond
+          obtain ⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩ := hcond
+          exact ⟨sm, hsm, ⟨chC, qc, ck, by subst h2; exact hmsg⟩, h1, h3, h4, h5⟩
+        · intro hc
+          exact absurd hc (Finset.notMem_empty c)
+  · rintro ⟨sm, hsm, ⟨chC, qc, ck, hmsg⟩, h1, h3, h4, h5⟩
+    refine ⟨sm, hsm, ?_⟩
+    rw [hmsg]
+    dsimp only
+    rw [if_pos (by simp [h1, h3, h4, h5])]
+    exact Finset.mem_singleton_self c
+
+/-- Corresponding views have the same hit set at any given fork-choice output:
+    everything the filter reads — signer, proposed chain, slot — survives dynamic
+    equivalence. -/
+theorem voteHits2_corr {V5 V2 : View Node M} (hcorr : ViewCorr V5 V2)
+    (slot : Nat) (chMFC : Chain Tx) :
+    voteHits2 (Tx := Tx) proposer V5 slot chMFC = voteHits2 proposer V2 slot chMFC := by
+  have transfer : ∀ {Va Vb : View Node M}, (∀ sm ∈ Va, ∃ sm' ∈ Vb, SDynEq sm sm') →
+      ∀ c, c ∈ voteHits2 (Tx := Tx) proposer Va slot chMFC →
+        c ∈ voteHits2 proposer Vb slot chMFC := by
+    intro Va Vb hdir c hc
+    obtain ⟨sm, hsm, ⟨chC, qc, ck, hmsg⟩, h1, h3, h4, h5⟩ := mem_voteHits2.mp hc
+    obtain ⟨sm', hsm', hsender, hde⟩ := hdir sm hsm
+    rw [hmsg] at hde
+    rcases hm' : sm'.msg with ⟨chp', chC', qc', ck', t'⟩ | ⟨e', src', tgt', sl'⟩ <;>
+      rw [hm'] at hde
+    · obtain ⟨hchp, hslot⟩ := hde
+      exact mem_voteHits2.mpr ⟨sm', hsm', ⟨chC', qc', ck',
+          by rw [hm', ← hchp, ← hslot]⟩,
+        hsender ▸ h1, h3, h4, h5⟩
+    · cases hde
+  ext c
+  exact ⟨transfer hcorr.1 c, transfer (fun sm' hsm' => by
+    obtain ⟨sm, hsm, hsde⟩ := hcorr.2 sm' hsm'
+    exact ⟨sm, hsm, hsde.symm⟩) c⟩
+
+/-- **The simulated pick is the original's** whenever the two vote views correspond and
+    the two fork-choice outputs agree — the reduction of condition 2.7's vote half to
+    conditions 2.1–2.2's MFC agreement. -/
+theorem simPick_eq_pick5 {x5 : Exec Pr5 S} {k : Nat} {p : Node} {t : Time}
+    (hlbl : x5.lbl k = .tick p t)
+    (hcorr : ViewCorr (x5.cfg k)[p].view (simState x5 k).1[p].view)
+    (hmfc :
+      (components n kappa pool proposer).mfc
+          (processProposals (components n kappa pool proposer)
+            (x5.cfg k)[p].view (t / Q.slotLength) (x5.cfg k)[p].st).vFrozen
+          (x5.cfg k)[p].view
+          (processProposals (components n kappa pool proposer)
+            (x5.cfg k)[p].view (t / Q.slotLength) (x5.cfg k)[p].st).chFrozen
+          (t / Q.slotLength)
+        = mfc
+          (processProposals2 n proposer
+            (simState x5 k).1[p].view (t / Q.slotLength) (simState x5 k).1[p].st).vFrozen
+          (simState x5 k).1[p].view
+          (processProposals2 n proposer
+            (simState x5 k).1[p].view (t / Q.slotLength) (simState x5 k).1[p].st).chFrozen
+          (t / Q.slotLength)) :
+    simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+      (setClock p t (simState x5 k).1)[p].st = pick5 x5 k p t := by
+  have hmem5 := pick5_mem hlbl
+  have hmem2 : pick5 x5 k p t ∈ votePicks2 Q n proposer
+      (setClock p t (simState x5 k).1)[p].view t
+      (setClock p t (simState x5 k).1)[p].st := by
+    simp only [Components.votePicks, setClock_getElem, if_pos rfl, if_true] at hmem5
+    simp only [votePicks2, setClock_getElem, if_pos rfl, if_true]
+    rw [components_voteHits] at hmem5
+    rw [← hmfc, ← voteHits2_corr hcorr]
+    exact hmem5
+  unfold simPick
+  rw [if_pos hmem2]
+
+/-! ### The tick sends align, phase by phase -/
+
+/-- Algorithm 5's propose-phase send, exactly. -/
+theorem handler_propose_send {C : Components Node (Chain Tx) (QCert Node Tx)}
+    {pick : Chain Tx} {p : Node} {r : Time} {V : View Node M}
+    {s : NodeState Node (Chain Tx) (QCert Node Tx)} {m : M}
+    (hmod : r % Q.slotLength = 0)
+    (h : m ∈ (handlerCore C Q pick p r V s).send) :
+    p = C.proposer (r / Q.slotLength) ∧ s.activeAt ≤ r ∧
+      m = .propose (C.extend (C.mfc V V (C.fastConfirm V (r / Q.slotLength - 1)).1
+          (r / Q.slotLength)) (r / Q.slotLength))
+        (C.fastConfirm V (r / Q.slotLength - 1)).1
+        (C.fastConfirm V (r / Q.slotLength - 1)).2 (C.gj V) (r / Q.slotLength) := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  simp only [handlerCore, apply_ite NodeStepResult.send] at h
+  split_ifs at h <;> first | omega | simp at h
+  exact ⟨‹p = C.proposer (r / Q.slotLength) ∧ s.activeAt ≤ r›.1,
+    ‹p = C.proposer (r / Q.slotLength) ∧ s.activeAt ≤ r›.2, h⟩
+
+/-- Algorithm 5's vote-phase send content: a vote for the pick, at the reading's
+    slot. -/
+theorem handler_vote_content {C : Components Node (Chain Tx) (QCert Node Tx)}
+    {pick : Chain Tx} {p : Node} {r : Time} {V : View Node M}
+    {s : NodeState Node (Chain Tx) (QCert Node Tx)} {m : M}
+    (hmod : r % Q.slotLength = Q.delta)
+    (h : m ∈ (handlerCore C Q pick p r V s).send) :
+    ∃ src tgt, m = .vote pick src tgt (r / Q.slotLength) := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  simp only [handlerCore, apply_ite NodeStepResult.send] at h
+  split_ifs at h <;> first | omega | simp at h
+  all_goals exact ⟨_, _, h⟩
+
+/-- The instance's block builder is Algorithm 2's. -/
+theorem components_extend :
+    (components (Node := Node) n kappa pool proposer).extend = extend pool := rfl
+
+/-- **The table stays `SDynEq` across one step**, given the two per-phase alignment
+    facts at this step's tick (vacuous off ticks): the propose-round fork choices
+    agree, and the simulated pick is the original's. The slot induction supplies both
+    from conditions 2.1–2.2. -/
+theorem tableDynEq_step {x5 : Exec Pr5 S} {k : Nat} (h : TableDynEq x5 k)
+    (hP : ∀ p t, x5.lbl k = .tick p t → t % Q.slotLength = 0 →
+      (components n kappa pool proposer).mfc (x5.cfg k)[p].view (x5.cfg k)[p].view
+          ((components n kappa pool proposer).fastConfirm (x5.cfg k)[p].view
+            (t / Q.slotLength - 1)).1 (t / Q.slotLength)
+        = mfc (simState x5 k).1[p].view (simState x5 k).1[p].view
+          (fastConfirmSimple n (simState x5 k).1[p].view (t / Q.slotLength - 1)).1
+          (t / Q.slotLength))
+    (hV : ∀ p t, x5.lbl k = .tick p t → t % Q.slotLength = Q.delta →
+      simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+        (setClock p t (simState x5 k).1)[p].st = pick5 x5 k p t) :
+    TableDynEq x5 (k + 1) := by
+  intro sm
+  show SDynEq sm ((simStep x5 k (simState x5 k)).2 sm)
+  cases hl : x5.lbl k with
+  | advance t => simp only [simStep, hl]; exact h sm
+  | tick p t =>
+      simp only [simStep, hl]
+      by_cases hcond : sm.sender = p ∧ sm.msg ∈
+          (handlerCore (components n kappa pool proposer) Q (pick5 x5 k p t) p t
+            (setClock p t (x5.cfg k))[p].view (setClock p t (x5.cfg k))[p].st).send
+      · rw [if_pos hcond]
+        cases hso : sendOf (handler2Core Q n kappa pool proposer simBlank
+            (simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+              (setClock p t (simState x5 k).1)[p].st) p t
+            (setClock p t (simState x5 k).1)[p].view
+            (setClock p t (simState x5 k).1)[p].st) with
+        | none => exact h sm
+        | some m2 =>
+            refine ⟨hcond.1, ?_⟩
+            have hm2 := sendOf_mem hso
+            obtain ⟨-, hshape⟩ := mem_handler_send hcond.2
+            rcases hshape with ⟨-, -, -, -, -, hmod⟩ | ⟨-, -, -, -, hmod⟩
+            · -- propose reading: both chains are the extended fork choice
+              obtain ⟨-, -, hm5⟩ := handler_propose_send hmod hcond.2
+              obtain ⟨-, -, hm2'⟩ := handler2_propose_send hmod hm2
+              rw [hm5, hm2']
+              refine ⟨?_, rfl⟩
+              have hmfc := hP p t hl hmod
+              simp only [setClock_getElem, if_pos rfl, if_true]
+              rw [components_extend, hmfc]
+            · -- vote reading: both chains are the (aligned) pick
+              obtain ⟨src, tgt, hm5⟩ := handler_vote_content hmod hcond.2
+              have hm2' := handler2_vote_content hmod hm2
+              rw [hm5, hm2']
+              exact ⟨(hV p t hl hmod).symm, rfl⟩
+      · rw [if_neg hcond]
+        exact h sm
+  | deliver q m' => simp only [simStep, hl]; exact h sm
+  | wake q => simp only [simStep, hl]; exact h sm
+  | custom q ev => exact ev.elim
+  | adversarial q m' => simp only [simStep, hl]; exact h sm
 
 end Majorum
