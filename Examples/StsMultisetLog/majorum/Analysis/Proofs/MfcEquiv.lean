@@ -3402,4 +3402,407 @@ theorem agree_vote_at_tick (hn : n = Fintype.card Node)
   · exact chainLe_trans (b2_le_b5 hn H5 H2 hκ hwin2 hTD hD (ht ▸ hlbl) (ht ▸ hgate))
       (base_le_mfc _ _ _ _)
 
+/-! ### The honest-proposal window crosses to the simulated run -/
+
+/-- **A proposal's image is a proposal for the same slot.** No table invariant is needed:
+    a pure injection is its own image, and an honest emission's image is the Algorithm-2
+    core's send at the same tick, whose slot is that tick's reading — as is the original's.
+    The proposed chain and certificate may differ, which is why the window quantifies over
+    them existentially. -/
+theorem tau_propose_slot {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (i : Nat)
+    {sm : SignedMsg Node M} (hsm : sm ∈ (x5.cfg i).sent)
+    {chp chC : Chain Tx} {qc : Option (QCert Node Tx)} {ck : Checkpoint (Chain Tx)}
+    {tp : Nat} (hmsg : sm.msg = .propose chp chC qc ck tp) :
+    ∃ chp' chC' qc' ck',
+      ((simState x5 i).2 sm).msg = .propose chp' chC' qc' ck' tp := by
+  have H5' := H5
+  obtain ⟨⟨hmc5, hah5, -, hmono5, -, -, -⟩, -, -, hone5, -, -, -, -⟩ := H5'
+  rcases tau_id_or_emitted x5 i sm with hid | ⟨k', hk'i, t', hlbl', hsend'⟩
+  · rw [hid]
+    exact ⟨chp, chC, qc, ck, hmsg⟩
+  · -- an honest emission: both cores send a propose at the tick's own slot
+    have hshape := (mem_handler_send hsend').2
+    have hmod : t' % Q.slotLength = 0 := by
+      rcases hshape with ⟨-, -, -, -, -, hmod⟩ | ⟨a, b, c, hvote⟩
+      · exact hmod
+      · exact absurd (hmsg.symm.trans hvote.1) (by simp)
+    obtain ⟨-, -, hm5⟩ := handler_propose_send hmod hsend'
+    rw [hmsg] at hm5
+    have hslot : tp = t' / Q.slotLength := by
+      rw [Msg.propose.injEq] at hm5
+      exact hm5.2.2.2.2
+    obtain ⟨m2, hm2mem, hm2eq⟩ := tau_emitted_image hlbl' rfl hsend'
+    obtain ⟨-, -, hm2⟩ := handler2_propose_send (n := n) hmod hm2mem
+    have hsent : sm ∈ (x5.cfg (k' + 1)).sent := by
+      have h := tick_send_mem5 hlbl' hsend'
+      rw [show (⟨sm.sender, sm.msg⟩ : SignedMsg Node M) = sm from rfl] at h
+      exact h
+    have hstab : (simState x5 i).2 sm = (simState x5 (k' + 1)).2 sm :=
+      tau_stable hone5 hmc5 hah5 hmono5 hsent (by omega)
+    rw [hstab, hm2eq]
+    exact ⟨_, _, _, _, by rw [show ((⟨sm.sender, m2⟩ : SignedMsg Node M)).msg = m2 from rfl,
+      hm2, hslot]⟩
+
+/-- **The honest-proposal window transfers to the simulated run.** Each window witness is
+    a slot-`tp` proposal by a validator honest both at emission and at `voting(tp)`; its
+    image is a slot-`tp` proposal in the simulated log by the same validator, and the
+    simulated run's clock face is the original's. -/
+theorem window_transfer {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
+    (hwin5 : HonestProposalWindow5 (kappa := kappa) x5) :
+    HonestProposalWindow (n := n) (kappa := kappa) (proposer := proposer) (simulate x5) := by
+  intro t ht
+  obtain ⟨tp, htp1, htp2, htp3, i, vp, chp, chC, qc, ck, hmem, hhon1, hhon2⟩ :=
+    hwin5 t ht
+  obtain ⟨chp', chC', qc', ck', hmsg'⟩ :=
+    tau_propose_slot H5 i hmem (chp := chp) (chC := chC) (qc := qc) (ck := ck) rfl
+  refine ⟨tp, htp1, htp2, htp3, i, vp, chp', chC', qc', ck', ?_, ?_, hhon2⟩
+  · have himg := sim_sent (x5 := x5) i _ hmem
+    have hsender : ((simState x5 i).2 ⟨vp, Msg.propose chp chC qc ck tp⟩).sender = vp :=
+      sim_table_sender i _
+    have heq : (simState x5 i).2 ⟨vp, Msg.propose chp chC qc ck tp⟩
+        = ⟨vp, Msg.propose chp' chC' qc' ck' tp⟩ := by
+      cases hst : (simState x5 i).2 ⟨vp, Msg.propose chp chC qc ck tp⟩ with
+      | mk sd mg =>
+          rw [hst] at hsender hmsg'
+          simp only at hsender hmsg'
+          rw [hsender, hmsg']
+    rw [← heq]
+    exact himg
+  · rw [simulate_time]
+    exact hhon1
+
+/-! ### The dominance invariant, step by step -/
+
+set_option maxHeartbeats 1000000 in
+/-- **A justified chain is dominated**: descend to the vote tick of a fin-voter in its own
+    view (`justified_to_voteChAva`), which is strictly earlier, and apply the invariant
+    there. -/
+theorem justified_dominated (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
+    {k : Nat}
+    (hD : ∀ (j : Nat), j ≤ k → ∀ (q : Node), ∃ (a : Nat) (w : Node),
+      (simulate x5)[a].time ≤ x5[j].time ∧
+      chainLe x5[j][q].st.chAva ((simulate x5)[a][w].st.chi))
+    {q : Node} {J : Checkpoint (Chain Tx)} (hJ : JustifiedIn n x5[k][q].view J) :
+    ∃ (a : Nat) (w : Node), (simulate x5)[a].time ≤ x5[k].time ∧
+      chainLe J.ch ((simulate x5)[a][w].st.chi) := by
+  subst hn
+  have H5' := H5
+  obtain ⟨⟨hmc5, -, hsync5, hmono5, -, -, -⟩, -, -, -, -, -, ⟨hcb5, hfn5⟩, -⟩ := H5'
+  rcases justified_to_voteChAva hsync5 hmc5 hmono5 hcb5 hfn5 (le_refl _)
+      (i := k) J.c _ rfl k q (le_refl k) hJ with hnil | hdesc
+  · obtain ⟨a, w, hta, -⟩ := hD k (le_refl k) q
+    exact ⟨a, w, hta, by rw [hnil]; exact chainLe_nil _⟩
+  · obtain ⟨k', w, t', hk'k, hlbl', hmod', hgate', hle⟩ := hdesc
+    rw [← vote_tick_chAva hlbl' hmod' hgate'] at hle
+    obtain ⟨a, w2, hta, hdom⟩ := hD (k' + 1) (by omega) w
+    refine ⟨a, w2, ?_, chainLe_trans hle hdom⟩
+    have h1 : x5[k' + 1].time = x5[k'].time := tick_time5 hlbl'
+    have h2 : x5[k'].time ≤ x5[k].time := time_le_of_le hmono5 (le_of_lt hk'k)
+    omega
+
+set_option maxHeartbeats 2000000 in
+/-- **The dominance invariant survives a step.** `chAva` either stays, or is written at a
+    vote tick, or at a fast-confirm tick:
+
+    * at a vote tick the written value is the fold of the old `chAva`, the κ-deep prefix of
+      the fork choice, and the frozen greatest-justified chain. The first case keeps the
+      invariant; the second is what the *simulated* run writes into its own confirmed chain
+      at the very same tick (condition 2.2 makes the two fork choices equal, and if the
+      simulated fold kept its old value, that value tops the κ-prefix — both sit under the
+      fork choice by Lemma 5) — except in slot `0`, where the κ-prefix is genesis; the
+      third descends (`justified_dominated`);
+    * at a fast-confirm tick the written value is `fastconfirm`'s: on the quorum branch the
+      simulated run adopts the congruence-equal chain or already tops it, and on the `GJ`
+      branch the value is justified, so it descends. -/
+theorem dominance_step (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin2 : HonestProposalWindow (simulate x5))
+    {k : Nat} (hTD : ∀ j, j ≤ k → TableDynEq x5 j)
+    (hD : ∀ (j : Nat), j ≤ k → ∀ (q : Node), ∃ (a : Nat) (w : Node),
+      (simulate x5)[a].time ≤ x5[j].time ∧
+      chainLe x5[j][q].st.chAva ((simulate x5)[a][w].st.chi))
+    (q : Node) :
+    ∃ (a : Nat) (w : Node), (simulate x5)[a].time ≤ x5[k + 1].time ∧
+      chainLe x5[k + 1][q].st.chAva ((simulate x5)[a][w].st.chi) := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have H2 := sim_settingGA H5
+  have H5' := H5
+  obtain ⟨⟨hmc5, hah5, hsync5, hmono5, -, -, hdil5⟩, hstepw5, hwpt5, hone5, -, -,
+    ⟨hcb5, hfn5⟩, -⟩ := H5'
+  have H2' := H2
+  obtain ⟨⟨hmc2, hah2, hsync2, hmono2, hcs2, hdiv2, hdil2⟩, hstepw2, hwpt2, hone2,
+    ⟨hsyn2, hrel2⟩, hslp, ⟨hcb, hfn⟩, hgst⟩ := H2'
+  have htimestep : x5[k].time ≤ x5[k + 1].time := time_le_of_le hmono5 (Nat.le_succ k)
+  -- the previous step's witness, reusable whenever `chAva` does not grow
+  have hkeepD : ∀ ch : Chain Tx, chainLe ch (x5[k][q].st.chAva) →
+      ∃ (a : Nat) (w : Node), (simulate x5)[a].time ≤ x5[k + 1].time ∧
+        chainLe ch ((simulate x5)[a][w].st.chi) := by
+    intro ch hch
+    obtain ⟨a, w, hta, hdom⟩ := hD k (le_refl k) q
+    exact ⟨a, w, by omega, chainLe_trans hch hdom⟩
+  rcases chAva_step5 (x5 := x5) (m := k) (p := q) with
+    hkeep | ⟨ti, hlbl, hgate, hset⟩ | ⟨ti, hlbl, -, hset⟩
+  · exact hkeepD _ (by rw [hkeep]; exact chainLe_refl _)
+  · -- a vote tick
+    rw [hset]
+    rcases voteChAva_cases x5 k q (Q.slotLength * ti + Q.delta) with h1 | h2 | h3
+    · rw [h1, processProposals_chAva]
+      exact hkeepD _ (chainLe_refl _)
+    · -- the κ-deep prefix of the fork choice
+      rw [h2, voting_reading_div Q ti, show (components (Node := Node) n kappa pool proposer).kappaPrefix = kappaPrefix kappa from rfl, components_mfc]
+      cases ti with
+      | zero =>
+          rw [kappaPrefix_nil_of_lt (by omega) _]
+          exact hkeepD _ (chainLe_nil _)
+      | succ s1 =>
+        -- the simulated run's own tick writes its confirmed chain here
+        have hlbl2 : (simulate x5).lbl k
+            = .tick q (Q.slotLength * (s1 + 1) + Q.delta) := simLbl_tick_iff.mpr hlbl
+        have hgate2 : (simulate x5)[k][q].st.activeAt
+            ≤ Q.slotLength * (s1 + 1) + Q.delta := by
+          rw [simulate_getElem, sim_activeAt k q]
+          exact hgate
+        have hmfc := agree_vote_at_tick hn H5 H2 hκ hwin2 hTD hD hlbl
+          (voting_reading_mod Q (s1 + 1)) hgate
+        rw [voting_reading_div Q (s1 + 1), components_mfc] at hmfc
+        rw [hmfc]
+        -- the old confirmed chain and the κ-prefix are comparable, both under the choice
+        have hact : q ∈ Active Q S ((s1 : Int) + 1) := by
+          have hA := active_of_open_join5 hsync5 hstepw5 hdil5 hwpt5
+            (by omega : 1 ≤ s1 + 1) hlbl (tick_reading5 hsync5 hlbl) hgate
+          have hcast : (((s1 + 1 : Nat)) : Int) = (s1 : Int) + 1 := by push_cast; omega
+          rw [← hcast]
+          exact hA
+        have hab : (simulate x5)[k].time ≤ Q.slotLength * (s1 + 1) + Q.delta := by
+          rw [simulate_time, tick_reading5 hsync5 hlbl]
+        have hchi := (chi_le_mfc hsync2 hstepw2 hdiv2 hdil2 hone2 hwpt2 hmc2 hsyn2
+          hrel2 hslp hcb (hn ▸ hfn) (le_of_eq hn.symm) hgst hκ hwin2 k q k q s1).2
+          hact hlbl2 hab
+        -- the simulated tick's write
+        obtain ⟨dt, pk, -, hst, -⟩ := tick_effect hlbl2
+        rw [handler2_vote_state (voting_reading_mod Q (s1 + 1)),
+          voting_reading_div Q (s1 + 1), if_pos hgate2] at hst
+        rw [List.foldl_cons, List.foldl_cons, List.foldl_nil] at hst
+        rw [processProposals2_chi] at hst
+        simp only [ite_self] at hst
+        rw [if_pos (kappaPrefix_le_self kappa (s1 + 1) _)] at hst
+        by_cases hfire : chainLe ((simulate x5)[k][q].st.chi)
+            (kappaPrefix kappa (s1 + 1)
+              (mfc (processProposals2 n proposer ((simulate x5)[k][q].view) (s1 + 1)
+                  ((simulate x5)[k][q].st)).vFrozen ((simulate x5)[k][q].view)
+                (processProposals2 n proposer ((simulate x5)[k][q].view) (s1 + 1)
+                  ((simulate x5)[k][q].st)).chFrozen (s1 + 1)))
+        · -- the fold fires: the simulated confirmed chain *is* our value
+          rw [if_pos hfire] at hst
+          refine ⟨k + 1, q, le_of_eq (by rw [simulate_time]), ?_⟩
+          rw [show (simulate x5)[k + 1][q].st.chi = _ from by rw [hst]]
+          exact chainLe_refl _
+        · -- it does not: the simulated chain already tops the κ-prefix
+          refine ⟨k, q, by rw [simulate_time]; omega, ?_⟩
+          rcases comparable_of_common_extension
+            (kappaPrefix_le_self kappa (s1 + 1) _) hchi with h | h
+          · exact h
+          · exact absurd h hfire
+    · -- the frozen greatest-justified chain
+      rw [h3]
+      obtain ⟨a, w, hta, hdom⟩ := justified_dominated hn H5 hD
+        (processProposals_gjFrozen_justified (kappa := kappa) (pool := pool)
+          (gjFrozen_justified k q))
+      exact ⟨a, w, by omega, hdom⟩
+  · -- a fast-confirm tick
+    rw [hset]
+    unfold Components.fastConfirm
+    rw [components_fastConfirmSimple, components_gj, components_prefixLe]
+    dsimp only
+    by_cases hg : chainLe (gj n x5[k][q].view).ch
+        (fastConfirmSimple n x5[k][q].view ti).1
+    · -- the quorum branch
+      rw [if_pos hg]
+      have hfcs : fastConfirmSimple n x5[k][q].view ti
+          = fastConfirmSimple n ((simulate x5)[k][q].view) ti := by
+        subst hn
+        exact fastConfirmSimple_congr (voteSkel_eq_of_corr
+          (viewCorr_of_tableDynEq hone5 hmc5 hah5 hmono5 (hTD k (le_refl k)) q)) _ ti
+      rw [hfcs]
+      have hlbl2 : (simulate x5).lbl k
+          = .tick q (Q.slotLength * ti + 2 * Q.delta) := simLbl_tick_iff.mpr hlbl
+      obtain ⟨dt, pk, -, hst, -⟩ := tick_effect hlbl2
+      rw [handler2_fastconfirm (fconf_reading_mod Q ti), fconf_reading_div Q ti] at hst
+      by_cases hsome : (fastConfirmSimple n ((simulate x5)[k][q].view) ti).2.isSome
+      · rw [if_pos hsome] at hst
+        by_cases hbelow : chainLe (fastConfirmSimple n ((simulate x5)[k][q].view) ti).1
+            ((simulate x5)[k][q].st.chi)
+        · refine ⟨k, q, by rw [simulate_time]; omega, hbelow⟩
+        · rw [if_neg hbelow] at hst
+          refine ⟨k + 1, q, le_of_eq (by rw [simulate_time]), ?_⟩
+          rw [show (simulate x5)[k + 1][q].st.chi = _ from by rw [hst]]
+          exact chainLe_refl _
+      · -- no certificate: the fast-confirmed chain is genesis
+        rw [fastConfirmSimple_none_fst (Option.not_isSome_iff_eq_none.mp hsome)]
+        exact hkeepD _ (chainLe_nil _)
+    · -- the `GJ` branch: a justified chain descends
+      rw [if_neg hg]
+      dsimp only
+      obtain ⟨a, w, hta, hdom⟩ := justified_dominated hn H5 hD (gj_justified n x5[k][q].view)
+      exact ⟨a, w, by omega, hdom⟩
+
+/-! ### The grand induction -/
+
+set_option maxHeartbeats 1000000 in
+/-- **Definition 8 and the dominance invariant, for every step.** One induction: the table
+    invariant's step (`tableDynEq_step`) consumes conditions 2.1 and 2.2 at this step's
+    tick, which `agree_propose_at_tick` and `agree_vote_at_tick` supply from the invariants
+    at earlier steps; the dominance invariant's step (`dominance_step`) consumes the table
+    invariant at earlier steps. -/
+theorem table_and_dominance (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : HonestProposalWindow5 (kappa := kappa) x5) :
+    ∀ k, ∀ j, j ≤ k → TableDynEq x5 j ∧
+      ∀ (q : Node), ∃ (a : Nat) (w : Node),
+        (simulate x5)[a].time ≤ x5[j].time ∧
+        chainLe x5[j][q].st.chAva ((simulate x5)[a][w].st.chi) := by
+  have H2 := sim_settingGA H5
+  have hwin2 := window_transfer H5 hwin5
+  have H5' := H5
+  obtain ⟨⟨hmc5, hah5, -, hmono5, -, -, -⟩, -, -, hone5, -, -, -, -⟩ := H5'
+  intro k
+  induction k with
+  | zero =>
+      intro j hj
+      have hj0 : j = 0 := by omega
+      subst hj0
+      refine ⟨tableDynEq_zero x5, fun q => ⟨0, q, le_of_eq (simulate_time x5 0), ?_⟩⟩
+      show chainLe ((x5.cfg 0)[q]).st.chAva _
+      rw [x5.init.2.1 q]
+      exact chainLe_nil _
+  | succ k ih =>
+      intro j hj
+      rcases Nat.lt_or_ge j (k + 1) with h | h
+      · exact ih j (by omega)
+      · have hjk : j = k + 1 := by omega
+        subst hjk
+        refine ⟨tableDynEq_step (ih k (le_refl k)).1 ?_ ?_, ?_⟩
+        · intro p t hlbl hmod
+          exact agree_propose_at_tick hn H5 H2 hκ hwin2 (ih k (le_refl k)).1
+            (fun j' hj' q => (ih j' hj').2 q) hlbl hmod
+        · intro p t hlbl hmod hgate
+          exact simPick_eq_pick5 hlbl
+            (viewCorr_of_tableDynEq hone5 hmc5 hah5 hmono5 (ih k (le_refl k)).1 p)
+            (agree_vote_at_tick hn H5 H2 hκ hwin2 (fun j' hj' => (ih j' hj').1)
+              (fun j' hj' q => (ih j' hj').2 q) hlbl hmod hgate)
+        · exact dominance_step hn H5 hκ hwin2 (fun j' hj' => (ih j' hj').1)
+            (fun j' hj' q => (ih j' hj').2 q)
+
+/-- **The two runs' emissions correspond** — Definition 9's condition 1, in the simulation.
+    A tick's log delta is exactly its core's send, signed; the table maps the Algorithm-5
+    send to the Algorithm-2 one, and `sends_align` makes the two sends simultaneously
+    empty, so neither side can emit alone. -/
+theorem sends_correspond {x5 : Exec Pr5 S} {k : Nat} (hTD : TableDynEq x5 (k + 1))
+    {p : Node} {t : Time} (hlbl : x5.lbl k = .tick p t) :
+    (∀ sm5 ∈ x5[k + 1].sent - x5[k].sent,
+        ∃ sm2 ∈ (simulate x5)[k + 1].sent - (simulate x5)[k].sent, SDynEq sm5 sm2) ∧
+      (∀ sm2 ∈ (simulate x5)[k + 1].sent - (simulate x5)[k].sent,
+        ∃ sm5 ∈ x5[k + 1].sent - x5[k].sent, SDynEq sm5 sm2) := by
+  -- the two cores of this tick
+  set res5 := handlerCore (components n kappa pool proposer) Q (pick5 x5 k p t) p t
+    (setClock p t (x5.cfg k))[p].view (setClock p t (x5.cfg k))[p].st with hres5
+  set res2 := handler2Core Q n kappa pool proposer simBlank
+    (simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+      (setClock p t (simState x5 k).1)[p].st) p t
+    (setClock p t (simState x5 k).1)[p].view
+    (setClock p t (simState x5 k).1)[p].st with hres2
+  -- the log deltas
+  have hd5 : x5[k + 1].sent - x5[k].sent = res5.send.map (SignedMsg.mk p) := by
+    have he : x5[k + 1] = applyNodeStepResult p res5 (setClock p t (x5.cfg k)) := by
+      rw [hres5]
+      exact exec5_succ_tick hlbl
+    rw [he]
+    show (applyNodeStepResult p res5 (setClock p t (x5.cfg k))).sent
+        - (setClock p t (x5.cfg k)).sent = _
+    exact applyNodeStepResult_sent_sub p res5 _
+  have hd2 : (simulate x5)[k + 1].sent - (simulate x5)[k].sent
+      = res2.send.map (SignedMsg.mk p) := by
+    have he : (simulate x5)[k + 1] = applyNodeStepResult p res2
+        (setClock p t (simState x5 k).1) := by
+      rw [hres2]
+      show (simStep x5 k (simState x5 k)).1 = _
+      simp only [simStep, hlbl]
+    rw [he]
+    show (applyNodeStepResult p res2 (setClock p t (simState x5 k).1)).sent
+        - (setClock p t (simState x5 k).1).sent = _
+    exact applyNodeStepResult_sent_sub p res2 _
+  refine ⟨?_, ?_⟩
+  · intro sm5 hsm5
+    rw [hd5] at hsm5
+    obtain ⟨m5, hm5, rfl⟩ := Multiset.mem_map.mp hsm5
+    obtain ⟨m2, hm2, himg⟩ := tau_emitted_image hlbl (sm := ⟨p, m5⟩) rfl
+      (by rw [hres5] at hm5; exact hm5)
+    refine ⟨⟨p, m2⟩, ?_, ?_⟩
+    · rw [hd2]
+      exact Multiset.mem_map_of_mem _ hm2
+    · have h := hTD ⟨p, m5⟩
+      rw [show (simState x5 (k + 1)).2 ⟨p, m5⟩ = ⟨p, m2⟩ from himg] at h
+      exact h
+  · intro sm2 hsm2
+    rw [hd2] at hsm2
+    obtain ⟨m2, hm2, rfl⟩ := Multiset.mem_map.mp hsm2
+    -- the Algorithm-5 core sends too
+    have hne5 : res5.send ≠ 0 := by
+      have hact : (setClock p t (simState x5 k).1)[p].st.activeAt
+          = (setClock p t (x5.cfg k))[p].st.activeAt := by
+        simp only [setClock_getElem, if_pos rfl, if_true]
+        exact sim_activeAt k p
+      rcases sends_align (Q := Q) (n := n) (kappa := kappa) (pool := pool)
+          (proposer := proposer) (pk5 := pick5 x5 k p t)
+          (pk2 := simPick x5 k p t (setClock p t (simState x5 k).1)[p].view
+            (setClock p t (simState x5 k).1)[p].st) p t hact with ⟨-, h2⟩ | ⟨h5, -⟩
+      · exfalso
+        rw [hres2, h2] at hm2
+        exact absurd hm2 (Multiset.notMem_zero _)
+      · rw [hres5]
+        exact h5
+    obtain ⟨m5, hm5⟩ := Multiset.exists_mem_of_ne_zero hne5
+    obtain ⟨m2', hm2', himg⟩ := tau_emitted_image hlbl (sm := ⟨p, m5⟩) rfl
+      (by rw [hres5] at hm5; exact hm5)
+    have hm2eq : m2' = m2 := by
+      refine handler2_send_subsingleton (Q := Q) (n := n) (kappa := kappa) (pool := pool)
+        (proposer := proposer) hm2' ?_
+      rw [hres2] at hm2
+      exact hm2
+    refine ⟨⟨p, m5⟩, ?_, ?_⟩
+    · rw [hd5]
+      exact Multiset.mem_map_of_mem _ hm5
+    · have h := hTD ⟨p, m5⟩
+      rw [show (simState x5 (k + 1)).2 ⟨p, m5⟩ = ⟨p, m2⟩ from by rw [himg, hm2eq]] at h
+      exact h
+
+set_option maxHeartbeats 1000000 in
+/-- **Lemma 10** (`Lemma 10, arXiv:2601.03862v1 p.18`): every compliant Algorithm-5 run has
+    an MFC-equivalent compliant Algorithm-2 run — `simulate x5`, the run built by replaying
+    the original's schedule against Algorithm 2. Its compliance is `sim_settingGA`; the
+    equivalence's five conditions are the label transfer, the emission correspondence, and
+    conditions 2.1, 2.2 and the state dominance, all from the grand induction. -/
+theorem lemma10 (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : HonestProposalWindow5 (kappa := kappa) x5) :
+    SettingGA Q S (simulate x5) ∧ MfcEquivalent x5 (simulate x5) := by
+  have H2 := sim_settingGA H5
+  have hwin2 := window_transfer H5 hwin5
+  have key := table_and_dominance hn H5 hκ hwin5
+  refine ⟨H2, ?_, ?_, ?_, ?_, ?_⟩
+  · intro k p t
+    exact ⟨fun h => simLbl_tick_iff.mpr h, fun h => simLbl_tick_iff.mp h⟩
+  · intro k p t hlbl
+    exact sends_correspond (key (k + 1) (k + 1) (le_refl _)).1 hlbl
+  · intro k p t hlbl hmod
+    exact agree_propose_at_tick hn H5 H2 hκ hwin2 (key k k (le_refl k)).1
+      (fun j hj q => (key k j hj).2 q) hlbl hmod
+  · intro k p t hlbl hmod hgate
+    exact agree_vote_at_tick hn H5 H2 hκ hwin2 (fun j hj => (key k j hj).1)
+      (fun j hj q => (key k j hj).2 q) hlbl hmod hgate
+  · intro k q
+    exact (key k k (le_refl k)).2 q
+
 end Majorum
