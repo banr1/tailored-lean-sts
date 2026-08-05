@@ -1,3 +1,4 @@
+import Examples.StsMultisetLog.majorum.Analysis.Proofs.Analysis2
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Equivalence
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Finality
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Transfer
@@ -1109,5 +1110,158 @@ def Lemma10Statement (Q : Params) (S : Schedule Node) (n kappa : Nat)
     Fintype.card Node ≤ n → 3 * Q.f < n → 1 ≤ kappa →
     HonestProposalWindow5 x5 →
     ∃ x2 : Exec Pr2 S, SettingGA Q S x2 ∧ MfcEquivalent x5 x2
+
+/-! ### The transfers: Lemmas 11–13 consume `MfcEquivalent` -/
+
+/-- `ActiveVotesExtend2`, on the Algorithm-5 side: every slot-`t` active's vote at the
+    voting reading extends `ch`. -/
+def ActiveVotesExtend5 (x5 : Exec Pr5 S) (t : Nat) (ch : Chain Tx) : Prop :=
+  ∀ p ∈ Active Q S (t : Int),
+    ∃ (i : Nat) (e : Chain Tx) (src tgt : Checkpoint (Chain Tx)),
+    x5[i].time = Q.slotLength * t + Q.delta ∧
+    ⟪vote, e, src, tgt, t, p⟫ ∈ x5[i].sent ∧
+    chainLe ch e
+
+/-- Membership in a multiset difference is membership. -/
+theorem mem_of_mem_sub {α : Type} [DecidableEq α] {a b : Multiset α} {m : α}
+    (h : m ∈ a - b) : m ∈ a := by
+  rw [← Multiset.count_pos] at h ⊢
+  rw [Multiset.count_sub] at h
+  omega
+
+/-- **The active votes transfer, Algorithm 5 → Algorithm 2**: an active's vote in the
+    original run has, at its own emitting tick, a dynamically equivalent counterpart in
+    the equivalent run — same signer, same chain, same slot. -/
+theorem activeVotesExtend_transfer {x5 : Exec Pr5 S} {x2 : Exec Pr2 S}
+    (heq : MfcEquivalent x5 x2)
+    (hsync5 : SynchronizedClocks x5) (hmc : S.MonotoneCorruption)
+    (hmono5 : TimeMonotone x5) (hah : S.AwakeHonest)
+    (hsync2 : SynchronizedClocks x2)
+    {t : Nat} {ch : Chain Tx} (h : ActiveVotesExtend5 x5 t ch) :
+    ActiveVotesExtend2 x2 t ch := by
+  intro p hp
+  obtain ⟨i, e, src, tgt, htime, hmem, hle⟩ := h p hp
+  have hδ := Q.deltaPos
+  -- the vote's sender is awake at its reading, hence honest there
+  have hhon : (⟪vote, e, src, tgt, t, p⟫ :
+      SignedMsg Node M).sender ∉ S.adv ((x5[i].time : Int)) := by
+    show p ∉ S.adv ((x5[i].time : Int))
+    rw [htime]
+    have hawk : p ∈ S.awake ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+      refine mem_awakeThroughout.mp hp _ ?_ ?_ <;>
+        · show _
+          unfold Params.voting
+          push_cast
+          omega
+    exact Finset.disjoint_left.mp (hah _) hawk
+  obtain ⟨k, hki, hlblk, htimek, -, hem, -, -, -⟩ :=
+    vote_provenance (C := components n kappa pool proposer) hsync5 hmc hmono5
+      hmem hhon rfl
+  -- the emitting tick's delta pairs with the equivalent run's
+  obtain ⟨sm2, hsm2, hsde⟩ := (heq.2.1 k p _ hlblk).1 _ hem
+  obtain ⟨hsender, hde⟩ := hsde
+  rcases hmsg2 : sm2.msg with ⟨chp', chC', qc', ck', t'⟩ | ⟨e2, src2, tgt2, t2⟩ <;>
+    rw [hmsg2] at hde
+  · cases hde
+  · obtain ⟨hee, htt⟩ := hde
+    -- the equivalent run's tick happens at the same reading and time
+    have hlbl2 : x2.lbl k = .tick p (Q.slotLength * t + Q.delta) :=
+      (heq.1 k p _).mp hlblk
+    have htime2 : x2[k + 1].time = Q.slotLength * t + Q.delta := by
+      rw [tick_time hlbl2]
+      exact tick_reading hsync2 hlbl2
+    refine ⟨k + 1, e2, src2, tgt2, htime2, ?_, ?_⟩
+    · have : sm2 = ⟪vote, e2, src2, tgt2, t, p⟫ := by
+        cases sm2 with
+        | mk sd mg =>
+            simp only at hsender hmsg2
+            rw [← hsender, hmsg2, ← htt]
+      rw [← this]
+      exact mem_of_mem_sub hsm2
+    · rw [← hee]
+      exact hle
+
+/-- **The active votes transfer, Algorithm 2 → Algorithm 5** — the converse direction,
+    through the same tick's delta pairing. -/
+theorem activeVotesExtend_transfer' {x5 : Exec Pr5 S} {x2 : Exec Pr2 S}
+    (heq : MfcEquivalent x5 x2)
+    (hsync2 : SynchronizedClocks x2) (hmc : S.MonotoneCorruption)
+    (hmono2 : TimeMonotone x2) (hah : S.AwakeHonest)
+    (hsync5 : SynchronizedClocks x5)
+    {t : Nat} {ch : Chain Tx} (h : ActiveVotesExtend2 x2 t ch) :
+    ActiveVotesExtend5 x5 t ch := by
+  intro p hp
+  obtain ⟨i, e, src, tgt, htime, hmem, hle⟩ := h p hp
+  have hδ := Q.deltaPos
+  have hhon : (⟪vote, e, src, tgt, t, p⟫ :
+      SignedMsg Node M).sender ∉ S.adv ((x2[i].time : Int)) := by
+    show p ∉ S.adv ((x2[i].time : Int))
+    rw [htime]
+    have hawk : p ∈ S.awake ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+      refine mem_awakeThroughout.mp hp _ ?_ ?_ <;>
+        · show _
+          unfold Params.voting
+          push_cast
+          omega
+    exact Finset.disjoint_left.mp (hah _) hawk
+  obtain ⟨k, hki, hlblk, htimek, -, hem⟩ :=
+    vote_provenance2 hsync2 hmc hmono2 hmem hhon rfl
+  have hlbl5 : x5.lbl k = .tick p (Q.slotLength * t + Q.delta) :=
+    (heq.1 k p _).mpr hlblk
+  obtain ⟨sm5, hsm5, hsde⟩ := (heq.2.1 k p _ hlbl5).2 _ hem
+  obtain ⟨hsender, hde⟩ := hsde
+  rcases hmsg5 : sm5.msg with ⟨chp', chC', qc', ck', t'⟩ | ⟨e5, src5, tgt5, t5⟩ <;>
+    rw [hmsg5] at hde
+  · cases hde
+  · obtain ⟨hee, htt⟩ := hde
+    have htime5 : x5[k + 1].time = Q.slotLength * t + Q.delta := by
+      have h5 : x5[k + 1] = _ := exec5_succ (x5 := x5) k
+      -- p's clock after the tick reads the reading
+      have hclock : x5[k + 1][p].clock = Q.slotLength * t + Q.delta := by
+        rw [h5, hlbl5]
+        simp [applyNodeStepResult_getElem, setClock_getElem]
+      -- p stays awake through the tick: time does not move
+      have ht5 : x5[k + 1].time = x5[k].time := by
+        rw [h5, hlbl5]
+        rfl
+      have hstep := x5.step k
+      rw [hlbl5] at hstep
+      have hawk : x5.Awake (k + 1) p := by
+        show p ∈ S.awake ((x5[k + 1].time : Int))
+        rw [ht5]
+        have h1 := hstep.1
+        simp only [spec] at h1
+        exact h1
+      have hs := hsync5 (k + 1) p hawk
+      rw [hclock] at hs
+      exact hs.symm
+    refine ⟨k + 1, e5, src5, tgt5, htime5, ?_, ?_⟩
+    · have : sm5 = ⟪vote, e5, src5, tgt5, t, p⟫ := by
+        cases sm5 with
+        | mk sd mg =>
+            simp only at hsender hmsg5
+            rw [hsender, hmsg5, htt]
+      rw [← this]
+      exact mem_of_mem_sub hsm5
+    · rw [hee]
+      exact hle
+
+/-- **Lemma 11's votes half** (`Lemma 11, arXiv:2601.03862v1 p.20`): if every slot-`t`
+    active votes an extension of `ch` in the Algorithm-5 run, so does every
+    slot-`t+1` active — across the equivalence and back, through Lemma 2 on the
+    Algorithm-2 side. The quorum threshold is the structural validator count, as in
+    every paper-facing statement. -/
+theorem lemma11_votes (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} {x2 : Exec Pr2 S}
+    (heq : MfcEquivalent x5 x2) (H5 : SettingGA Q S x5) (H2 : SettingGA Q S x2)
+    {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx}
+    (h : ActiveVotesExtend5 x5 t ch) :
+    ActiveVotesExtend5 x5 (t + 1) ch := by
+  subst hn
+  exact activeVotesExtend_transfer' heq H2.wellformed.2.2.1 H2.wellformed.1
+    H2.wellformed.2.2.2.1 H2.wellformed.2.1 H5.wellformed.2.2.1
+    (Analysis2.lemma2 H2 ht
+      (activeVotesExtend_transfer heq H5.wellformed.2.2.1 H5.wellformed.1
+        H5.wellformed.2.2.2.1 H5.wellformed.2.1 H2.wellformed.2.2.1 h))
 
 end Majorum
