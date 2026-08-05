@@ -2245,4 +2245,65 @@ theorem justified_le_voteMfc (hn : n = Fintype.card Node)
       hrel2 hslp hcb hfn (le_refl _) hgst hκ hwin2 a w2 k p s1).2 hact hlbl2 hab
     exact chainLe_trans hbound hchi
 
+set_option maxHeartbeats 1000000 in
+/-- **The frozen chain sits below the simulated vote-round fork choice** — `h_b5`'s
+    seed case: the merge value is the simulated run's own seed (same merge tick, by
+    `OneTickPerReading`; congruent fast confirmations), which rides the monotone
+    Algorithm-2 fold under its own base — or the greatest-justified chain, which
+    descends. -/
+theorem chFrozen5_le_voteMfc (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (H2 : SettingGA Q S (simulate x5))
+    (hκ : 1 ≤ kappa) (hwin2 : HonestProposalWindow (simulate x5))
+    {k : Nat} (hTD : ∀ j, j ≤ k → TableDynEq x5 j)
+    (hD : ∀ (j : Nat), j ≤ k → ∀ (q : Node), ∃ (a : Nat) (w : Node),
+      (simulate x5)[a].time ≤ x5[j].time ∧
+      chainLe x5[j][q].st.chAva ((simulate x5)[a][w].st.chi))
+    {p : Node} {s1 : Nat}
+    (hlbl : x5.lbl k = .tick p (Q.slotLength * (s1 + 1) + Q.delta))
+    (hact : p ∈ Active Q S ((s1 : Int) + 1)) :
+    chainLe (x5[k][p].st.chFrozen)
+      (mfc (processProposals2 n proposer ((simulate x5)[k][p].view) (s1 + 1)
+          ((simulate x5)[k][p].st)).vFrozen ((simulate x5)[k][p].view)
+        (processProposals2 n proposer ((simulate x5)[k][p].view) (s1 + 1)
+          ((simulate x5)[k][p].st)).chFrozen (s1 + 1)) := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have H5' := H5
+  obtain ⟨⟨hmc5, hah5, hsync5, hmono5, -, hdiv5, hdil5⟩, hstepw5, -, hone5, -, -,
+    ⟨hcb5, hfn5⟩, -⟩ := H5'
+  have H2' := H2
+  obtain ⟨⟨hmc2, hah2, hsync2, hmono2, hcs2, hdiv2, hdil2⟩, hstepw2, hwpt2, hone2,
+    ⟨hsyn2, hrel2⟩, hslp, ⟨hcb, hfn⟩, hgst⟩ := H2'
+  obtain ⟨im, himk, htim, hlblm, -, hcf⟩ :=
+    frozen_at_vote_tick5 hsync5 hstepw5 hdil5 hone5 hact hlbl
+  rw [hcf]
+  unfold Components.fastConfirm
+  rw [components_fastConfirmSimple, components_gj, components_prefixLe]
+  dsimp only
+  by_cases hguard : chainLe (gj n x5[im][p].view).ch
+      (fastConfirmSimple n x5[im][p].view s1).1
+  · -- the quorum branch: the simulated run froze the congruent value
+    rw [if_pos hguard]
+    have hlbl2 : (simulate x5).lbl k
+        = .tick p (Q.slotLength * (s1 + 1) + Q.delta) := simLbl_tick_iff.mpr hlbl
+    obtain ⟨im2, him2k, htim2, hlblm2, -, hcf2⟩ :=
+      frozen_at_vote_tick hsync2 hstepw2 hdil2 hone2 hact hlbl2
+    have hlblm2' : x5.lbl im2 = .tick p (Q.slotLength * s1 + 3 * Q.delta) :=
+      simLbl_tick_iff.mp hlblm2
+    have him : im2 = im := hone5 im2 im p _ hlblm2' hlblm
+    subst him
+    have hskelm : voteSkel x5[im2][p].view = voteSkel ((simulate x5)[im2][p].view) :=
+      voteSkel_eq_of_corr (viewCorr_of_tableDynEq hone5 hmc5 hah5 hmono5
+        (hTD im2 (le_of_lt him2k)) p)
+    have hfcs : fastConfirmSimple n x5[im2][p].view s1
+        = fastConfirmSimple n ((simulate x5)[im2][p].view) s1 := by
+      subst hn
+      exact fastConfirmSimple_congr hskelm _ s1
+    rw [hfcs, ← hcf2]
+    exact chainLe_trans (processProposals2_chFrozen_mono _ _ _) (base_le_mfc _ _ _ _)
+  · -- the greatest-justified branch: descend
+    rw [if_neg hguard]
+    have hj := gj_justified n x5[im][p].view
+    exact justified_le_voteMfc hn H5 H2 hκ hwin2 hD hlbl hact (le_of_lt himk) hj
+
 end Majorum
