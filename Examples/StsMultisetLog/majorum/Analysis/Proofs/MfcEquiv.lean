@@ -2880,4 +2880,214 @@ theorem processProposals_bounded {V : View Node M} {t : Nat}
       · exact chainLe_refl v
       · exact absurd ⟨rfl, hvalid, hle⟩ h2
 
+/-- The view correspondence is symmetric, `SDynEq` being symmetric. -/
+theorem ViewCorr.symm {V5 V2 : View Node M} (h : ViewCorr V5 V2) : ViewCorr V2 V5 :=
+  ⟨fun sm hsm => let ⟨sm', hsm', hde⟩ := h.2 sm hsm; ⟨sm', hsm', hde.symm⟩,
+    fun sm hsm => let ⟨sm', hsm', hde⟩ := h.1 sm hsm; ⟨sm', hsm', hde.symm⟩⟩
+
+set_option maxHeartbeats 2000000 in
+/-- **Every Algorithm-2 proposal write has an Algorithm-5 write at or above it**: given a
+    valid slot-`s1+1` proposal in the simulated view, the original view holds a valid
+    proposal whose own chain extends it. By origin: a pure injection is its own
+    counterpart (`ValidProposal2`'s certificate clause is `ValidProposal5`'s, transported
+    by `cert_votes_transfer`); an honest emission's counterpart is the very message the
+    tick sent, and its `chC` is `fastconfirm`'s — the `fastconfirmsimple` branch gives the
+    *same* chain and certificate by congruence, while the `GJ` branch gives the greatest
+    justified chain, which the branch guard puts *above* the simulated one (comparability
+    under the common bound `O`). Honest relay carries the proposer's evidence into the
+    voter's view, so the justified rung is checkable there. -/
+theorem valid2_counterpart5 (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
+    {k : Nat} (hTD : ∀ j, j ≤ k → TableDynEq x5 j)
+    {p : Node} {s1 : Nat}
+    (hlbl : x5.lbl k = .tick p (Q.slotLength * (s1 + 1) + Q.delta))
+    {O : Chain Tx}
+    (hjustO : ∀ j, j ≤ k → ∀ (q : Node) (J : Checkpoint (Chain Tx)),
+      JustifiedIn n x5[j][q].view J → chainLe J.ch O)
+    {sm2 : SignedMsg Node M} (hsm2 : sm2 ∈ (simulate x5)[k][p].view)
+    {chp2 A : Chain Tx} {qc2 : Option (QCert Node Tx)} {ck2 : Checkpoint (Chain Tx)}
+    (hmsg2 : sm2.msg = .propose chp2 A qc2 ck2 (s1 + 1))
+    (hvalid2 : ValidProposal2 n proposer ((simulate x5)[k][p].view) sm2)
+    (hAO : chainLe A O) :
+    ∃ sm5 ∈ x5[k][p].view, ∃ chp5 c qc5 ck5,
+      sm5.msg = .propose chp5 c qc5 ck5 (s1 + 1) ∧
+      ValidProposal5 n proposer (x5[k][p].view) sm5 ∧ chainLe A c := by
+  have hδ := Q.deltaPos
+  have H5' := H5
+  obtain ⟨⟨hmc5, hah5, hsync5, hmono5, -, -, -⟩, -, -, hone5, ⟨hsyn5, hrel5⟩, -, -,
+    hgst5⟩ := H5'
+  have hcorr : ViewCorr x5[k][p].view ((simulate x5)[k][p].view) :=
+    viewCorr_of_tableDynEq hone5 hmc5 hah5 hmono5 (hTD k (le_refl k)) p
+  -- the simulated message's validity data
+  have hvp2 : sm2.sender = proposer (s1 + 1) ∧ proposedAt chp2 = s1 + 1 ∧
+      chainLe A chp2 ∧
+      (A = [] ∨ ∃ cert : QCert Node Tx, qc2 = some cert ∧
+        2 * n ≤ 3 * (cert.image Prod.fst).card ∧
+        ∀ e ∈ cert, chainLe A e.2.1 ∧ e.2.2 = s1 + 1 - 1 ∧
+          ∃ src tgt : Checkpoint (Chain Tx),
+            (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ : SignedMsg Node M)
+              ∈ (simulate x5)[k][p].view) := by
+    have h := hvalid2
+    unfold ValidProposal2 at h
+    rw [hmsg2] at h
+    exact h
+  -- the certificate clause, transported into the original view
+  have hrung5 : ∀ c : Chain Tx, c = A → ∀ qc : Option (QCert Node Tx), qc = qc2 →
+      ∀ gjp : Checkpoint (Chain Tx),
+      (c = [] ∨
+        (∃ cert : QCert Node Tx, qc = some cert ∧
+          2 * n ≤ 3 * (cert.image Prod.fst).card ∧
+          ∀ e ∈ cert, chainLe c e.2.1 ∧ e.2.2 = s1 + 1 - 1 ∧
+            ∃ src tgt : Checkpoint (Chain Tx),
+              (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ : SignedMsg Node M)
+                ∈ x5[k][p].view) ∨
+        (qc = none ∧ c = gjp.ch ∧ JustifiedIn n (x5[k][p].view) gjp)) := by
+    intro c hc qc hqc gjp
+    subst hc
+    subst hqc
+    rcases hvp2.2.2.2 with hnil | ⟨cert, hqc2, hcard, hvotes⟩
+    · exact Or.inl hnil
+    · exact Or.inr (Or.inl ⟨cert, hqc2, hcard,
+        cert_votes_transfer hcorr.symm hvotes⟩)
+  -- the original message behind it
+  obtain ⟨m5, hm5V, hm5eq⟩ := view_covered hone5 hmc5 hah5 hmono5 k p hsm2
+  have hsender5 : sm2.sender = m5.sender := by
+    rw [hm5eq]
+    exact sim_table_sender k m5
+  have hdeq : DynEq m5.msg sm2.msg := by
+    rw [hm5eq]
+    exact (hTD k (le_refl k) m5).2
+  rcases tau_id_or_emitted x5 k m5 with hid | ⟨k', hk'k, t', hlbl', hsend'⟩
+  · -- a pure injection: the same message
+    have hsm5 : m5 = sm2 := by rw [hm5eq, hid]
+    subst hsm5
+    refine ⟨m5, hm5V, chp2, A, qc2, ck2, hmsg2, ?_, chainLe_refl A⟩
+    unfold ValidProposal5
+    rw [hmsg2]
+    exact ⟨hvp2.1, hvp2.2.1, hvp2.2.2.1, hrung5 A rfl qc2 rfl ck2⟩
+  · -- an honest emission: the counterpart is the simulated tick's own send
+    set q := m5.sender with hq
+    -- the emitted message is a propose at slot `s1 + 1`
+    have hshape := (mem_handler_send hsend').2
+    obtain ⟨chp5, c, qc5, gjp5, hm5msg, hmod⟩ : ∃ chp5 c qc5 gjp5,
+        m5.msg = .propose chp5 c qc5 gjp5 (t' / Q.slotLength) ∧
+        t' % Q.slotLength = 0 := by
+      rcases hshape with ⟨a, b, cc, d, heq, hmod⟩ | ⟨a, b, cc, hvote⟩
+      · exact ⟨a, b, cc, d, heq, hmod⟩
+      · exfalso
+        rw [hvote.1, hmsg2] at hdeq
+        exact hdeq
+    have hslot : t' / Q.slotLength = s1 + 1 := by
+      rw [hm5msg, hmsg2] at hdeq
+      exact hdeq.2
+    rw [hslot] at hm5msg
+    -- the tick's own view and its fields
+    obtain ⟨-, -, hm5send⟩ := handler_propose_send hmod hsend'
+    simp only [setClock_getElem, if_pos rfl, if_true] at hm5send
+    rw [hm5msg, hslot] at hm5send
+    rw [Msg.propose.injEq] at hm5send
+    obtain ⟨hchp5, hc5, hqc5, hgjp5, -⟩ := hm5send
+    -- the simulated tick's send is `sm2`
+    obtain ⟨m2, hm2mem, hm2eq⟩ := tau_emitted_image hlbl' rfl hsend'
+    obtain ⟨-, -, hm2send⟩ := handler2_propose_send (n := n) hmod hm2mem
+    simp only [setClock_getElem, if_pos rfl, if_true] at hm2send
+    rw [hslot] at hm2send
+    have hsent : m5 ∈ (x5.cfg (k' + 1)).sent := by
+      have h := tick_send_mem5 hlbl' hsend'
+      rw [show (⟨m5.sender, m5.msg⟩ : SignedMsg Node M) = m5 from rfl] at h
+      exact h
+    have hstab : (simState x5 k).2 m5 = (simState x5 (k' + 1)).2 m5 :=
+      tau_stable hone5 hmc5 hah5 hmono5 hsent (by omega)
+    have hsm2msg : sm2.msg = m2 := by rw [hm5eq, hstab, hm2eq]
+    rw [hsm2msg, hm2send] at hmsg2
+    rw [Msg.propose.injEq] at hmsg2
+    obtain ⟨-, hA, hqc2, -, -⟩ := hmsg2
+    -- the two runs' fast confirmations agree
+    have hfcs : fastConfirmSimple n (x5.cfg k')[q].view (s1 + 1 - 1)
+        = fastConfirmSimple n ((simState x5 k').1[q].view) (s1 + 1 - 1) := by
+      subst hn
+      exact fastConfirmSimple_congr (voteSkel_eq_of_corr
+        (viewCorr_of_tableDynEq hone5 hmc5 hah5 hmono5 (hTD k' (le_of_lt hk'k)) q)) _ _
+    -- honest relay carries the proposer's view into the voter's
+    have hawk : x5.Awake k p := by
+      have hstep := x5.step k
+      rw [hlbl] at hstep
+      have h1 := hstep.1
+      simp only [spec] at h1
+      exact h1
+    have hawk' : x5.Awake k' q := by
+      have hstep := x5.step k'
+      rw [hlbl'] at hstep
+      have h1 := hstep.1
+      simp only [spec] at h1
+      exact h1
+    have htimes : x5[k'].time + Q.delta ≤ x5[k].time := by
+      have h1 : x5[k'].time = t' := tick_reading5 hsync5 hlbl'
+      have h2 : x5[k].time = Q.slotLength * (s1 + 1) + Q.delta :=
+        tick_reading5 hsync5 hlbl
+      have h3 : Q.slotLength * (t' / Q.slotLength) + t' % Q.slotLength = t' :=
+        Nat.div_add_mod t' Q.slotLength
+      rw [hslot, hmod] at h3
+      omega
+    have hview5 : ∀ m ∈ (x5.cfg k')[q].view, m ∈ x5[k][p].view := by
+      intro m hm
+      refine hrel5 k' k q p m hawk' hm ?_ hawk
+      have hg0 : Q.gst = 0 := hgst5
+      omega
+    -- the merge branch decides which chain the original proposal carries
+    unfold Components.fastConfirm at hc5 hqc5 hchp5
+    rw [components_fastConfirmSimple, components_gj, components_prefixLe] at hc5 hqc5 hchp5
+    rw [components_extend, components_mfc] at hchp5
+    dsimp only at hc5 hqc5 hchp5
+    by_cases hg : chainLe (gj n (x5.cfg k')[q].view).ch
+        (fastConfirmSimple n (x5.cfg k')[q].view (s1 + 1 - 1)).1
+    · -- the fast-confirm branch: the same chain and certificate
+      rw [if_pos hg] at hc5 hqc5 hchp5
+      have hcA : c = A := by rw [hc5, hfcs, hA]
+      have hAc : chainLe A c := by
+        rw [hcA]
+        exact chainLe_refl A
+      have hpa5 : proposedAt chp5 = s1 + 1 := by
+        rw [hchp5]
+        exact proposedAt_extend _ _ _
+      have hle5 : chainLe c chp5 := by
+        rw [hchp5, hc5]
+        exact chainLe_trans (base_le_mfc _ _ _ _) (chainLe_extend _ _ _)
+      have hv5 : ValidProposal5 n proposer (x5[k][p].view) m5 := by
+        unfold ValidProposal5
+        rw [hm5msg]
+        exact ⟨by rw [← hq, ← hsender5]; exact hvp2.1, hpa5, hle5,
+          hrung5 c hcA qc5 (by rw [hqc5, hfcs, hqc2]) gjp5⟩
+      exact ⟨m5, hm5V, chp5, c, qc5, gjp5, hm5msg, hv5, hAc⟩
+    · -- the greatest-justified branch: its chain tops the simulated one
+      rw [if_neg hg] at hc5 hqc5 hchp5
+      have hjust5 : JustifiedIn n (x5.cfg k')[q].view (gj n (x5.cfg k')[q].view) :=
+        gj_justified n _
+      have hAc : chainLe A c := by
+        have hGO : chainLe (gj n (x5.cfg k')[q].view).ch O :=
+          hjustO k' (le_of_lt hk'k) q _ hjust5
+        rw [hc5]
+        rcases comparable_of_common_extension hAO hGO with h | h
+        · exact h
+        · exfalso
+          refine hg (chainLe_trans h ?_)
+          rw [hfcs, hA]
+          exact chainLe_refl A
+      have hpa5 : proposedAt chp5 = s1 + 1 := by
+        rw [hchp5]
+        exact proposedAt_extend _ _ _
+      have hle5 : chainLe c chp5 := by
+        rw [hchp5, hc5]
+        exact chainLe_trans (base_le_mfc _ _ _ _) (chainLe_extend _ _ _)
+      have hv5 : ValidProposal5 n proposer (x5[k][p].view) m5 := by
+        unfold ValidProposal5
+        rw [hm5msg]
+        refine ⟨by rw [← hq, ← hsender5]; exact hvp2.1, hpa5, hle5,
+          Or.inr (Or.inr ⟨hqc5, ?_, ?_⟩)⟩
+        · rw [hc5, hgjp5]
+          exact rfl
+        · rw [hgjp5]
+          exact justifiedIn_mono hview5 hjust5
+      exact ⟨m5, hm5V, chp5, c, qc5, gjp5, hm5msg, hv5, hAc⟩
+
 end Majorum
