@@ -584,6 +584,45 @@ theorem le_mfc_of_majority (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain T
     exact chainLe_of_comparable ch chC (Or.inr hbase) hlen
   · exact chainLe_of_comparable ch _ (majority_comparable hmaj h) hlen
 
+/-- The prefix order is antisymmetric. -/
+theorem chainLe_antisymm {a b : Chain Tx} (h1 : chainLe a b) (h2 : chainLe b a) :
+    a = b := by
+  rw [chainLe_iff_prefix] at h1 h2
+  exact h1.eq_of_length_le h2.length_le
+
+/-- **The base swap** — Lemma 10's conditions 2.1/2.2 engine: two `MFC` calls over the
+    same views agree whenever each base sits below the other call's output. The four
+    cases of `mfc_base_or_majority` close by `le_mfc_of_majority` and antisymmetry; the
+    quorum/justification arguments that *supply* the two bounds live with the callers. -/
+theorem mfc_base_swap {V V' : View Node (Msg (Chain Tx) QC)} {b b' : Chain Tx} {t : Nat}
+    (hb' : chainLe b' (mfc V V' b t)) (hb : chainLe b (mfc V V' b' t)) :
+    mfc V V' b t = mfc V V' b' t := by
+  rcases mfc_base_or_majority V V' b t with h1 | h1 <;>
+    rcases mfc_base_or_majority V V' b' t with h2 | h2
+  · -- both fell back to their bases: the bounds make them mutual prefixes
+    rw [h1, h2]
+    rw [h1] at hb'
+    rw [h2] at hb
+    exact chainLe_antisymm hb hb'
+  · -- `mfc-b` is its base: `mfc-b'` is a majority chain above `b`, so it folds below
+    have hle : chainLe (mfc V V' b' t) (mfc V V' b t) :=
+      le_mfc_of_majority V V' b t _ hb h2
+    have hge : chainLe (mfc V V' b t) (mfc V V' b' t) := by
+      rw [h1]
+      exact hb
+    exact chainLe_antisymm hge hle
+  · -- symmetric
+    have hle : chainLe (mfc V V' b t) (mfc V V' b' t) :=
+      le_mfc_of_majority V V' b' t _ hb' h1
+    have hge : chainLe (mfc V V' b' t) (mfc V V' b t) := by
+      rw [h2]
+      exact hb'
+    exact chainLe_antisymm hle hge
+  · -- both majority-supported: each is above the other's base, so each folds below
+    -- the other
+    exact chainLe_antisymm (le_mfc_of_majority V V' b' t _ hb' h1)
+      (le_mfc_of_majority V V' b t _ hb h2)
+
 /-! ### The counting in Case 1
 
 The paper's displayed chain of inequalities:
