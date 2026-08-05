@@ -1045,4 +1045,69 @@ theorem processProposals_chFrozen (V : View Node M) (t : Nat)
       · exact Or.inr (Or.inl h)
       · exact Or.inr (Or.inr h)
 
+/-! ### Definition 9, rendered -/
+
+/-- The honest-proposal window, on the Algorithm-5 side — `HonestProposalWindow`'s
+    shape over the original run's log; the table transfers it to the simulated run. -/
+def HonestProposalWindow5 (x5 : Exec Pr5 S) : Prop :=
+  ∀ t : Nat, kappa ≤ t → ∃ tp, 1 ≤ tp ∧ t - kappa ≤ tp ∧ tp < t ∧
+    ∃ (i : Nat) (vp : Node) (chp chC : Chain Tx) (qc : Option (QCert Node Tx))
+      (ck : Checkpoint (Chain Tx)),
+      (⟨vp, Msg.propose chp chC qc ck tp⟩ : SignedMsg Node M) ∈ x5[i].sent ∧
+      vp ∉ S.adv ((x5[i].time : Int)) ∧ vp ∉ S.adv (Q.voting (tp : Int))
+
+/-- **Definition 9** (`Definition 9, arXiv:2601.03862v1 p.18`): an Algorithm-5 and an
+    Algorithm-2 run over one schedule are **MFC-equivalent** when they take the same
+    non-delivery steps and, at every shared tick:
+    * (condition 1, the paper's 2.7 rephrasing) the two log deltas — the handlers'
+      sends, at most singletons — pair up under dynamic equivalence;
+    * (2.1) at propose readings the two fork choices agree;
+    * (2.2) at vote readings the two processed fork choices agree;
+    * (2.3/2.4, strengthened to the state level) at *every* step, Algorithm 5's
+      available chain is dominated by some Algorithm-2 confirmed chain of no later a
+      time — the paper samples this at the vote and fast-confirm readings; the state
+      form implies both samples and never less. -/
+def MfcEquivalent (x5 : Exec Pr5 S) (x2 : Exec Pr2 S) : Prop :=
+  (∀ k p t, x5.lbl k = .tick p t ↔ x2.lbl k = .tick p t) ∧
+  (∀ k p t, x5.lbl k = .tick p t →
+    (∀ sm5 ∈ x5[k + 1].sent - x5[k].sent, ∃ sm2 ∈ x2[k + 1].sent - x2[k].sent,
+      SDynEq sm5 sm2) ∧
+    (∀ sm2 ∈ x2[k + 1].sent - x2[k].sent, ∃ sm5 ∈ x5[k + 1].sent - x5[k].sent,
+      SDynEq sm5 sm2)) ∧
+  (∀ k p t, x5.lbl k = .tick p t → t % Q.slotLength = 0 →
+    (components n kappa pool proposer).mfc x5[k][p].view x5[k][p].view
+        ((components n kappa pool proposer).fastConfirm x5[k][p].view
+          (t / Q.slotLength - 1)).1 (t / Q.slotLength)
+      = mfc x2[k][p].view x2[k][p].view
+        (fastConfirmSimple n x2[k][p].view (t / Q.slotLength - 1)).1
+        (t / Q.slotLength)) ∧
+  (∀ k p t, x5.lbl k = .tick p t → t % Q.slotLength = Q.delta →
+    (components n kappa pool proposer).mfc
+        (processProposals (components n kappa pool proposer)
+          x5[k][p].view (t / Q.slotLength) x5[k][p].st).vFrozen
+        x5[k][p].view
+        (processProposals (components n kappa pool proposer)
+          x5[k][p].view (t / Q.slotLength) x5[k][p].st).chFrozen
+        (t / Q.slotLength)
+      = mfc
+        (processProposals2 n proposer
+          x2[k][p].view (t / Q.slotLength) x2[k][p].st).vFrozen
+        x2[k][p].view
+        (processProposals2 n proposer
+          x2[k][p].view (t / Q.slotLength) x2[k][p].st).chFrozen
+        (t / Q.slotLength)) ∧
+  (∀ (k : Nat) (p : Node), ∃ (a : Nat) (w : Node), x2[a].time ≤ x5[k].time ∧
+    chainLe x5[k][p].st.chAva x2[a][w].st.chi)
+
+/-- **Lemma 10's statement** (`Lemma 10, arXiv:2601.03862v1 p.18`): every compliant
+    Algorithm-5 run has an MFC-equivalent compliant Algorithm-2 run. Unproved — the
+    grand induction over `simulate x5` is stage C2's remaining proof; parked
+    (user decision, 2026-08-05) until the transfers validate this statement. -/
+def Lemma10Statement (Q : Params) (S : Schedule Node) (n kappa : Nat)
+    (pool : Nat → Tx) (proposer : Nat → Node) : Prop :=
+  ∀ x5 : Exec Pr5 S, SettingGA Q S x5 →
+    Fintype.card Node ≤ n → 3 * Q.f < n → 1 ≤ kappa →
+    HonestProposalWindow5 x5 →
+    ∃ x2 : Exec Pr2 S, SettingGA Q S x2 ∧ MfcEquivalent x5 x2
+
 end Majorum
