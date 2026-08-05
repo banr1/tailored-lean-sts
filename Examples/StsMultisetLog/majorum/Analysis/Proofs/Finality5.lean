@@ -1,4 +1,5 @@
 import Examples.StsMultisetLog.majorum.Analysis.Proofs.Availability5
+import Examples.StsMultisetLog.majorum.Spec.Security
 
 /-!
 # Appendix C.2: Algorithm 5 under partial synchrony
@@ -151,12 +152,11 @@ set_option maxHeartbeats 1000000 in
     proposal fold's value, which is behind the `≤`-guard; the merge tick writes `GJ` of the
     current view, which dominates the old frozen checkpoint because that one is justified
     there (`gjFrozen_justified`) and `GJ` is greatest. -/
-theorem gjFrozen_c_step5 {x5 : Exec Pr5 S} (hfn : 3 * Q.f < Fintype.card Node)
+theorem gjFrozen_c_step5 {x5 : Exec Pr5 S} (hcard : 0 < Fintype.card Node)
     {m : Nat} {p : Node} :
     x5[m][p].st.gjFrozen.c ≤ x5[m + 1][p].st.gjFrozen.c := by
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
-  have hcard : 0 < Fintype.card Node := by omega
   have h5 : x5[m + 1] = _ := exec5_succ (x5 := x5) m
   cases h : x5.lbl m with
   | advance t =>
@@ -220,12 +220,12 @@ theorem gjFrozen_c_step5 {x5 : Exec Pr5 S} (hfn : 3 * Q.f < Fintype.card Node)
       try exact le_refl _
 
 /-- The frozen checkpoint's slot never falls, across any span. -/
-theorem gjFrozen_c_mono {x5 : Exec Pr5 S} (hfn : 3 * Q.f < Fintype.card Node)
+theorem gjFrozen_c_mono {x5 : Exec Pr5 S} (hcard : 0 < Fintype.card Node)
     (p : Node) {m m' : Nat} (h : m ≤ m') :
     x5[m][p].st.gjFrozen.c ≤ x5[m'][p].st.gjFrozen.c := by
   induction m', h using Nat.le_induction with
   | base => exact le_refl _
-  | succ k hk ih => exact le_trans ih (gjFrozen_c_step5 hfn)
+  | succ k hk ih => exact le_trans ih (gjFrozen_c_step5 hcard)
 
 /-! ### Lemma 15: honest validators are never slashed -/
 
@@ -262,11 +262,12 @@ set_option maxHeartbeats 1000000 in
     falls (`gjFrozen_c_mono`, over the proposal fold's `≤`-guard and `GJ`'s maximality at
     merges), which rules out **E2** — a later vote cannot reach back past an earlier
     one's source. -/
-theorem lemma15 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) {r : Nat} {w : Node}
+theorem lemma15 {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5) (hmono : TimeMonotone x5)
+    (hone : OneTickPerReading x5) (hmc : S.MonotoneCorruption)
+    (hcard : 0 < Fintype.card Node) {r : Nat} {w : Node}
     (hhon : w ∉ S.adv ((x5[r].time : Int)))
     {V : View Node M} (hsub : ∀ sm ∈ V, sm ∈ x5[r].sent) :
     ¬ SlashableIn V w := by
-  obtain ⟨⟨hmc, -, hsync, hmono, -, -, -⟩, hstepw, -, hone, -, -, ⟨hcb, hfn⟩, -⟩ := id H5
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
   rintro ⟨sm1, hsm1V, sm2, hsm2V, hs1, hs2, e1, e2, C1, C2, C3, C4, t1, t2,
@@ -306,7 +307,269 @@ theorem lemma15 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) {r : Nat} {w : Node}
     have hchain : C1.c ≤ C3.c := by
       rw [← hsrc1, ← hsrc2]
       rw [show sm1.sender = sm2.sender from by rw [hs1, hs2]] at *
-      exact le_trans (gjFrozen_c_mono hfn sm2.sender hk) (gjFrozen_c_step5 hfn)
+      exact le_trans (gjFrozen_c_mono hcard sm2.sender hk) (gjFrozen_c_step5 hcard)
     omega
+
+/-! ### Theorem 5: accountable safety -/
+
+/-- Supermajority links survive a growing view: the voter set only grows. -/
+theorem link_mono {n : Nat} {V V' : View Node M} (hVV' : V ⊆ V')
+    {C C' : Checkpoint (Chain Tx)} (h : link n V C C') : link n V' C C' := by
+  refine ⟨h.1, h.2.1, le_trans h.2.2 ?_⟩
+  have hsub : linkVoters V C C' ⊆ linkVoters V' C C' := by
+    unfold linkVoters
+    exact Finset.image_subset_image (Finset.filter_subset_filter _ (by
+      unfold votes
+      exact Finset.filter_subset_filter _ hVV'))
+  have := Finset.card_le_card hsub
+  omega
+
+/-- Finalization survives a growing view. -/
+theorem finalizedIn_mono {n : Nat} {V V' : View Node M} (hVV' : V ⊆ V')
+    {C : Checkpoint (Chain Tx)} (h : FinalizedIn n V C) : FinalizedIn n V' C :=
+  ⟨justifiedIn_mono hVV' h.1, h.2.choose, h.2.choose_spec.1,
+    link_mono hVV' h.2.choose_spec.2⟩
+
+/-- **`GF` is finalized, or is still genesis**: the slot-maximising fold starts at
+    `(B_genesis, 0)` and otherwise only adopts finalized checkpoints. -/
+theorem gf_finalized_or_genesis (n : Nat) (V : View Node M) :
+    gf n V = ⟨[], 0⟩ ∨ FinalizedIn n V (gf n V) := by
+  unfold gf greatestBySlot
+  have hfold : ∀ (l : List (Checkpoint (Chain Tx))) (b : Checkpoint (Chain Tx)),
+      (b = ⟨[], 0⟩ ∨ FinalizedIn n V b) → (∀ C ∈ l, FinalizedIn n V C) →
+      ((l.foldl (fun best C => if best.c ≤ C.c then C else best) b) = ⟨[], 0⟩ ∨
+        FinalizedIn n V (l.foldl (fun best C => if best.c ≤ C.c then C else best) b)) := by
+    intro l
+    induction l with
+    | nil => exact fun b hb _ => hb
+    | cons a l ih =>
+        intro b hb hmem
+        rw [List.foldl_cons]
+        refine ih _ ?_ (fun C hC => hmem C (List.mem_cons_of_mem a hC))
+        by_cases hle : b.c ≤ a.c
+        · rw [if_pos hle]
+          exact Or.inr (hmem a List.mem_cons_self)
+        · rw [if_neg hle]
+          exact hb
+  refine hfold _ _ (Or.inl rfl) ?_
+  intro C hC
+  have := Finset.mem_toList.mp hC
+  rw [Finset.mem_filter] at this
+  exact this.2
+
+/-- The common prefix is a prefix of its second argument. -/
+theorem commonPrefix_le_right : ∀ a b : Chain Tx, chainLe (commonPrefix a b) b := by
+  intro a
+  induction a with
+  | nil => exact fun b => chainLe_nil b
+  | cons x xs ih =>
+      intro b
+      cases b with
+      | nil => exact chainLe_nil []
+      | cons y ys =>
+          show chainLe (if x = y then x :: commonPrefix xs ys else []) (y :: ys)
+          split_ifs with hxy
+          · subst hxy
+            have h := ih ys
+            simp only [chainLe, List.isPrefixOf_cons₂_self]
+            exact h
+          · exact chainLe_nil _
+
+/-- The proposal fold leaves the finalized chain alone. -/
+theorem processProposals_chFin (C : Components Node (Chain Tx) (QCert Node Tx))
+    (V : View Node M) (t : Nat) (s : NodeState Node (Chain Tx) (QCert Node Tx)) :
+    (processProposals C V t s).chFin = s.chFin := by
+  unfold processProposals
+  generalize V.toList = l
+  induction l generalizing s with
+  | nil => rfl
+  | cons a l ih =>
+      rw [List.foldl_cons, ih]
+      obtain ⟨asd, amsg⟩ := a
+      cases amsg with
+      | vote ch src tgt t' => rfl
+      | propose chp chC qc gjp t' =>
+          dsimp only
+          simp only [apply_ite NodeState.chFin, ite_self]
+
+set_option maxHeartbeats 1000000 in
+/-- **Every validator's finalized chain is a prefix of a finalized checkpoint's chain in
+    its own view** — genesis until something is finalized. The paper states this as
+    "`chainfin^r_i` is any chain finalized according to `V^r_i`", reading it off the three
+    lines that write the field; here it is an induction over the execution, with
+    `finalizedIn_mono` carrying each write forward through the growing view. -/
+theorem chFin_finalized5 {x5 : Exec Pr5 S} (i : Nat) (p : Node) :
+    x5[i][p].st.chFin = [] ∨
+      ∃ (ch : Chain Tx) (c : Nat),
+        FinalizedIn (Fintype.card Node) x5[i][p].view ⟨ch, c⟩ ∧
+        chainLe x5[i][p].st.chFin ch := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  induction i with
+  | zero =>
+      left
+      show ((x5.cfg 0)[p]).st.chFin = []
+      rw [x5.init.2.1 p]
+      rfl
+  | succ i ih =>
+      -- the field is written only at vote and fast-confirm ticks, to `GF`'s chain or below
+      have hstep : x5[i + 1][p].st.chFin = x5[i][p].st.chFin ∨
+          chainLe x5[i + 1][p].st.chFin (gf (Fintype.card Node) x5[i][p].view).ch := by
+        have h5 : x5[i + 1] = _ := exec5_succ (x5 := x5) i
+        cases h : x5.lbl i with
+        | advance t => exact Or.inl (by rw [h5, h]; try rfl)
+        | tick q t =>
+            by_cases hq : q = p
+            · subst hq
+              have hget : x5[i + 1][q].st
+                  = (handlerCore (components (Fintype.card Node) kappa pool proposer) Q
+                    (pick5 x5 i q t) q t x5[i][q].view x5[i][q].st).state := by
+                rw [h5, h]
+                simp only [applyNodeStepResult_getElem, setClock_getElem, if_pos rfl,
+                  if_true]
+                rfl
+              rw [hget]
+              simp only [handlerCore, apply_ite NodeStepResult.state]
+              by_cases hph0 : t % Q.slotLength = 0
+              · rw [if_pos hph0]
+                refine Or.inl ?_
+                simp only [apply_ite NodeState.chFin, ite_self]
+                try rfl
+              · rw [if_neg hph0]
+                by_cases hph1 : t % Q.slotLength = Q.delta
+                · rw [if_pos hph1]
+                  by_cases hgate : x5[i][q].st.activeAt ≤ t
+                  · rw [if_pos hgate]
+                    exact Or.inr (commonPrefix_le_right _ _)
+                  · rw [if_neg hgate]
+                    refine Or.inl ?_
+                    exact processProposals_chFin _ _ _ _
+                · rw [if_neg hph1]
+                  by_cases hph2 : t % Q.slotLength = 2 * Q.delta
+                  · rw [if_pos hph2]
+                    dsimp only
+                    exact Or.inr (chainLe_refl _)
+                  · rw [if_neg hph2]
+                    by_cases hph3 : t % Q.slotLength = 3 * Q.delta
+                    · rw [if_pos hph3]
+                      refine Or.inl ?_
+                      dsimp only
+                    · rw [if_neg hph3]
+                      refine Or.inl ?_
+                      dsimp only
+            · refine Or.inl ?_
+              rw [h5, h]
+              simp only [applyNodeStepResult_getElem, setClock_getElem, if_neg hq]
+              try rfl
+        | deliver q msg =>
+            refine Or.inl ?_
+            rw [h5, h]
+            by_cases hq : q = p
+            · subst hq
+              simp only [applyNodeStepResult_getElem, receive_getElem, if_pos rfl, if_true]
+              try rfl
+            · simp only [applyNodeStepResult_getElem, receive_getElem, if_neg hq]
+              try rfl
+        | wake q =>
+            refine Or.inl ?_
+            rw [h5, h]
+            by_cases hq : q = p
+            · subst hq
+              simp only [applyNodeStepResult_getElem, if_pos rfl, if_true]
+              try rfl
+            · simp only [applyNodeStepResult_getElem, if_neg hq]
+              try rfl
+        | custom q ev => exact ev.elim
+        | adversarial q msg => exact Or.inl (by rw [h5, h]; try rfl)
+      have hview : x5[i][p].view ⊆ x5[i + 1][p].view := view_mono (Pr' := Pr5) i p
+      rcases hstep with hkeep | hnew
+      · rw [hkeep]
+        rcases ih with h0 | ⟨ch, c, hfin, hle⟩
+        · exact Or.inl h0
+        · exact Or.inr ⟨ch, c, finalizedIn_mono hview hfin, hle⟩
+      · rcases gf_finalized_or_genesis (Fintype.card Node) x5[i][p].view with hgen | hfin
+        · left
+          rw [hgen] at hnew
+          -- a prefix of genesis is genesis
+          have h := hnew
+          rw [chainLe_iff_prefix] at h
+          exact List.eq_nil_of_prefix_nil h
+        · exact Or.inr ⟨(gf (Fintype.card Node) x5[i][p].view).ch,
+            (gf (Fintype.card Node) x5[i][p].view).c,
+            finalizedIn_mono hview hfin, hnew⟩
+
+/-- **The identification procedure** of Definition 6, for Algorithm 5: the validators whose
+    own fin-votes, among the messages sent, violate E1 or E2. It reads the log and nothing
+    else, as the definition demands. -/
+noncomputable def culprits5 (L : Multiset (SignedMsg Node M)) : Finset Node :=
+  Finset.univ.filter (fun w => SlashableIn L.toFinset w)
+
+theorem mem_culprits5 {L : Multiset (SignedMsg Node M)} {w : Node} :
+    w ∈ culprits5 L ↔ SlashableIn L.toFinset w := by
+  unfold culprits5
+  rw [Finset.mem_filter]
+  exact ⟨fun h => h.2, fun h => ⟨Finset.mem_univ _, h⟩⟩
+
+/-- The log never forgets, across any span. -/
+theorem mem_sent_mono {x5 : Exec Pr5 S} {i k : Nat} (h : i ≤ k)
+    {sm : SignedMsg Node M} (hm : sm ∈ x5[i].sent) : sm ∈ x5[k].sent := by
+  induction k, h using Nat.le_induction with
+  | base => exact hm
+  | succ k hk ih =>
+      exact Multiset.mem_of_le (sent_mono (x5.step k)) ih
+
+set_option maxHeartbeats 1000000 in
+/-- **Theorem 5** (accountable safety for Algorithm 5). If two honest validators' finalized
+    chains conflict then, from the messages sent, at least `n/3` validators can be named,
+    and no validator is ever named while honest.
+
+    The first conjunct is Lemma 9 (Appendix B's counting) applied to the finalized
+    checkpoints that `chFin_finalized5` produces from the two validators' own views, whose
+    messages the log contains; the second is Lemma 15. No corruption bound is assumed —
+    the paper's `f ∈ [0, n]` — only that the execution is well-formed and that there is at
+    least one validator. -/
+theorem theorem5 {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5) (hmono : TimeMonotone x5)
+    (hone : OneTickPerReading x5) (hmc : S.MonotoneCorruption)
+    (hcard : 0 < Fintype.card Node) :
+    AccountableSafety (fun p c => c[p].st.chFin) (fun a b => chainLe a b)
+      culprits5 (Fintype.card Node / 3) x5 := by
+  constructor
+  · -- a conflict names a third of the validators
+    intro i j p q hp hq hconf k hk
+    have hij : i ≤ k := le_trans (le_max_left i j) hk
+    have hjk : j ≤ k := le_trans (le_max_right i j) hk
+    have hc1 : ¬ chainLe x5[i][p].st.chFin x5[j][q].st.chFin := hconf.1
+    have hc2 : ¬ chainLe x5[j][q].st.chFin x5[i][p].st.chFin := hconf.2
+    -- neither chain is genesis: genesis conflicts with nothing
+    rcases chFin_finalized5 (kappa := kappa) (pool := pool) (proposer := proposer) i p
+      with h0 | ⟨ch1, c1, hfin1, hle1⟩
+    · exact absurd (by rw [h0]; exact chainLe_nil _) hc1
+    rcases chFin_finalized5 (kappa := kappa) (pool := pool) (proposer := proposer) j q
+      with h0 | ⟨ch2, c2, hfin2, hle2⟩
+    · exact absurd (by rw [h0]; exact chainLe_nil _) hc2
+    -- Lemma 9's counting, over the two views
+    obtain ⟨W, hW3, hWslash⟩ :=
+      Finality.lemma9 (n := Fintype.card Node) (le_refl _) hfin1 hle1 hfin2 hle2
+        hc1 hc2
+    -- every named validator is slashable on the log
+    have hsub : W ⊆ culprits5 x5[k].sent := by
+      intro w hw
+      obtain ⟨sm1, hsm1, sm2, hsm2, hs1, hs2, e1, e2, C1, C2, C3, C4, t1, t2,
+        hm1, hm2, hE⟩ := hWslash w hw
+      refine mem_culprits5.mpr ⟨sm1, ?_, sm2, ?_, hs1, hs2, e1, e2, C1, C2, C3, C4,
+        t1, t2, hm1, hm2, hE⟩
+      · rcases Finset.mem_union.mp hsm1 with h | h
+        · exact Multiset.mem_toFinset.mpr (mem_sent_mono hij (views_sound x5 i p _ h))
+        · exact Multiset.mem_toFinset.mpr (mem_sent_mono hjk (views_sound x5 j q _ h))
+      · rcases Finset.mem_union.mp hsm2 with h | h
+        · exact Multiset.mem_toFinset.mpr (mem_sent_mono hij (views_sound x5 i p _ h))
+        · exact Multiset.mem_toFinset.mpr (mem_sent_mono hjk (views_sound x5 j q _ h))
+    have hcards := Finset.card_le_card hsub
+    omega
+  · -- and no honest validator is ever named
+    intro k w hw
+    by_contra hhon
+    exact lemma15 hsync hmono hone hmc hcard hhon
+      (fun sm hsm => Multiset.mem_toFinset.mp hsm) (mem_culprits5.mp hw)
 
 end Majorum.Finality5
