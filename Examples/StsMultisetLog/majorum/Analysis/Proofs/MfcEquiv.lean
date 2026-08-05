@@ -1000,4 +1000,49 @@ theorem voteSkel_mono {Va Vb : View Node M} (hsub : Va ⊆ Vb) :
     (Finset.mem_filter.mp hsm).2⟩
 
 
+/-- **Algorithm 5's processed frozen chain, traced**: the merge seed survives, or a
+    checked slot-`t` proposal's fast-confirmed chain replaced it, or a
+    justification-checked proposal checkpoint's chain did — condition 2.2's base
+    provenance on the Algorithm-5 side. -/
+theorem processProposals_chFrozen (V : View Node M) (t : Nat)
+    (s : NodeState Node (Chain Tx) (QCert Node Tx)) :
+    (processProposals (components n kappa pool proposer) V t s).chFrozen
+        = s.chFrozen ∨
+    (∃ sm ∈ V, (∃ chp qc ck, sm.msg = .propose chp
+        ((processProposals (components n kappa pool proposer) V t s).chFrozen)
+        qc ck t) ∧
+      ValidProposal5 n proposer V sm) ∨
+    (∃ c : Nat, JustifiedIn n V
+      ⟨(processProposals (components n kappa pool proposer) V t s).chFrozen, c⟩) := by
+  unfold processProposals
+  have hV : ∀ a ∈ V.toList, a ∈ V := fun a ha => Finset.mem_toList.mp ha
+  revert hV
+  generalize V.toList = l
+  intro hV
+  induction l generalizing s with
+  | nil => exact Or.inl rfl
+  | cons a l ih =>
+      rw [List.foldl_cons]
+      rcases ih (fun b hb => hV b (List.mem_cons_of_mem a hb)) (s := _)
+        with h | h | h
+      · rw [h]
+        obtain ⟨asd, amsg⟩ := a
+        cases amsg with
+        | vote ch src tgt t' => exact Or.inl rfl
+        | propose chp chC qc gjp t' =>
+            dsimp only
+            split_ifs with hcond h1 h2 h3 h4
+            · exact Or.inr (Or.inl ⟨⟨asd, .propose chp chC qc gjp t'⟩,
+                hV _ List.mem_cons_self, ⟨chp, qc, gjp, by rw [hcond.1]⟩,
+                hcond.2.1⟩)
+            · exact Or.inl rfl
+            · exact Or.inr (Or.inl ⟨⟨asd, .propose chp chC qc gjp t'⟩,
+                hV _ List.mem_cons_self, ⟨chp, qc, gjp, by rw [hcond.1]⟩,
+                hcond.2.1⟩)
+            · exact Or.inr (Or.inr ⟨gjp.c,
+                show JustifiedIn n V gjp from of_decide_eq_true hcond.2.2.1⟩)
+            · exact Or.inl rfl
+      · exact Or.inr (Or.inl h)
+      · exact Or.inr (Or.inr h)
+
 end Majorum
