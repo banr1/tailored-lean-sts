@@ -52,6 +52,58 @@ theorem time_le_of_le {NS : Type} {Pr' : Protocol Node (Msg (Chain Tx) QC) NS Em
 
 /-! ### Provenance -/
 
+/-- **Views only grow**: no action removes from a view — reactions keep it, deliveries
+    insert into it. Protocol-generic; the `Majority` congruences' snapshot discipline
+    rests on this. -/
+theorem view_mono {NS : Type} {Pr' : Protocol Node (Msg (Chain Tx) QC) NS Empty}
+    {x : Exec Pr' S} (k : Nat) (p : Node) :
+    x[k][p].view ⊆ x[k + 1][p].view := by
+  have hstep : Step Pr' S (x.lbl k) x[k] x[k + 1] := x.step k
+  refine hstep.elimR (motive := fun _ c c' => c[p].view ⊆ c'[p].view) ?_ ?_ ?_ ?_ ?_ ?_
+  · intro d t _
+    exact fun ha => ha
+  · intro d d' q t hen hns
+    rw [nodeStep_iff_exists] at hns
+    obtain ⟨res, -, rfl⟩ := hns
+    by_cases hq : q = p
+    · subst hq
+      simp [applyNodeStepResult_getElem, setClock_getElem]
+    · simp [applyNodeStepResult_getElem, setClock_getElem, hq]
+  · intro d d' q m hen hns
+    rw [nodeStep_iff_exists] at hns
+    obtain ⟨res, -, rfl⟩ := hns
+    by_cases hq : q = p
+    · subst hq
+      simp only [applyNodeStepResult_getElem, receive_getElem, if_pos rfl]
+      exact Finset.subset_insert _ _
+    · simp [applyNodeStepResult_getElem, receive_getElem, hq]
+  · intro d d' q hen hns
+    rw [nodeStep_iff_exists] at hns
+    obtain ⟨res, -, rfl⟩ := hns
+    by_cases hq : q = p
+    · subst hq
+      simp [applyNodeStepResult_getElem]
+    · simp [applyNodeStepResult_getElem, hq]
+  · intro d d' q ev hen hns
+    exact ev.elim
+  · intro d q m hen
+    exact fun _ ha => ha
+
+/-- Views only grow, across any span. -/
+theorem view_mono_le {NS : Type} {Pr' : Protocol Node (Msg (Chain Tx) QC) NS Empty}
+    {x : Exec Pr' S} {j k : Nat} (h : j ≤ k) (p : Node) :
+    x[j][p].view ⊆ x[k][p].view := by
+  induction k with
+  | zero =>
+      have hj : j = 0 := by omega
+      subst hj
+      exact Finset.Subset.refl _
+  | succ k ih =>
+      rcases Nat.eq_or_lt_of_le h with heq | hlt
+      · subst heq
+        exact Finset.Subset.refl _
+      · exact (ih (by omega)).trans (view_mono k p)
+
 /-- Everything in the log entered it at some step: the log is a multiset that starts empty
     and only grows, so a member has a positive count somewhere first. -/
 theorem emitted_of_mem_sent {NS : Type} {Pr' : Protocol Node (Msg (Chain Tx) QC) NS Empty}
