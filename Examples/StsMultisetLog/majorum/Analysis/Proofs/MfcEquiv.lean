@@ -1265,6 +1265,57 @@ theorem lemma11_votes (hn : n = Fintype.card Node)
         H5.wellformed.2.2.2.1 H5.wellformed.2.1 H2.wellformed.2.2.1 h))
 
 set_option maxHeartbeats 1000000 in
+/-- The two Algorithm-5 fork-choice bounds at slot `t+1`, from the equivalent run's
+    slot-`t` votes — Lemma 11's engine, reused by Lemma 12 at every later slot. -/
+theorem mfc_bounds_of_ave2 (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} {x2 : Exec Pr2 S}
+    (heq : MfcEquivalent x5 x2) (H2 : SettingGA Q S x2)
+    {t : Nat} (ht : 1 ≤ t) {ch : Chain Tx}
+    (hvotes2 : ActiveVotesExtend2 x2 t ch) :
+    (∀ (k : Nat) (vi : Node), vi ∈ Active Q S ((t : Int) + 1) →
+      x5.lbl k = .tick vi (Q.slotLength * (t + 1)) →
+      chainLe ch ((components n kappa pool proposer).mfc
+        x5[k][vi].view x5[k][vi].view
+        ((components n kappa pool proposer).fastConfirm
+          x5[k][vi].view t).1 (t + 1))) ∧
+    (∀ (k : Nat) (vi : Node), vi ∈ Active Q S ((t : Int) + 1) →
+      x5.lbl k = .tick vi (Q.slotLength * (t + 1) + Q.delta) →
+      chainLe ch ((components n kappa pool proposer).mfc
+        (processProposals (components n kappa pool proposer)
+          x5[k][vi].view (t + 1) x5[k][vi].st).vFrozen
+        x5[k][vi].view
+        (processProposals (components n kappa pool proposer)
+          x5[k][vi].view (t + 1) x5[k][vi].st).chFrozen
+        (t + 1))) := by
+  subst hn
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have hSL0 : 0 < Q.slotLength := by omega
+  have H2' := H2
+  obtain ⟨⟨hmc2, hah2, hsync2, hmono2, hcs2, hdiv2, hdil2⟩, hstepw2, hwpt2, hone2,
+    ⟨hsyn2, hrel2⟩, hslp, ⟨hcb, hfn⟩, hgst⟩ := H2'
+  have hdivP : Q.slotLength * (t + 1) / Q.slotLength = t + 1 :=
+    Nat.mul_div_cancel_left _ hSL0
+  constructor
+  · intro k vi hvi hlbl
+    have h21 := heq.2.2.1 k vi _ hlbl (Nat.mul_mod_right _ _)
+    rw [hdivP] at h21
+    simp only [Nat.add_sub_cancel] at h21
+    rw [h21]
+    have hlbl2 := (heq.1 k vi _).mp hlbl
+    have htb : x2[k].time = Q.slotLength * (t + 1) := tick_reading hsync2 hlbl2
+    have hbound := le_mfc_at_propose_of_ave hsync2 hstepw2 hdil2 hwpt2 hone2 hmc2
+      hsyn2 hslp hcb hfn (le_refl _) hgst ht hvotes2 htb hvi
+    simpa using hbound
+  · intro k vi hvi hlbl
+    have h22 := heq.2.2.2.1 k vi _ hlbl (voting_reading_mod Q (t + 1))
+    rw [voting_reading_div Q (t + 1)] at h22
+    rw [h22]
+    have hlbl2 := (heq.1 k vi _).mp hlbl
+    exact le_mfc_at_vote2 hsync2 hstepw2 hdil2 hwpt2 hone2 hmc2 hsyn2 hslp hcb hfn
+      hgst ht hvotes2 hvi hlbl2
+
+set_option maxHeartbeats 1000000 in
 /-- **Lemma 11** (`Lemma 11, arXiv:2601.03862v1 p.20`, the analogue of Lemma 2, for
     Algorithm 5): if every slot-`t` active votes an extension of `ch`, then at every
     slot-`t+1` active's propose and vote ticks the fork choice extends `ch`, and every
@@ -1294,36 +1345,185 @@ theorem lemma11 (hn : n = Fintype.card Node)
         (t + 1))) ∧
     ActiveVotesExtend5 x5 (t + 1) ch := by
   subst hn
-  have hδ := Q.deltaPos
-  have hsl : Q.slotLength = 4 * Q.delta := rfl
-  have hSL0 : 0 < Q.slotLength := by omega
   have hvotes2 : ActiveVotesExtend2 x2 t ch :=
     activeVotesExtend_transfer heq H5.wellformed.2.2.1 H5.wellformed.1
       H5.wellformed.2.2.2.1 H5.wellformed.2.1 H2.wellformed.2.2.1 h
+  obtain ⟨hP, hV⟩ := mfc_bounds_of_ave2 rfl heq H2 ht hvotes2
+  exact ⟨hP, hV, lemma11_votes rfl heq H5 H2 ht h⟩
+
+/-- **An honest Algorithm-5 proposal pins its emitting tick**: reading `propose(t)`,
+    with the emission in that step's log delta — `vote_provenance`'s propose twin,
+    trimmed to what the transfers need. -/
+theorem propose_provenance5 {x5 : Exec Pr5 S}
+    (hsync : SynchronizedClocks x5) (hmc : S.MonotoneCorruption)
+    (hmono : TimeMonotone x5) {i : Nat}
+    {sm : SignedMsg Node M} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {ck : Checkpoint (Chain Tx)} {t : Nat}
+    (hmem : sm ∈ x5[i].sent) (hhon : sm.sender ∉ S.adv ((x5[i].time : Int)))
+    (hmsg : sm.msg = .propose chp chC qc ck t) :
+    ∃ k, k < i ∧ x5.lbl k = .tick sm.sender (Q.slotLength * t) ∧
+      sm ∈ x5[k + 1].sent - x5[k].sent := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨k, hki, hem⟩ := emitted_of_mem_sent hmem
+  have hhonk : sm.sender ∉ S.adv ((x5[k].time : Int)) := fun hadv =>
+    hhon (hmc _ _ (by exact_mod_cast time_le_of_le hmono (Nat.le_of_lt hki)) hadv)
+  rcases emitted_step hem with ⟨tk, hlbl, -, -, -, pk, -, hsend⟩ | hadv
+  · obtain ⟨-, hshape⟩ := mem_handler_send hsend
+    have htk : tk = Q.slotLength * t := by
+      rcases hshape with ⟨chp', chC', qc', gj', heq', hmod⟩ | ⟨ch', src', tgt', heq', -⟩
+      · rw [hmsg] at heq'
+        injection heq' with _ _ _ _ hslot
+        have hdm := Nat.div_add_mod tk Q.slotLength
+        rw [← hslot] at hdm
+        omega
+      · rw [hmsg] at heq'
+        cases heq'
+    subst htk
+    exact ⟨k, hki, hlbl, hem⟩
+  · exact absurd hadv hhonk
+
+
+set_option maxHeartbeats 1000000 in
+/-- **Lemma 12** (`Lemma 12, arXiv:2601.03862v1 p.20`, the analogue of Lemma 4, for
+    Algorithm 5): an honest proposer's slot-`t` proposal is voted for — every later
+    slot's actives vote extensions of `chp`, and from `t+1` on both fork choices
+    extend it. Proof: the proposal crosses to the equivalent run at its emitting tick
+    (`propose_provenance5` + condition 1 — dynamic equivalence preserves the proposed
+    chain and slot), Lemma 4 runs there, and the votes and fork-choice bounds come
+    back through the transfers and conditions 2.1/2.2. -/
+theorem lemma12 (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} {x2 : Exec Pr2 S}
+    (heq : MfcEquivalent x5 x2) (H5 : SettingGA Q S x5) (H2 : SettingGA Q S x2)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {ck : Checkpoint (Chain Tx)} {i : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc ck t⟩ : SignedMsg Node M) ∈ x5[i].sent)
+    (hhon_i : vp ∉ S.adv ((x5[i].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int))) :
+    (∀ t', t ≤ t' → ActiveVotesExtend5 x5 t' chp) ∧
+    (∀ t₀, t ≤ t₀ →
+      (∀ (k : Nat) (vi : Node), vi ∈ Active Q S ((t₀ : Int) + 1) →
+        x5.lbl k = .tick vi (Q.slotLength * (t₀ + 1)) →
+        chainLe chp ((components n kappa pool proposer).mfc
+          x5[k][vi].view x5[k][vi].view
+          ((components n kappa pool proposer).fastConfirm x5[k][vi].view t₀).1
+          (t₀ + 1))) ∧
+      (∀ (k : Nat) (vi : Node), vi ∈ Active Q S ((t₀ : Int) + 1) →
+        x5.lbl k = .tick vi (Q.slotLength * (t₀ + 1) + Q.delta) →
+        chainLe chp ((components n kappa pool proposer).mfc
+          (processProposals (components n kappa pool proposer)
+            x5[k][vi].view (t₀ + 1) x5[k][vi].st).vFrozen
+          x5[k][vi].view
+          (processProposals (components n kappa pool proposer)
+            x5[k][vi].view (t₀ + 1) x5[k][vi].st).chFrozen
+          (t₀ + 1)))) := by
+  subst hn
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  -- the proposal's emitting tick, and its counterpart in the equivalent run
+  obtain ⟨k, hki, hlbl, hem⟩ :=
+    propose_provenance5 H5.wellformed.2.2.1 H5.wellformed.1 H5.wellformed.2.2.2.1
+      hsent hhon_i rfl
+  obtain ⟨sm2, hsm2, hsender, hde⟩ := (heq.2.1 k vp _ hlbl).1 _ hem
+  rcases hmsg2 : sm2.msg with ⟨chp2, chC2, qc2, ck2, t2⟩ | ⟨e2, src2, tgt2, τ2⟩ <;>
+    rw [hmsg2] at hde
+  case vote => cases hde
+  case propose =>
+  obtain ⟨hchp, ht2⟩ := hde
+  -- the counterpart, identified, is in the equivalent run's log
+  have hsent2 : (⟨vp, Msg.propose chp chC2 qc2 ck2 t⟩ :
+      SignedMsg Node M) ∈ x2[k + 1].sent := by
+    have hid : sm2 = ⟨vp, Msg.propose chp chC2 qc2 ck2 t⟩ := by
+      cases sm2 with
+      | mk sd mg =>
+          simp only at hsender hmsg2
+          rw [← hsender, hmsg2, ← hchp, ← ht2]
+    rw [← hid]
+    exact mem_of_mem_sub hsm2
+  -- honesty at the counterpart's index: its time is `propose(t) ≤ voting(t)`
+  have hlbl2 := (heq.1 k vp _).mp hlbl
+  have H2' := H2
+  obtain ⟨⟨hmc2, hah2, hsync2, hmono2, -, -, -⟩, -, -, -, -, -, -, -⟩ := H2'
+  have htime2 : x2[k + 1].time = Q.slotLength * t := by
+    rw [tick_time hlbl2]
+    exact tick_reading hsync2 hlbl2
+  have hhon_i2 : vp ∉ S.adv ((x2[k + 1].time : Int)) := by
+    intro had
+    refine hhon_t (hmc2 _ _ ?_ had)
+    rw [htime2]
+    unfold Params.voting
+    push_cast
+    omega
+  -- Lemma 4 on the equivalent run, at every later slot
+  have hvotes2 : ∀ t', t ≤ t' → ActiveVotesExtend2 x2 t' chp :=
+    fun t' ht' => Analysis2.lemma4 H2 ht hsent2 hhon_i2 hhon_t ht'
+  refine ⟨?_, ?_⟩
+  · intro t' ht'
+    exact activeVotesExtend_transfer' heq H2.wellformed.2.2.1 H2.wellformed.1
+      H2.wellformed.2.2.2.1 H2.wellformed.2.1 H5.wellformed.2.2.1 (hvotes2 t' ht')
+  · intro t₀ ht₀
+    exact mfc_bounds_of_ave2 rfl heq H2 (le_trans ht ht₀) (hvotes2 t₀ ht₀)
+
+set_option maxHeartbeats 1000000 in
+/-- **Lemma 13** (`Lemma 13, arXiv:2601.03862v1 p.20`, the analogue of Lemma 5, for
+    Algorithm 5): any honest validator's available chain is below any later active's
+    fork choice, at both readings. Proof: the state-level dominance (conditions
+    2.3/2.4) hands the chain to some Algorithm-2 confirmed chain of no later a time,
+    Lemma 5's engine (`chi_le_mfc`) bounds that by the equivalent run's fork choice,
+    and conditions 2.1/2.2 carry the bound back. -/
+theorem lemma13 (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} {x2 : Exec Pr2 S}
+    (heq : MfcEquivalent x5 x2) (H2 : SettingGA Q S x2)
+    (hκ : 1 ≤ kappa) (hwin2 : HonestProposalWindow x2)
+    (a : Nat) (vi : Node) (k : Nat) (vj : Node) (s0 : Nat)
+    (hv : vj ∈ Active Q S ((s0 : Int) + 1)) :
+    (x5.lbl k = .tick vj (Q.slotLength * (s0 + 1)) →
+      x5[a].time ≤ Q.slotLength * (s0 + 1) →
+      chainLe x5[a][vi].st.chAva
+        ((components n kappa pool proposer).mfc x5[k][vj].view x5[k][vj].view
+          ((components n kappa pool proposer).fastConfirm x5[k][vj].view s0).1
+          (s0 + 1))) ∧
+    (x5.lbl k = .tick vj (Q.slotLength * (s0 + 1) + Q.delta) →
+      x5[a].time ≤ Q.slotLength * (s0 + 1) + Q.delta →
+      chainLe x5[a][vi].st.chAva
+        ((components n kappa pool proposer).mfc
+          (processProposals (components n kappa pool proposer)
+            x5[k][vj].view (s0 + 1) x5[k][vj].st).vFrozen
+          x5[k][vj].view
+          (processProposals (components n kappa pool proposer)
+            x5[k][vj].view (s0 + 1) x5[k][vj].st).chFrozen
+          (s0 + 1))) := by
+  subst hn
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have hSL0 : 0 < Q.slotLength := by omega
+  have hdivP : Q.slotLength * (s0 + 1) / Q.slotLength = s0 + 1 :=
+    Nat.mul_div_cancel_left _ hSL0
+  obtain ⟨a2, w2, hta2, hdom⟩ := heq.2.2.2.2 a vi
   have H2' := H2
   obtain ⟨⟨hmc2, hah2, hsync2, hmono2, hcs2, hdiv2, hdil2⟩, hstepw2, hwpt2, hone2,
     ⟨hsyn2, hrel2⟩, hslp, ⟨hcb, hfn⟩, hgst⟩ := H2'
-  have hdivP : Q.slotLength * (t + 1) / Q.slotLength = t + 1 :=
-    Nat.mul_div_cancel_left _ hSL0
-  refine ⟨?_, ?_, lemma11_votes rfl heq H5 H2 ht h⟩
-  · -- the propose-round fork choice extends `ch`
-    intro k vi hvi hlbl
-    have h21 := heq.2.2.1 k vi _ hlbl (Nat.mul_mod_right _ _)
+  constructor
+  · intro hlbl hta
+    have h21 := heq.2.2.1 k vj _ hlbl (Nat.mul_mod_right _ _)
     rw [hdivP] at h21
     simp only [Nat.add_sub_cancel] at h21
     rw [h21]
-    have hlbl2 := (heq.1 k vi _).mp hlbl
-    have htb : x2[k].time = Q.slotLength * (t + 1) := tick_reading hsync2 hlbl2
-    have hbound := le_mfc_at_propose_of_ave hsync2 hstepw2 hdil2 hwpt2 hone2 hmc2
-      hsyn2 hslp hcb hfn (le_refl _) hgst ht hvotes2 htb hvi
-    simpa using hbound
-  · -- the vote-round fork choice extends `ch`
-    intro k vi hvi hlbl
-    have h22 := heq.2.2.2.1 k vi _ hlbl (voting_reading_mod Q (t + 1))
-    rw [voting_reading_div Q (t + 1)] at h22
+    have hlbl2 := (heq.1 k vj _).mp hlbl
+    have htb : x2[k].time = Q.slotLength * (s0 + 1) := tick_reading hsync2 hlbl2
+    have hchi := (chi_le_mfc hsync2 hstepw2 hdiv2 hdil2 hone2 hwpt2 hmc2 hsyn2 hrel2
+      hslp hcb hfn (le_refl _) hgst hκ hwin2 a2 w2 k vj s0 hv).1 htb
+      (le_trans hta2 hta)
+    exact chainLe_trans hdom hchi
+  · intro hlbl hta
+    have h22 := heq.2.2.2.1 k vj _ hlbl (voting_reading_mod Q (s0 + 1))
+    rw [voting_reading_div Q (s0 + 1)] at h22
     rw [h22]
-    have hlbl2 := (heq.1 k vi _).mp hlbl
-    exact le_mfc_at_vote2 hsync2 hstepw2 hdil2 hwpt2 hone2 hmc2 hsyn2 hslp hcb hfn
-      hgst ht hvotes2 hvi hlbl2
+    have hlbl2 := (heq.1 k vj _).mp hlbl
+    have hchi := (chi_le_mfc hsync2 hstepw2 hdiv2 hdil2 hone2 hwpt2 hmc2 hsyn2 hrel2
+      hslp hcb hfn (le_refl _) hgst hκ hwin2 a2 w2 k vj s0 hv).2 hlbl2
+      (le_trans hta2 hta)
+    exact chainLe_trans hdom hchi
 
 end Majorum
