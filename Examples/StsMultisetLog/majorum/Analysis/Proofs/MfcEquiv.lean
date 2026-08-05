@@ -2134,4 +2134,40 @@ theorem agree_propose_at_tick (hn : n = Fintype.card Node)
         exact chainLe_trans hbound hchi
   exact mfc_propose_agree hskel h25
 
+/-- **Certificate validity crosses the correspondence**: the certified votes are
+    identified by signer, chain and slot — exactly what dynamic equivalence preserves —
+    and the fin-vote fields are existential in the check. Stated field-level, for the
+    Algorithm-2 side message carrying the same chain, certificate and slot. -/
+theorem validProposal2_of_cert {V5 V2 : View Node M}
+    (hcorr : ViewCorr V5 V2) {sm2 : SignedMsg Node M}
+    {chp chC : Chain Tx} {cert : QCert Node Tx} {ck2 : Checkpoint (Chain Tx)} {t' : Nat}
+    (hmsg2 : sm2.msg = .propose chp chC (some cert) ck2 t')
+    (hsender : sm2.sender = proposer t') (hpa : proposedAt chp = t')
+    (hchCle : chainLe chC chp)
+    (hcard : 2 * n ≤ 3 * (cert.image Prod.fst).card)
+    (hvotes : ∀ e ∈ cert, chainLe chC e.2.1 ∧ e.2.2 = t' - 1 ∧
+      ∃ src tgt : Checkpoint (Chain Tx),
+        (⟨e.1, Msg.vote e.2.1 src tgt e.2.2⟩ : SignedMsg Node M) ∈ V5) :
+    ValidProposal2 n proposer V2 sm2 := by
+  unfold ValidProposal2
+  rw [hmsg2]
+  refine ⟨hsender, hpa, hchCle, Or.inr ⟨cert, rfl, hcard, ?_⟩⟩
+  intro e he
+  obtain ⟨h1, h2, src, tgt, hmem⟩ := hvotes e he
+  refine ⟨h1, h2, ?_⟩
+  obtain ⟨sm', hsm', hsde⟩ := hcorr.1 _ hmem
+  obtain ⟨hsend', hde⟩ := hsde
+  rcases hm' : sm'.msg with ⟨chp', chC', qc', ck', τ'⟩ | ⟨e', src', tgt', τ'⟩ <;>
+    rw [hm'] at hde
+  · cases hde
+  · obtain ⟨hee, htt⟩ := hde
+    refine ⟨src', tgt', ?_⟩
+    have : sm' = ⟨e.1, Msg.vote e.2.1 src' tgt' e.2.2⟩ := by
+      cases sm' with
+      | mk sd mg =>
+          simp only at hsend' hm'
+          rw [← hsend', hm', ← hee, ← htt]
+    rw [← this]
+    exact hsm'
+
 end Majorum
