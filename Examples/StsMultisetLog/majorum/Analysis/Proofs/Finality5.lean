@@ -1277,4 +1277,147 @@ theorem justified_of_quorum_votes {V : View Node M} {C C' : Checkpoint (Chain Tx
   have := Finset.card_le_card hsub
   omega
 
+/-! ### Uniqueness: what a slot's honest agreement pins down -/
+
+set_option maxHeartbeats 1000000 in
+/-- **A slot's fast confirmation is exactly the chain its honest voters agreed on.** It is at
+    least `chp`, that being quorum-supported and a candidate; and at most `chp`, because its
+    own quorum holds an honest validator whose slot-`t` vote *is* `chp` and support flows down
+    from extensions. -/
+theorem fcs_eq_of_honest_agreement {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
+    (hone : OneTickPerReading x5) (hmc : S.MonotoneCorruption) (hmono : TimeMonotone x5)
+    (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < Fintype.card Node)
+    {t : Nat} {chp : Chain Tx} (hchp : chp ≠ []) {i : Nat} {w : Node}
+    (hsupp : 2 * Fintype.card Node ≤ 3 * (((votes x5[i][w].view).filter (fun sm =>
+      msgSlot sm.msg = t ∧ chainLe chp (msgChain sm.msg))).image SignedMsg.sender).card)
+    (hall : ∀ sm ∈ votes x5[i][w].view, msgSlot sm.msg = t →
+      sm.sender ∉ S.adv ((x5[i].time : Int)) → msgChain sm.msg = chp) :
+    (fastConfirmSimple (Fintype.card Node) x5[i][w].view t).1 = chp := by
+  have hcard : 0 < Fintype.card Node := by omega
+  -- `chp` is a candidate, so the fast confirmation is at least as long
+  have hcand : chp ∈ candidates x5[i][w].view ([] : Chain Tx) := by
+    have hpos : 0 < (((votes x5[i][w].view).filter (fun sm =>
+        msgSlot sm.msg = t ∧ chainLe chp (msgChain sm.msg))).image
+          SignedMsg.sender).card := by omega
+    rw [Finset.card_pos] at hpos
+    obtain ⟨q, hq⟩ := hpos
+    obtain ⟨sm, hsm, -⟩ := Finset.mem_image.mp hq
+    rw [Finset.mem_filter] at hsm
+    exact mem_candidates_of_extends hsm.1 hsm.2.2
+  have hlen := fastConfirmSimple_length_ge (n := Fintype.card Node) hchp hcand hsupp
+  have hpos : 0 < chp.length := by
+    cases hb : chp with
+    | nil => exact absurd hb hchp
+    | cons _ _ => simp [hb]
+  -- and its own quorum holds an honest validator, whose vote is `chp`
+  rcases fastConfirmSimple_fst_cases (n := Fintype.card Node) x5[i][w].view t
+    with h0 | hsuppF
+  · exfalso
+    rw [h0] at hlen
+    simp only [List.length_nil] at hlen
+    omega
+  · obtain ⟨q, hqmem, hqhon⟩ :=
+      exists_honest_sender (r := ((x5[i].time : Int))) hcb hfn hsuppF
+    obtain ⟨sm, hsm, hsmq⟩ := Finset.mem_image.mp hqmem
+    rw [Finset.mem_filter] at hsm
+    have hchain : msgChain sm.msg = chp :=
+      hall sm hsm.1 hsm.2.1 (by rw [hsmq]; exact hqhon)
+    -- the fast confirmation is below that vote's chain, hence below `chp`
+    have hle : chainLe (fastConfirmSimple (Fintype.card Node) x5[i][w].view t).1 chp := by
+      rw [← hchain]
+      exact hsm.2.2
+    -- with the length bound, the two are equal
+    exact chainLe_antisymm hle (chainLe_of_comparable _ _ (Or.inr hle) hlen)
+
+set_option maxHeartbeats 1000000 in
+/-- **Nothing above slot `t` is justified before slot `t+1`'s votes exist.** A justified
+    checkpoint is genesis or a link's target; the link's quorum holds an honest validator,
+    whose fin-vote's slot *is* that checkpoint slot — and an honest vote for slot `s` is not
+    in the log before `voting(s)`. -/
+theorem no_justified_above_slot {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
+    (hone : OneTickPerReading x5) (hmc : S.MonotoneCorruption) (hmono : TimeMonotone x5)
+    (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < Fintype.card Node)
+    {i : Nat} {w : Node} {t : Nat} (htime : x5[i].time < Q.slotLength * (t + 1) + Q.delta)
+    {C : Checkpoint (Chain Tx)} (hC : JustifiedIn (Fintype.card Node) x5[i][w].view C) :
+    C.c ≤ t := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  cases hC with
+  | genesis => exact Nat.zero_le t
+  | @link C₀ C₁ hjust hlk =>
+      obtain ⟨q, hqmem, hqhon⟩ :=
+        exists_honest_sender (r := ((x5[i].time : Int))) hcb hfn hlk.2.2
+      unfold linkVoters at hqmem
+      obtain ⟨sm, hsm, hsmq⟩ := Finset.mem_image.mp hqmem
+      rw [Finset.mem_filter] at hsm
+      obtain ⟨e, src, tgt, s, hmsg⟩ := exists_vote_of_mem_votes hsm.1
+      have hst : tgt = C := by
+        have h2 := hsm.2
+        rw [hmsg] at h2
+        exact h2.2
+      have hsmlog : sm ∈ x5[i].sent := by
+        have h := hsm.1
+        simp only [votes, Finset.mem_filter] at h
+        exact views_sound x5 i w _ h.1
+      have hhonsm : sm.sender ∉ S.adv ((x5[i].time : Int)) := by
+        rw [hsmq]
+        exact hqhon
+      obtain ⟨htgt, -⟩ := vote_fields5 hsync hmc hmono hsmlog hhonsm hmsg
+      have hvl := voting_le_of_vote_mem
+        (C := components (Fintype.card Node) kappa pool proposer) hsync hmc hmono hsmlog
+        hhonsm hmsg
+      rw [hst] at htgt
+      have hs : s ≤ t := by
+        by_contra hgt
+        have h1 : Q.slotLength * (t + 1) ≤ Q.slotLength * s :=
+          Nat.mul_le_mul_left _ (by omega)
+        omega
+      omega
+
+set_option maxHeartbeats 1000000 in
+/-- **A slot's justified checkpoint is the one its honest voters targeted.** Any justified
+    checkpoint of slot `t ≥ 1` is a link's target, its quorum holds an honest validator, and
+    that validator's fin-vote — whose slot is the checkpoint's — targets `T`. -/
+theorem justified_slot_unique {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
+    (hone : OneTickPerReading x5) (hmc : S.MonotoneCorruption) (hmono : TimeMonotone x5)
+    (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < Fintype.card Node)
+    {i : Nat} {w : Node} {t : Nat} (ht : 1 ≤ t) {T : Checkpoint (Chain Tx)}
+    (hall : ∀ sm ∈ votes x5[i][w].view, msgSlot sm.msg = t →
+      sm.sender ∉ S.adv ((x5[i].time : Int)) →
+      ∀ (e : Chain Tx) (src tgt : Checkpoint (Chain Tx)) (s : Nat),
+        sm.msg = .vote e src tgt s → tgt = T)
+    {C : Checkpoint (Chain Tx)} (hC : JustifiedIn (Fintype.card Node) x5[i][w].view C)
+    (hCc : C.c = t) : C = T := by
+  cases hC with
+  | genesis =>
+      exfalso
+      have h0 : (0 : Nat) = t := hCc
+      omega
+  | @link C₀ C₁ hjust hlk =>
+      obtain ⟨q, hqmem, hqhon⟩ :=
+        exists_honest_sender (r := ((x5[i].time : Int))) hcb hfn hlk.2.2
+      unfold linkVoters at hqmem
+      obtain ⟨sm, hsm, hsmq⟩ := Finset.mem_image.mp hqmem
+      rw [Finset.mem_filter] at hsm
+      obtain ⟨e, src, tgt, s, hmsg⟩ := exists_vote_of_mem_votes hsm.1
+      have hst : tgt = C := by
+        have h2 := hsm.2
+        rw [hmsg] at h2
+        exact h2.2
+      have hsmlog : sm ∈ x5[i].sent := by
+        have h := hsm.1
+        simp only [votes, Finset.mem_filter] at h
+        exact views_sound x5 i w _ h.1
+      have hhonsm : sm.sender ∉ S.adv ((x5[i].time : Int)) := by
+        rw [hsmq]
+        exact hqhon
+      obtain ⟨htgt, -⟩ := vote_fields5 hsync hmc hmono hsmlog hhonsm hmsg
+      have hslot : msgSlot sm.msg = t := by
+        rw [hmsg]
+        show s = t
+        rw [hst] at htgt
+        omega
+      rw [← hst]
+      exact hall sm hsm.1 hslot hhonsm e src tgt s hmsg
+
 end Majorum.Finality5
