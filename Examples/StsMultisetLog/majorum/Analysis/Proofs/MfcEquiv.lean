@@ -1153,6 +1153,14 @@ def ActiveVotesExtend5 (x5 : Exec Pr5 S) (t : Nat) (ch : Chain Tx) : Prop :=
     ⟪vote, e, src, tgt, t, p⟫ ∈ x5[i].sent ∧
     chainLe ch e
 
+/-- `ActiveVotesEq2`, on the Algorithm-5 side: every slot-`t` active's vote at the voting
+    reading is exactly `ch`. -/
+def ActiveVotesEq5 (x5 : Exec Pr5 S) (t : Nat) (ch : Chain Tx) : Prop :=
+  ∀ p ∈ Active Q S (t : Int),
+    ∃ (i : Nat) (src tgt : Checkpoint (Chain Tx)),
+    x5[i].time = Q.slotLength * t + Q.delta ∧
+    ⟪vote, ch, src, tgt, t, p⟫ ∈ x5[i].sent
+
 /-- Membership in a multiset difference is membership. -/
 theorem mem_of_mem_sub {α : Type} [DecidableEq α] {a b : Multiset α} {m : α}
     (h : m ∈ a - b) : m ∈ a := by
@@ -1276,6 +1284,68 @@ theorem activeVotesExtend_transfer' {x5 : Exec Pr5 S} {x2 : Exec Pr2 S}
       exact mem_of_mem_sub hsm5
     · rw [hee]
       exact hle
+
+/-- **The pinned votes transfer, Algorithm 2 → Algorithm 5**: the same pairing, with the
+    chain carried across untouched — a vote's chain is not a finality component, so
+    dynamic equivalence leaves it alone. -/
+theorem activeVotesEq_transfer' {x5 : Exec Pr5 S} {x2 : Exec Pr2 S}
+    (heq : MfcEquivalent x5 x2)
+    (hsync2 : SynchronizedClocks x2) (hmc : S.MonotoneCorruption)
+    (hmono2 : TimeMonotone x2) (hah : S.AwakeHonest)
+    (hsync5 : SynchronizedClocks x5)
+    {t : Nat} {ch : Chain Tx} (h : ActiveVotesEq2 x2 t ch) :
+    ActiveVotesEq5 x5 t ch := by
+  intro p hp
+  obtain ⟨i, src, tgt, htime, hmem⟩ := h p hp
+  have hδ := Q.deltaPos
+  have hhon : (⟪vote, ch, src, tgt, t, p⟫ :
+      SignedMsg Node M).sender ∉ S.adv ((x2[i].time : Int)) := by
+    show p ∉ S.adv ((x2[i].time : Int))
+    rw [htime]
+    have hawk : p ∈ S.awake ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+      refine mem_awakeThroughout.mp hp _ ?_ ?_ <;>
+        · show _
+          unfold Params.voting
+          push_cast
+          omega
+    exact Finset.disjoint_left.mp (hah _) hawk
+  obtain ⟨k, hki, hlblk, htimek, -, hem⟩ :=
+    vote_provenance2 hsync2 hmc hmono2 hmem hhon rfl
+  have hlbl5 : x5.lbl k = .tick p (Q.slotLength * t + Q.delta) :=
+    (heq.1 k p _).mpr hlblk
+  obtain ⟨sm5, hsm5, hsde⟩ := (heq.2.1 k p _ hlbl5).2 _ hem
+  obtain ⟨hsender, hde⟩ := hsde
+  rcases hmsg5 : sm5.msg with ⟨chp', chC', qc', ck', t'⟩ | ⟨e5, src5, tgt5, t5⟩ <;>
+    rw [hmsg5] at hde
+  · cases hde
+  · obtain ⟨hee, htt⟩ := hde
+    have htime5 : x5[k + 1].time = Q.slotLength * t + Q.delta := by
+      have h5 : x5[k + 1] = _ := exec5_succ (x5 := x5) k
+      have hclock : x5[k + 1][p].clock = Q.slotLength * t + Q.delta := by
+        rw [h5, hlbl5]
+        simp [applyNodeStepResult_getElem, setClock_getElem]
+      have ht5 : x5[k + 1].time = x5[k].time := by
+        rw [h5, hlbl5]
+        rfl
+      have hstep := x5.step k
+      rw [hlbl5] at hstep
+      have hawk : x5.Awake (k + 1) p := by
+        show p ∈ S.awake ((x5[k + 1].time : Int))
+        rw [ht5]
+        have h1 := hstep.1
+        simp only [spec] at h1
+        exact h1
+      have hs := hsync5 (k + 1) p hawk
+      rw [hclock] at hs
+      exact hs.symm
+    refine ⟨k + 1, src5, tgt5, htime5, ?_⟩
+    have hsm : sm5 = ⟪vote, e5, src5, tgt5, t, p⟫ := by
+      cases sm5 with
+      | mk sd mg =>
+          simp only at hsender hmsg5
+          rw [hsender, hmsg5, htt]
+    rw [← hee, ← hsm]
+    exact mem_of_mem_sub hsm5
 
 /-- **Lemma 11's votes half** (`Lemma 11, arXiv:2601.03862v1 p.21`): if every slot-`t`
     active votes an extension of `ch` in the Algorithm-5 run, so does every
@@ -1583,6 +1653,61 @@ theorem lemma12 (hn : n = Fintype.card Node)
       H2.wellformed.2.2.2.1 H2.wellformed.2.1 H5.wellformed.2.2.1 (hvotes2 t' ht')
   · intro t₀ ht₀
     exact mfc_bounds_of_ave2 rfl heq H5 H2 (le_trans ht ht₀) (hvotes2 t₀ ht₀)
+
+set_option maxHeartbeats 1000000 in
+/-- **Lemma 12 at the proposal's own slot, with the chain pinned**: every slot-`t` active
+    votes *exactly* `chp`, not merely an extension of it. Same route as `lemma12` — the
+    proposal's counterpart in the equivalent run, Algorithm 2's base case
+    (`Analysis2.activeVotesEq`), and the votes back across the equivalence, which carries
+    the chain untouched. Lemma 18 needs the equality: a slot's fast confirmation is read
+    off its honest votes, and an extension would not pin it. -/
+theorem activeVotesEq5_of_propose (hn : n = Fintype.card Node)
+    {x5 : Exec Pr5 S} {x2 : Exec Pr2 S}
+    (heq : MfcEquivalent x5 x2) (H5 : SettingGA Q S x5) (H2 : SettingGA Q S x2)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {ck : Checkpoint (Chain Tx)} {i : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc ck t⟩ : SignedMsg Node M) ∈ x5[i].sent)
+    (hhon_i : vp ∉ S.adv ((x5[i].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int))) :
+    ActiveVotesEq5 x5 t chp := by
+  subst hn
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨k, hki, hlbl, hem⟩ :=
+    propose_provenance5 H5.wellformed.2.2.1 H5.wellformed.1 H5.wellformed.2.2.2.1
+      hsent hhon_i rfl
+  obtain ⟨sm2, hsm2, hsender, hde⟩ := (heq.2.1 k vp _ hlbl).1 _ hem
+  rcases hmsg2 : sm2.msg with ⟨chp2, chC2, qc2, ck2, t2⟩ | ⟨e2, src2, tgt2, τ2⟩ <;>
+    rw [hmsg2] at hde
+  case vote => cases hde
+  case propose =>
+  obtain ⟨hchp, ht2⟩ := hde
+  have hsent2 : (⟨vp, Msg.propose chp chC2 qc2 ck2 t⟩ :
+      SignedMsg Node M) ∈ x2[k + 1].sent := by
+    have hid : sm2 = ⟨vp, Msg.propose chp chC2 qc2 ck2 t⟩ := by
+      cases sm2 with
+      | mk sd mg =>
+          simp only at hsender hmsg2
+          rw [← hsender, hmsg2, ← hchp, ← ht2]
+    rw [← hid]
+    exact mem_of_mem_sub hsm2
+  have hlbl2 := (heq.1 k vp _).mp hlbl
+  have H2' := H2
+  obtain ⟨⟨hmc2, hah2, hsync2, hmono2, -, -, -⟩, -, -, -, -, -, -, -⟩ := H2'
+  have htime2 : x2[k + 1].time = Q.slotLength * t := by
+    rw [tick_time hlbl2]
+    exact tick_reading hsync2 hlbl2
+  have hhon_i2 : vp ∉ S.adv ((x2[k + 1].time : Int)) := by
+    intro had
+    refine hhon_t (hmc2 _ _ ?_ had)
+    rw [htime2]
+    unfold Params.voting
+    push_cast
+    omega
+  exact activeVotesEq_transfer' heq H2.wellformed.2.2.1 H2.wellformed.1
+    H2.wellformed.2.2.2.1 H2.wellformed.2.1 H5.wellformed.2.2.1
+    (Analysis2.activeVotesEq H2 ht hsent2 hhon_i2 hhon_t)
 
 set_option maxHeartbeats 1000000 in
 /-- **Lemma 13** (`Lemma 13, arXiv:2601.03862v1 p.21`, the analogue of Lemma 5, for

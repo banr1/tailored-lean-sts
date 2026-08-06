@@ -1738,6 +1738,22 @@ def ActiveVotesExtend2 (x : Exec Pr2 S) (t : Nat) (ch : Chain Tx) : Prop :=
       ∈ x[i].sent ∧
     chainLe ch e
 
+/-- The same, with the voted chain pinned to `ch` rather than merely extending it. What an
+    honest proposal actually forces (`activeVotesEq_of_propose`), and what a slot's fast
+    confirmation needs to be read off its honest votes. -/
+def ActiveVotesEq2 (x : Exec Pr2 S) (t : Nat) (ch : Chain Tx) : Prop :=
+  ∀ p ∈ Active Q S (t : Int),
+    ∃ (i : Nat) (src tgt : Checkpoint (Chain Tx)),
+    x[i].time = Q.slotLength * t + Q.delta ∧
+    ⟪vote, ch, src, tgt, t, p⟫ ∈ x[i].sent
+
+/-- Voting exactly `ch` is voting an extension of it. -/
+theorem activeVotesExtend_of_eq {x : Exec Pr2 S} {t : Nat} {ch : Chain Tx}
+    (h : ActiveVotesEq2 x t ch) : ActiveVotesExtend2 x t ch := by
+  intro p hp
+  obtain ⟨i, src, tgt, htime, hmem⟩ := h p hp
+  exact ⟨i, ch, src, tgt, htime, hmem, chainLe_refl ch⟩
+
 set_option maxHeartbeats 1000000 in
 /-- **The propose-round half of Lemma 2, for Algorithm 2**: if every validator active in
     slot `t` voted for an extension of `ch`, then at `propose(t+1)` the fork-choice of any
@@ -3461,7 +3477,7 @@ set_option maxHeartbeats 3000000 in
     proposer's views, where `chp` extends the longest majority chain), so the proposal
     branch fires — and the sender check plus one-tick-per-reading pins the chosen chain
     to the proposer's one message. -/
-theorem activeVotesExtend_of_propose {x : Exec Pr2 S}
+theorem activeVotesEq_of_propose {x : Exec Pr2 S}
     (hsync : SynchronizedClocks x) (hstepw : TimeStepwise x) (hdiv : TimeDiverges x)
     (hdil : Diligent x) (hone : OneTickPerReading x) (hwpt : WakePrecedesTick x)
     (hmc : S.MonotoneCorruption)
@@ -3474,7 +3490,7 @@ theorem activeVotesExtend_of_propose {x : Exec Pr2 S}
       SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[i].sent)
     (hhon_i : vp ∉ S.adv ((x[i].time : Int)))
     (hhon_t : vp ∉ S.adv (Q.voting (t : Int))) :
-    ActiveVotesExtend2 x t chp := by
+    ActiveVotesEq2 x t chp := by
   obtain ⟨t0, rfl⟩ : ∃ t0, t = t0 + 1 := ⟨t - 1, by omega⟩
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
@@ -3756,7 +3772,26 @@ theorem activeVotesExtend_of_propose {x : Exec Pr2 S}
     refine hemit _ ?_
     rw [hsend]
     exact Multiset.mem_singleton_self _
-  exact ⟨j + 1, chp, dotj, dotj, by rw [tick_time hlblj, htj], hmem, chainLe_refl chp⟩
+  exact ⟨j + 1, dotj, dotj, by rw [tick_time hlblj, htj], hmem⟩
+
+/-- **Lemma 4's base case**, in the form Lemma 2's induction consumes: the vote extends
+    `chp`. -/
+theorem activeVotesExtend_of_propose {x : Exec Pr2 S}
+    (hsync : SynchronizedClocks x) (hstepw : TimeStepwise x) (hdiv : TimeDiverges x)
+    (hdil : Diligent x) (hone : OneTickPerReading x) (hwpt : WakePrecedesTick x)
+    (hmc : S.MonotoneCorruption)
+    (hsyn : Synchrony 0 Q.delta x) (hrel : Relay 0 Q.delta x) (hslp : Sleepiness Q S)
+    (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < n) (hcard : Fintype.card Node ≤ n)
+    (hgst : Q.gst = 0)
+    {t : Nat} (ht : 1 ≤ t) {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {ck : Checkpoint (Chain Tx)} {i : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc ck t⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[i].sent)
+    (hhon_i : vp ∉ S.adv ((x[i].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int))) :
+    ActiveVotesExtend2 x t chp :=
+  activeVotesExtend_of_eq (activeVotesEq_of_propose hsync hstepw hdiv hdil hone hwpt hmc
+    hsyn hrel hslp hcb hfn hcard hgst ht hsent hhon_i hhon_t)
 
 /-- **Lemma 7's engine**: if every slot-`t` active voted an extension of `chp` and there
     are at least `2n/3` actives, then any validator's fast-confirm tick of slot `t`

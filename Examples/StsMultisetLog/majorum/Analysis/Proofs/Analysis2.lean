@@ -78,6 +78,22 @@ theorem lemma4 {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
         hslp hcb hfn (le_refl _) hgst ht hsent hhon_i hhon_t
   | succ m hm ih => exact lemma2 H (by omega) ih
 
+/-- Lemma 4's base case with the voted chain pinned: at the proposal's own slot the votes
+    are exactly `chp`, not merely extensions of it. Only the base case admits this — from
+    slot `t+1` on, the fork choice may have grown. -/
+theorem activeVotesEq {x : Exec Pr2 S} (H : SettingGA Q S x) {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {ck : Checkpoint (Chain Tx)} {i : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc ck t⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x[i].sent)
+    (hhon_i : vp ∉ S.adv ((x[i].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int))) :
+    ActiveVotesEq2 x t chp := by
+  obtain ⟨⟨hmc, -, hsync, -, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
+    ⟨hcb, hfn⟩, hgst⟩ := H
+  exact activeVotesEq_of_propose hsync hstepw hdiv hdil hone hwpt hmc hsyn hrel
+    hslp hcb hfn (le_refl _) hgst ht hsent hhon_i hhon_t
+
 /-- Lemma 5, assembled — `chi_le_mfc`, the strong induction on the index of the last
     confirmed-chain write.
     Documented in `Analysis/Lemmas.lean`. -/
