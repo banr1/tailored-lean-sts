@@ -527,7 +527,7 @@ theorem components_prefixLe :
     simple fast-confirmations coincide by congruence, so either the bases are equal
     (`fastconfirm`'s quorum branch), or Algorithm 5's base is the justified chain —
     and then both bases are prefixes of the simulated output (2.5 and `base_le_mfc`),
-    hence comparable, the branch guard orients them, and the base swap closes. -/
+    hence comparable, the branch condition orients them, and the base swap closes. -/
 theorem mfc_propose_agree {V5 V2 : View Node M} {t : Nat}
     (hskel : voteSkel V5 = voteSkel V2)
     (h25 : chainLe (gj n V5).ch
@@ -540,15 +540,15 @@ theorem mfc_propose_agree {V5 V2 : View Node M} {t : Nat}
   rw [components_mfc]
   unfold Components.fastConfirm
   rw [components_fastConfirmSimple, components_gj, components_prefixLe, hfcs]
-  by_cases hguard : chainLe (gj n V5).ch (fastConfirmSimple n V2 (t - 1)).1
-  · rw [if_pos hguard]
+  by_cases hcond : chainLe (gj n V5).ch (fastConfirmSimple n V2 (t - 1)).1
+  · rw [if_pos hcond]
     exact mfc_congr hskel hskel (Finset.Subset.refl _) (Finset.Subset.refl _) _ t
-  · rw [if_neg hguard]
+  · rw [if_neg hcond]
     have hb2le : chainLe (fastConfirmSimple n V2 (t - 1)).1
         (mfc V2 V2 (fastConfirmSimple n V2 (t - 1)).1 t) := base_le_mfc V2 V2 _ t
     have hb2b5 : chainLe (fastConfirmSimple n V2 (t - 1)).1 (gj n V5).ch := by
       rcases comparable_of_common_extension h25 hb2le with h | h
-      · exact absurd h hguard
+      · exact absurd h hcond
       · exact h
     have hswap : mfc V2 V2 (gj n V5).ch t
         = mfc V2 V2 (fastConfirmSimple n V2 (t - 1)).1 t :=
@@ -918,7 +918,7 @@ theorem chAva_step5 {x5 : Exec Pr5 S} {m : Nat} {p : Node} :
       rw [h5, h]
       rfl
 
-/-- A guarded-max fold lands on its seed or a list element. -/
+/-- A conditional-max fold lands on its seed or a list element. -/
 theorem foldl_maxCh_mem {C : Components Node (Chain Tx) (QCert Node Tx)}
     {Mb : Chain Tx} (l : List (Chain Tx)) (init : Chain Tx) :
     l.foldl (fun acc ch => if C.prefixLe ch Mb then C.maxCh acc ch else acc) init = init ∨
@@ -1038,7 +1038,7 @@ theorem processProposals_chFrozen (V : View Node M) (t : Nat)
         | vote ch src tgt t' => exact Or.inl rfl
         | propose chp chC qc gjp t' =>
             dsimp only
-            -- split the guarded checkpoint block first: its condition is `ite`-free
+            -- split the conditional checkpoint block first: its condition is `ite`-free
             by_cases hg : t' = t ∧
                 (components n kappa pool proposer).validProposal V
                   ⟨asd, .propose chp chC qc gjp t'⟩ ∧
@@ -1098,7 +1098,7 @@ def HonestProposalWindow5 (x5 : Exec Pr5 S) : Prop :=
       (⟨vp, Msg.propose chp chC qc ck tp⟩ : SignedMsg Node M) ∈ x5[i].sent ∧
       vp ∉ S.adv ((x5[i].time : Int)) ∧ vp ∉ S.adv (Q.voting (tp : Int))
 
-/-- **Definition 9** (`Definition 9, arXiv:2601.03862v1 p.18`): an Algorithm-5 and an
+/-- **Definition 9** (`Definition 9, arXiv:2601.03862v1 p.19`): an Algorithm-5 and an
     Algorithm-2 run over one schedule are **MFC-equivalent** when they take the same
     non-delivery steps and, at every shared tick:
     * (condition 1, the paper's 2.7 rephrasing) the two log deltas — the handlers'
@@ -1277,7 +1277,7 @@ theorem activeVotesExtend_transfer' {x5 : Exec Pr5 S} {x2 : Exec Pr2 S}
     · rw [hee]
       exact hle
 
-/-- **Lemma 11's votes half** (`Lemma 11, arXiv:2601.03862v1 p.20`): if every slot-`t`
+/-- **Lemma 11's votes half** (`Lemma 11, arXiv:2601.03862v1 p.21`): if every slot-`t`
     active votes an extension of `ch` in the Algorithm-5 run, so does every
     slot-`t+1` active — across the equivalence and back, through Lemma 2 on the
     Algorithm-2 side. The quorum threshold is the structural validator count, as in
@@ -1435,7 +1435,7 @@ theorem mfc_bounds_of_ave2 (hn : n = Fintype.card Node)
       hgst ht hvotes2 hvi hlbl2
 
 set_option maxHeartbeats 1000000 in
-/-- **Lemma 11** (`Lemma 11, arXiv:2601.03862v1 p.20`, the analogue of Lemma 2, for
+/-- **Lemma 11** (`Lemma 11, arXiv:2601.03862v1 p.21`, the analogue of Lemma 2, for
     Algorithm 5): if every slot-`t` active votes an extension of `ch`, then at every
     slot-`t+1` active's propose and vote ticks the fork choice extends `ch`, and every
     slot-`t+1` active votes an extension of `ch`. Proof: transfer the votes to the
@@ -1504,7 +1504,7 @@ theorem propose_provenance5 {x5 : Exec Pr5 S}
 
 
 set_option maxHeartbeats 1000000 in
-/-- **Lemma 12** (`Lemma 12, arXiv:2601.03862v1 p.20`, the analogue of Lemma 4, for
+/-- **Lemma 12** (`Lemma 12, arXiv:2601.03862v1 p.21`, the analogue of Lemma 4, for
     Algorithm 5): an honest proposer's slot-`t` proposal is voted for — every later
     slot's actives vote extensions of `chp`, and from `t+1` on both fork choices
     extend it. Proof: the proposal crosses to the equivalent run at its emitting tick
@@ -1585,7 +1585,7 @@ theorem lemma12 (hn : n = Fintype.card Node)
     exact mfc_bounds_of_ave2 rfl heq H5 H2 (le_trans ht ht₀) (hvotes2 t₀ ht₀)
 
 set_option maxHeartbeats 1000000 in
-/-- **Lemma 13** (`Lemma 13, arXiv:2601.03862v1 p.20`, the analogue of Lemma 5, for
+/-- **Lemma 13** (`Lemma 13, arXiv:2601.03862v1 p.21`, the analogue of Lemma 5, for
     Algorithm 5): any honest validator's available chain is below any later active's
     fork choice, at both readings. Proof: the state-level dominance (conditions
     2.3/2.4) hands the chain to some Algorithm-2 confirmed chain of no later a time,
@@ -1950,15 +1950,15 @@ theorem frozen_at_vote_tick5 {x5 : Exec Pr5 S}
   rw [hmstate.1, hmstate.2.1, hmstate.2.2] at hsj
   exact ⟨im, himj, htim, hlblm, hsj.1, hsj.2.1, hsj.2.2⟩
 
-/-! ### The prefix-guarded fold is a maximum, under comparability -/
+/-! ### The prefix-conditioned fold is a maximum, under comparability -/
 
-/-- **A `⪯`-guarded fold dominates every value comparable with its whole run**: the
+/-- **A `⪯`-conditioned fold dominates every value comparable with its whole run**: the
     accumulator only grows, so at the position of any value the scan's accumulator is
     below the final one; if the value tops the final accumulator, comparability makes
-    the guard fire there — contradiction. Stated over an abstract write-step
+    the condition fire there — contradiction. Stated over an abstract write-step
     `step acc v = if acc ⪯ v then v else acc` shape via the hypothesis that each fold
     step either keeps the accumulator or moves to something above it, and fires
-    whenever the guard holds. -/
+    whenever the condition holds. -/
 theorem chainLe_foldl_of_comparable {l : List (Chain Tx)}
     {seed : Chain Tx} {O : Chain Tx}
     (hseed : chainLe seed O) (hl : ∀ v ∈ l, chainLe v O)
@@ -1984,7 +1984,7 @@ theorem chainLe_foldl_of_comparable {l : List (Chain Tx)}
   | cons c l ih =>
       rw [List.foldl_cons]
       rcases List.mem_cons.mp hv with rfl | hvl
-      · -- `v` is scanned now: the guard fires or the accumulator already tops it
+      · -- `v` is scanned now: the condition fires or the accumulator already tops it
         by_cases h : chainLe seed v
         · rw [if_pos h]
           exact hmono l v
@@ -2399,10 +2399,10 @@ theorem chFrozen5_le_voteMfc (hn : n = Fintype.card Node)
   unfold Components.fastConfirm
   rw [components_fastConfirmSimple, components_gj, components_prefixLe]
   dsimp only
-  by_cases hguard : chainLe (gj n x5[im][p].view).ch
+  by_cases hcond : chainLe (gj n x5[im][p].view).ch
       (fastConfirmSimple n x5[im][p].view s1).1
   · -- the quorum branch: the simulated run froze the congruent value
-    rw [if_pos hguard]
+    rw [if_pos hcond]
     have hlbl2 : (simulate x5).lbl k
         = .tick p (Q.slotLength * (s1 + 1) + Q.delta) := simLbl_tick_iff.mpr hlbl
     obtain ⟨im2, him2k, htim2, hlblm2, -, hcf2⟩ :=
@@ -2421,7 +2421,7 @@ theorem chFrozen5_le_voteMfc (hn : n = Fintype.card Node)
     rw [hfcs, ← hcf2]
     exact chainLe_trans (processProposals2_chFrozen_mono _ _ _) (base_le_mfc _ _ _ _)
   · -- the greatest-justified branch: descend
-    rw [if_neg hguard]
+    rw [if_neg hcond]
     have hj := gj_justified n x5[im][p].view
     exact justified_le_voteMfc hn H5 H2 hκ hwin2 hD hlbl hgate (le_of_lt himk) hj
 
@@ -2786,7 +2786,7 @@ theorem cert_le_voteMfc (hn : n = Fintype.card Node)
 
 /-- **A fold whose every step stays under a bound and never descends**: the conclusion for
     the whole list, from the per-step fact. Stated over an abstract step so the concrete
-    fold's guard tree is never spelled out. -/
+    fold's condition tree is never spelled out. -/
 theorem foldl_bounded_mono {α : Type}
     {f : NodeState Node (Chain Tx) (QCert Node Tx) → α →
       NodeState Node (Chain Tx) (QCert Node Tx)}
@@ -2965,7 +2965,7 @@ set_option maxHeartbeats 2000000 in
     by `cert_votes_transfer`); an honest emission's counterpart is the very message the
     tick sent, and its `chC` is `fastconfirm`'s — the `fastconfirmsimple` branch gives the
     *same* chain and certificate by congruence, while the `GJ` branch gives the greatest
-    justified chain, which the branch guard puts *above* the simulated one (comparability
+    justified chain, which the branch condition puts *above* the simulated one (comparability
     under the common bound `O`). Honest relay carries the proposer's evidence into the
     voter's view, so the justified rung is checkable there. -/
 theorem valid2_counterpart5 (hn : n = Fintype.card Node)
@@ -3254,7 +3254,7 @@ set_option maxHeartbeats 1000000 in
 /-- **The simulated run's merge seed sits below Algorithm 5's**: at slot `0` both are
     genesis; later the two runs merge at the very same tick (`OneTickPerReading` on the
     labels) and their `fastconfirmsimple`s are congruence-equal there, so Algorithm 5's
-    merge either *is* that value or is the greatest justified chain — whose branch guard
+    merge either *is* that value or is the greatest justified chain — whose branch condition
     says it does not extend the fast-confirmed chain, and comparability under the common
     bound then puts it above. -/
 theorem seed2_le_seed5 (hn : n = Fintype.card Node)
@@ -3792,7 +3792,7 @@ theorem sends_correspond {x5 : Exec Pr5 S} {k : Nat} (hTD : TableDynEq x5 (k + 1
       exact h
 
 set_option maxHeartbeats 1000000 in
-/-- **Lemma 10** (`Lemma 10, arXiv:2601.03862v1 p.18`): every compliant Algorithm-5 run has
+/-- **Lemma 10** (`Lemma 10, arXiv:2601.03862v1 p.19`): every compliant Algorithm-5 run has
     an MFC-equivalent compliant Algorithm-2 run — `simulate x5`, the run built by replaying
     the original's schedule against Algorithm 2. Its compliance is `sim_settingGA`; the
     equivalence's five conditions are the label transfer, the emission correspondence, and

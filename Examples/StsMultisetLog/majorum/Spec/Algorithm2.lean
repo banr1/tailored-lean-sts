@@ -139,9 +139,9 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     -- Line 22 runs only once active: the κ-deep rule reads the *frozen* snapshots, and a
     -- validator that slept through the merge round has stale ones — κ-deep-confirming
     -- from them is unsound (fifth authors'-note finding; see `CONTEXT.md`, 2026-08-04,
-    -- Lemma 5 is false without this guard). The joining protocol's silence is read as
+    -- Lemma 5 is false without this condition). The joining protocol's silence is read as
     -- covering the frozen-state-dependent confirmation rule, not just the sends; the
-    -- fast-confirmation rule below stays unguarded — it reads the current view, and any
+    -- fast-confirmation rule below stays unconditional — it reads the current view, and any
     -- `2n/3` quorum there is network-anchored.
     let chi :=
       if s.activeAt ≤ r then
@@ -152,7 +152,7 @@ noncomputable def handler2 (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
     return { state := { s' with chi := chi },
              send := if s.activeAt ≤ r then {.vote ch dot dot slot} else 0 }
   else if phase = 2 * Q.delta then
-    -- Fast Confirm, lines 26–29 — with **Algorithm 5's line-23 guard** (`if chAva ⪰̸
+    -- Fast Confirm, lines 26–29 — with **Algorithm 5's line-23 condition** (`if chAva ⪰̸
     -- fastcand then chAva ← fastcand`): Algorithm 2's own line 29 is a plain
     -- `Chi ← fastcand`, which lets an adversarially completed quorum on an old prefix
     -- of the confirmed chain regress `Ch` below an already-κ-confirmed proposal,

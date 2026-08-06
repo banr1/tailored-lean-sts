@@ -77,7 +77,7 @@ noncomputable def handler2Core (Q : Params) (n kappa : Nat) (pool : Nat → Tx)
       -- a joining validator executes silently
       send := if s.activeAt ≤ r then {.vote pick dot dot slot} else 0 }
   else if phase = 2 * Q.delta then
-    -- Fast Confirm, lines 26–29, with Algorithm 5's line-23 guard (see `handler2`)
+    -- Fast Confirm, lines 26–29, with Algorithm 5's line-23 condition (see `handler2`)
     let fq := fastConfirmSimple n V slot
     let sF :=
       if fq.2.isSome then
@@ -918,7 +918,7 @@ theorem processProposals2_chFrozen (V : View Node (Msg (Chain Tx) (QCert Node Tx
         · exact Or.inr h
   exact hgen V.toList (fun a ha => (Finset.mem_toList).mp ha) s
 
-/-- `processProposals2` only ever *extends* `chFrozen`: the lines 33–36 guard requires
+/-- `processProposals2` only ever *extends* `chFrozen`: the lines 33–36 condition requires
     the incoming fast-confirmed chain to extend the current one. -/
 theorem processProposals2_chFrozen_mono (V : View Node (Msg (Chain Tx) (QCert Node Tx)))
     (t : Nat) (s : NodeState2 Node Tx) :
@@ -1467,8 +1467,8 @@ theorem chi_step2 {x : Exec Pr2 S} {m : Nat} {p : Node} :
       (proposer := proposer) (dot := dt) (pick := pk) (p := p) (r := tr)
       (V := x[m][p].view) (s := x[m][p].st) hph1
     rw [hstate] at hst
-    by_cases hguard : (x[m][p].st).activeAt ≤ tr
-    · rw [if_pos hguard] at hst
+    by_cases hcond : (x[m][p].st).activeAt ≤ tr
+    · rw [if_pos hcond] at hst
       have hchi : x[m + 1][p].st.chi
           = [(processProposals2 n proposer (x[m][p].view) (tr / Q.slotLength)
               (x[m][p].st)).chi,
@@ -1490,11 +1490,11 @@ theorem chi_step2 {x : Exec Pr2 S} {m : Nat} {p : Node} :
       rw [List.foldl_cons, List.foldl_cons, List.foldl_nil] at hchi
       split_ifs at hchi <;>
         first
-          | exact Or.inr (Or.inl ⟨tr / Q.slotLength, htr ▸ hr, htr ▸ hguard, hchi⟩)
+          | exact Or.inr (Or.inl ⟨tr / Q.slotLength, htr ▸ hr, htr ▸ hcond, hchi⟩)
           | exact Or.inl (by
               rw [hchi]
               exact processProposals2_chi _ _ _)
-    · rw [if_neg hguard] at hst
+    · rw [if_neg hcond] at hst
       refine Or.inl ?_
       rw [hst]
       exact processProposals2_chi _ _ _
@@ -4038,7 +4038,7 @@ theorem chi_le_mfc {x : Exec Pr2 S}
         fun _ _ _ => by rw [h0]; exact chainLe_nil _⟩
   | succ a ih =>
       intro vi b vj s0
-      rcases chi_step2 (x := x) (m := a) (p := vi) with hun | ⟨ti, hlbl, hguard, hchieq⟩ |
+      rcases chi_step2 (x := x) (m := a) (p := vi) with hun | ⟨ti, hlbl, hcond, hchieq⟩ |
         ⟨ti, hlbl, hqsome, -, hchieq⟩
       · -- untouched: inherit
         have hle : x[a].time ≤ x[a + 1].time := time_le_of_le hmono (Nat.le_succ a)
@@ -4051,7 +4051,7 @@ theorem chi_le_mfc {x : Exec Pr2 S}
         have hta1 : x[a + 1].time = x[a].time := tick_time hlbl
         have hMok := mfc_vote_ok hsync hstepw hdiv hdil hone hwpt hmc hsyn hslp hcb hfn
           hcard hgst (p := vi) (s := ti)
-          (fun h1 => active_of_open_join hsync hstepw hdil hwpt h1 hlbl hta hguard) hlbl
+          (fun h1 => active_of_open_join hsync hstepw hdil hwpt h1 hlbl hta hcond) hlbl
         by_cases hshort : ti < kappa
         · -- below `κ`, nothing qualifies: the prefix is genesis
           have hnil : x[a + 1][vi].st.chi = [] := by
@@ -4078,7 +4078,7 @@ theorem chi_le_mfc {x : Exec Pr2 S}
           have hvi_act : vi ∈ Active Q S ((t0 : Int) + 1) := by
             have hcast : (((t0 + 1 : Nat)) : Int) = (t0 : Int) + 1 := by push_cast; omega
             rw [← hcast]
-            exact active_of_open_join hsync hstepw hdil hwpt (by omega) hlbl hta hguard
+            exact active_of_open_join hsync hstepw hdil hwpt (by omega) hlbl hta hcond
           have hchpM := le_mfc_at_vote2 hsync hstepw hdil hwpt hone hmc hsyn hslp hcb hfn
             hgst (by omega : 1 ≤ t0) (hAVE t0 (by omega)) hvi_act hlbl
           have habs : chainLe (kappaPrefix kappa (t0 + 1) (mfc (processProposals2
@@ -4164,7 +4164,7 @@ set_option maxHeartbeats 3000000 in
     the prefix through the fork choice by Lemma 5's engine. From there the bound
     persists: later κ-deep writes retain `chp` the same way, and a fast-confirm write
     either adopts a chain extending `chp` or — when the quorum chain is `⪯ chp`, hence
-    `⪯` the current chain — is stopped by Algorithm 5's line-23 guard. -/
+    `⪯` the current chain — is stopped by Algorithm 5's line-23 condition. -/
 theorem le_chi_of_honest_proposal {x : Exec Pr2 S}
     (hsync : SynchronizedClocks x) (hstepw : TimeStepwise x) (hdiv : TimeDiverges x)
     (hdil : Diligent x) (hone : OneTickPerReading x) (hwpt : WakePrecedesTick x)
@@ -4324,10 +4324,10 @@ theorem le_chi_of_honest_proposal {x : Exec Pr2 S}
             rw [htj] at h1
             exact h1
           rcases chi_step2 (x := x) (m := m) (p := vi) with hun |
-            ⟨t', hlbl', hguard', hchieq'⟩ | ⟨t', hlbl', hq', hgneg', hchieq'⟩
+            ⟨t', hlbl', hcond', hchieq'⟩ | ⟨t', hlbl', hq', hgneg', hchieq'⟩
           · rw [hun]
             exact hprev
-          · -- a later guarded κ-deep write retains `chp` the same way
+          · -- a later conditional κ-deep write retains `chp` the same way
             have hta' : x[m].time = Q.slotLength * t' + Q.delta :=
               tick_reading hsync hlbl'
             have ht's : s0 + 1 ≤ t' := by
@@ -4339,12 +4339,12 @@ theorem le_chi_of_honest_proposal {x : Exec Pr2 S}
                 push_cast; omega
               rw [← hcast]
               exact active_of_open_join hsync hstepw hdil hwpt (by omega) hlbl'
-                hta' hguard'
+                hta' hcond'
             have hchpM' := le_mfc_at_vote2 hsync hstepw hdil hwpt hone hmc hsyn hslp
               hcb hfn hgst (by omega : 1 ≤ t'0) (hAVE t'0 (by omega)) hAct' hlbl'
             rw [hchieq']
             exact le_kappaPrefix_of_stale hchpM' hchp_sorted (by rw [hpa]; omega)
-          · -- a fast-confirm write: comparable with `chp`, and the line-23 guard
+          · -- a fast-confirm write: comparable with `chp`, and the line-23 condition
             -- blocks the regressive direction
             have hta' : x[m].time = Q.slotLength * t' + 2 * Q.delta :=
               tick_reading hsync hlbl'

@@ -240,7 +240,7 @@ theorem mem_handler_send {pick : Chain Tx} {p : Node} {r : Time}
           r % Q.slotLength = Q.delta)) := by
   simp only [handlerCore, apply_ite NodeStepResult.send] at h
   -- the sends-nothing leaves close on `m ∈ 0`; the two sending leaves survive with
-  -- `h : m = …` and their guards in context, retrieved anonymously so the proof does not
+  -- `h : m = …` and their conditions in context, retrieved anonymously so the proof does not
   -- depend on how `split_ifs` numbers the leaf tree
   split_ifs at h <;> simp at h <;> subst h <;>
     first

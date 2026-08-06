@@ -373,7 +373,7 @@ theorem sim_activeAt {x5 : Exec Pr5 S} (k : Nat) (q : Node) :
           simp only [simStep, h]
           exact ih
 
-/-- The two handlers send together or not at all: the branch guards read only the
+/-- The two handlers send together or not at all: the branch conditions read only the
     phase, the proposer, and `activeAt` — equal across the simulation. -/
 theorem sends_align {view5 : View Node M} {st5 : NodeState Node (Chain Tx) (QCert Node Tx)}
     {view2 : View Node M} {st2 : NodeState2 Node Tx} {pk5 pk2 : Chain Tx}

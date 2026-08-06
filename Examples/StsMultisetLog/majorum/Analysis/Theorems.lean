@@ -288,7 +288,7 @@ theorem theorem3 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     chp ⪯ x5[a][vi].st.chAva ∨ x5[a][vi].st.chAva ⪯ chp :=
   Availability5.theorem3 H hκ hwin htp hsent hhon_i hhon_t a vi
 
-/-- **Theorem 4** (`Theorem 4, arXiv:2601.03862v1 p.21`, for Algorithm 5). "Algorithm
+/-- **Theorem 4** (`Theorem 4, arXiv:2601.03862v1 p.22`, for Algorithm 5). "Algorithm
     `3sf-tob-noga` is dynamically-available w.o.p." — Definition 4 for `chainava`, with
     `Tconf = 8κΔ + Δ` as in Theorem 2.
 
@@ -318,7 +318,7 @@ theorem theorem4 {x5 : Exec Pr5 S} {τ : Type}
       ∀ tx ∈ poolSet r, ∃ b ∈ x5[a][vi].st.chAva, memTx tx b.txs) :=
   Availability5.theorem4 memTx poolSet hmonoP hcover H hκ hwin
 
-/-- **Theorem 5** (`Theorem 5, arXiv:2601.03862v1 p.22`, Accountable Safety). The finalized
+/-- **Theorem 5** (`Theorem 5, arXiv:2601.03862v1 p.23`, Accountable Safety). The finalized
     chain is `n/3`-accountable: on a safety violation between two honest validators, the
     messages sent name at least `n/3` validators, and no validator is ever named while
     honest.

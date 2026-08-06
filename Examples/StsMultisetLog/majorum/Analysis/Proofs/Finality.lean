@@ -223,7 +223,7 @@ theorem lemma8 {n : Nat} (hcard : Fintype.card Node ≤ n)
             exact hle (chainLe_trans hfA hAchj)
           · exact hslash
 
-/-- **Lemma 9, in full** (`Lemma 9, arXiv:2601.03862v1 p.17`). Two conflicting chains
+/-- **Lemma 9, in full** (`Lemma 9, arXiv:2601.03862v1 p.18`). Two conflicting chains
     finalized according to any two views put `n/3` validators on record: finalization
     implies justification, Lemma 8 makes the finalized checkpoints' chains nested, and
     two prefixes of one chain cannot conflict. -/

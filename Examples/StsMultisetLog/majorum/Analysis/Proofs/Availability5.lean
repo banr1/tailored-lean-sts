@@ -25,7 +25,7 @@ rather than a fast-confirmed one:
   proof ("consider the following additional case"). Here it is discharged by the same
   argument in both: a justified chain descends to some honest validator's available chain
   (`justified_to_voteChAva`), which Theorem 3 puts in order with the proposal, and the
-  branch's own guard closes it.
+  branch's own condition closes it.
 -/
 
 set_option autoImplicit false
@@ -64,7 +64,7 @@ theorem chAva_comparable {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ 
   · exact comparable_of_common_extension (chainLe_trans h1 h) h2
   · exact comparable_of_common_extension h1 (chainLe_trans h2 h)
 
-/-- A guarded maximum fold never descends below its starting point. -/
+/-- A conditional maximum fold never descends below its starting point. -/
 theorem foldl_max_ge (Mb : Chain Tx) :
     ∀ (l : List (Chain Tx)) (acc : Chain Tx),
       chainLe acc (l.foldl (fun acc ch =>
@@ -338,7 +338,7 @@ set_option maxHeartbeats 1000000 in
     justified chain descends to some honest validator's available chain
     (`justified_to_voteChAva`); Theorem 3 puts `chp` in order with that chain; and every
     order that would leave `chp` outside the justified chain also puts the justified chain
-    below the fast-confirmed one, against the branch's own guard. -/
+    below the fast-confirmed one, against the branch's own condition. -/
 theorem lemma14 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
     {t : Nat} (ht : 1 ≤ t)

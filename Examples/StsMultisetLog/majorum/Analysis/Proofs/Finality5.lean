@@ -149,7 +149,7 @@ theorem vote_tick_gjFrozen5 {x5 : Exec Pr5 S} {k : Nat} {w : Node} {t : Time}
 
 set_option maxHeartbeats 1000000 in
 /-- **One step never lowers the frozen checkpoint's slot.** The vote tick writes the
-    proposal fold's value, which is behind the `≤`-guard; the merge tick writes `GJ` of the
+    proposal fold's value, which is behind the `≤` condition; the merge tick writes `GJ` of the
     current view, which dominates the old frozen checkpoint because that one is justified
     there (`gjFrozen_justified`) and `GJ` is greatest. -/
 theorem gjFrozen_c_step5 {x5 : Exec Pr5 S} (hcard : 0 < Fintype.card Node)
@@ -259,7 +259,7 @@ set_option maxHeartbeats 1000000 in
     The paper's two observations, in Lean: an honest validator sends one vote per slot
     (`honest_vote_unique`) and its target's checkpoint slot *is* that slot, which rules out
     **E1**; and its source is the frozen greatest-justified checkpoint, whose slot never
-    falls (`gjFrozen_c_mono`, over the proposal fold's `≤`-guard and `GJ`'s maximality at
+    falls (`gjFrozen_c_mono`, over the proposal fold's `≤` condition and `GJ`'s maximality at
     merges), which rules out **E2** — a later vote cannot reach back past an earlier
     one's source. -/
 theorem lemma15 {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5) (hmono : TimeMonotone x5)
@@ -682,7 +682,7 @@ theorem gf_le_gj {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
     exact le_gj_c_of_justified hcard hfin.1
 
 /-- `GJ`'s chain is below the merge value on either branch of `fastconfirm`: the quorum
-    branch is guarded by exactly that, and the other branch *is* `GJ`'s chain. -/
+    branch requires exactly that, and the other branch *is* `GJ`'s chain. -/
 theorem gj_le_fastConfirm (V : View Node M) (t : Nat) :
     chainLe (gj (Fintype.card Node) V).ch
       ((components (Fintype.card Node) kappa pool proposer).fastConfirm V t).1 := by
@@ -850,7 +850,7 @@ theorem chFin_le_chAva5 {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
         exact chainLe_trans (gf_le_gj hsync hmono hone hmc hcb hfn) hgja
 
 set_option maxHeartbeats 1000000 in
-/-- **Lemma 16** (`Lemma 16, arXiv:2601.03862v1 p.22`). A validator's finalized chain only
+/-- **Lemma 16** (`Lemma 16, arXiv:2601.03862v1 p.23`). A validator's finalized chain only
     grows.
 
     The paper argues by contradiction on the first violating round; here it is a plain

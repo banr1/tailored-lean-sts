@@ -54,7 +54,7 @@ local notation "Pr2" => protocol2 Q (Fintype.card Node) kappa pool proposer
 local notation "Pr5" =>
   protocol (components (Fintype.card Node) kappa pool proposer) Q
 
-/-- **Lemma 2** (`Lemma 2, arXiv:2601.03862v1 p.8`, for Algorithm 2). If, in slot `t`,
+/-- **Lemma 2** (`Lemma 2, arXiv:2601.03862v1 p.14`, for Algorithm 2). If, in slot `t`,
     all validators in `H_vote(t)` send vote messages for chains extending `ch`, then, in
     slot `t+1`, all validators in `H_vote(t+1)` send vote messages for chains extending
     `ch`.
@@ -227,7 +227,7 @@ theorem lemma8 {V1 V2 : View Node (Msg (Chain Tx) (QCert Node Tx))}
       ∀ w ∈ W, SlashableIn (V1 ∪ V2) w :=
   Finality.lemma8 (le_refl _) hfin hjust hcle
 
-/-- **Lemma 9** (`Lemma 9, arXiv:2601.03862v1 p.17`). Assume `f ∈ [0, n]`. If two
+/-- **Lemma 9** (`Lemma 9, arXiv:2601.03862v1 p.18`). Assume `f ∈ [0, n]`. If two
     conflicting chains are finalized according to any two respective views, then at
     least `n/3` validators can be detected to have violated E1 or E2.
 
@@ -244,7 +244,7 @@ theorem lemma9 {V1 V2 : View Node (Msg (Chain Tx) (QCert Node Tx))}
       ∀ w ∈ W, SlashableIn (V1 ∪ V2) w :=
   Finality.lemma9 (le_refl _) h1 h1le h2 h2le hc12 hc21
 
-/-- **Lemma 10** (`Lemma 10, arXiv:2601.03862v1 p.18`). For every compliant Algorithm-5
+/-- **Lemma 10** (`Lemma 10, arXiv:2601.03862v1 p.19`). For every compliant Algorithm-5
     run there is a compliant Algorithm-2 run that is *MFC-equivalent* to it
     (Definition 9): the two agree on ticks, on emissions up to dynamic equivalence
     (Definition 8), on both rounds' fork-choice outputs, and the Algorithm-5 available
@@ -262,7 +262,7 @@ theorem lemma10 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     ∃ x2 : Exec Pr2 S, SettingGA Q S x2 ∧ MfcEquiv.MfcEquivalent x5 x2 :=
   ⟨simulate x5, MfcEquiv.lemma10 rfl H hκ hwin⟩
 
-/-- **Lemma 11** (`Lemma 11, arXiv:2601.03862v1 p.20`, the analogue of Lemma 2, for
+/-- **Lemma 11** (`Lemma 11, arXiv:2601.03862v1 p.21`, the analogue of Lemma 2, for
     Algorithm 5). If every slot-`t` active votes for a chain extending `ch`, then the fork
     choice extends `ch` at every slot-`t+1` active's propose and vote ticks, and every
     slot-`t+1` active votes for a chain extending `ch`.
@@ -292,7 +292,7 @@ theorem lemma11 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
   let hpair := MfcEquiv.lemma10 rfl H hκ hwin
   MfcEquiv.lemma11 rfl hpair.2 H hpair.1 ht h
 
-/-- **Lemma 12** (`Lemma 12, arXiv:2601.03862v1 p.20`, the analogue of Lemma 4, for
+/-- **Lemma 12** (`Lemma 12, arXiv:2601.03862v1 p.21`, the analogue of Lemma 4, for
     Algorithm 5). An honest proposer's slot-`t` proposal is voted for by every active from
     slot `t` on, and both rounds' fork choices extend it from slot `t+1` on.
 
@@ -328,7 +328,7 @@ theorem lemma12 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
   let hpair := MfcEquiv.lemma10 rfl H hκ hwin
   MfcEquiv.lemma12 rfl hpair.2 H hpair.1 ht hsent hhon_i hhon_t
 
-/-- **Lemma 13** (`Lemma 13, arXiv:2601.03862v1 p.20`, the analogue of Lemma 5, for
+/-- **Lemma 13** (`Lemma 13, arXiv:2601.03862v1 p.21`, the analogue of Lemma 5, for
     Algorithm 5). Any validator's available chain at any round sits below every later
     fork-choice output, in both rounds of every slot whose actives include the tick's
     owner.
@@ -360,7 +360,7 @@ theorem lemma13 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
   MfcEquiv.lemma13 rfl hpair.2 H hpair.1 hκ
     (MfcEquiv.window_transfer H hwin) a vi k vj s0 hv
 
-/-- **Lemma 14** (`Lemma 14, arXiv:2601.03862v1 p.21`, Liveness of fast confirmations, for
+/-- **Lemma 14** (`Lemma 14, arXiv:2601.03862v1 p.22`, Liveness of fast confirmations, for
     Algorithm 5 — the analogue of Lemma 7). Take a slot `t` in which `|H_vote(t)| ≥ 2n/3`.
     If in slot `t` an honest validator sends a propose message for chain `chp`, then any
     validator's fast-confirm tick of slot `t` leaves its *available* chain extending `chp`.
@@ -372,7 +372,7 @@ theorem lemma13 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     substitution passes over is real and is proved here: Algorithm 5's `fastcand` is the
     greatest justified chain whenever that chain does not extend the fast-confirmed one, and
     `chp ⪯ fastcand` then follows from the justified chain's descent to some honest
-    validator's available chain, Theorem 3, and the branch's own guard.
+    validator's available chain, Theorem 3, and the branch's own condition.
 
     **Two hypotheses the paper's Lemma 14 does not carry**: `1 ≤ κ` and
     `HonestProposalWindow5`. They are what covering that case costs — it goes through
@@ -409,7 +409,7 @@ theorem lemma15 {x5 : Exec Pr5 S} (H : SettingGA Q S x5)
   Finality5.lemma15 H.wellformed.2.2.1 H.wellformed.2.2.2.1 H.oneTick H.wellformed.1
     Fintype.card_pos hhon hsub
 
-/-- **Lemma 16** (`Lemma 16, arXiv:2601.03862v1 p.22`). A validator's finalized chain grows
+/-- **Lemma 16** (`Lemma 16, arXiv:2601.03862v1 p.23`). A validator's finalized chain grows
     monotonically: `chainfin^{r'}_i ⪰ chainfin^r_i` for `r' ≥ r`.
 
     Not one of the paper's security definitions — "frequently desired by Ethereum protocol

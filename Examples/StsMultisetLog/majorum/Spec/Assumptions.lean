@@ -133,7 +133,7 @@ def Synchronous (Q : Params) (x : Exec Pr S) : Prop :=
 
     Written with `voting t - 3Δ` for the lower end, since `voting(t-1) + Δ = voting t - 4Δ +
     Δ`. That is not cosmetic: it is `Int` subtraction, so there is no `Nat` truncation and no
-    `1 ≤ t` guard.
+    `1 ≤ t` condition.
 
     Caveat at `t = 0`, where the window reaches back to `-2Δ`. The schedule is total on `ℤ`,
     so this is well defined but does not implement the paper's `H_i := ∅` convention for
@@ -177,9 +177,9 @@ def ActiveAtRound (Q : Params) (S : Schedule Node) (p : Node) (r : Time) : Prop 
        joining protocol were part of the sleepiness bound. It is not: `H` is the active set,
        the joining protocol is what determines it, and the constraint is a statement about
        `H`. Separating them makes the constraint the paper's one line again.
-    2. **Every slot, no `2 ≤ t` guard.** Slots are `Int`, so `t - 1` does not truncate and
+    2. **Every slot, no `2 ≤ t` condition.** Slots are `Int`, so `t - 1` does not truncate and
        the constraint reads at slot `t` exactly as the paper writes it. `Compliant` needed
-       the guard because `t - 2` truncates in `Nat`.
+       the condition because `t - 2` truncates in `Nat`.
 
     The paper's `H_i := ∅` convention for `i < 0` is not implemented, so at slot `0` and
     below `Active` reads the schedule at negative rounds instead of being empty. That makes

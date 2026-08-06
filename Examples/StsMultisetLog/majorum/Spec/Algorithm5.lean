@@ -231,7 +231,7 @@ noncomputable def processProposals (C : Components Node Chain QC)
   V.toList.foldl (fun acc sm =>
     match sm.msg with
     | .propose _ chC _ gjp t' =>
-        -- the checkpoint writes, behind the justification guard
+        -- the checkpoint writes, behind the justification condition
         let acc :=
           if t' = t ∧ C.validProposal V sm ∧ C.justified gjp V ∧
               acc.gjFrozen.c ≤ gjp.c then
@@ -240,13 +240,13 @@ noncomputable def processProposals (C : Components Node Chain QC)
             else { acc with chFrozen := gjp.ch }
           else acc
         -- the certificate write, behind validity alone — **eleventh finding** (user
-        -- decision, 2026-08-05): the paper nests this inside the justification guard,
+        -- decision, 2026-08-05): the paper nests this inside the justification condition,
         -- but Algorithm 2's fold performs it on validity alone, and a certified
         -- proposal carrying an unjustified checkpoint then freezes divergent chains
         -- in the two algorithms — surfacing, in no-majority configurations, as
-        -- divergent *votes*, against Lemma 10's condition 1. Splitting the guard
+        -- divergent *votes*, against Lemma 10's condition 1. Splitting the condition
         -- aligns every certificate write; Algorithm 5's extra justified-chain writes
-        -- stay guarded. A future alternative is weakening Definition 9 instead
+        -- stay conditional. A future alternative is weakening Definition 9 instead
         -- (recorded in `CONTEXT.md`).
         if t' = t ∧ C.validProposal V sm ∧ C.prefixLe acc.chFrozen chC then
           { acc with chFrozen := chC }
