@@ -1250,4 +1250,31 @@ theorem lemma17_gjFrozen {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
   exact processProposals_gjFrozen_eq hJj hseed huniq hview rfl
     (honest_propose_valid5 hprop hgjp hchp hchC hqc hviewp)
 
+/-! ### Lemma 18's engine: a quorum of fin-votes justifies its target -/
+
+/-- **A quorum of matching fin-votes justifies the target.** The senders of the votes for
+    the pair `C → C'` are counted, so a set of validators each of which is *some* such
+    vote's sender bounds the link's voter set from below; with fin-vote validity (`C.c <
+    C'.c` and `C.ch ⪯ C'.ch`) and `C` already justified, `C'` is justified too. -/
+theorem justified_of_quorum_votes {V : View Node M} {C C' : Checkpoint (Chain Tx)}
+    (hC : JustifiedIn (Fintype.card Node) V C)
+    (hslot : C.c < C'.c) (hchain : chainLe C.ch C'.ch)
+    {W : Finset Node} (hW : 2 * Fintype.card Node ≤ 3 * W.card)
+    (hvotes : ∀ w ∈ W, ∃ e : Chain Tx, ∃ s : Nat,
+      (⟨w, Msg.vote e C C' s⟩ : SignedMsg Node M) ∈ V) :
+    JustifiedIn (Fintype.card Node) V C' := by
+  refine JustifiedIn.link hC ⟨hslot, hchain, ?_⟩
+  -- the quorum's members are all link voters
+  have hsub : W ⊆ linkVoters V C C' := by
+    intro w hw
+    obtain ⟨e, s, hmem⟩ := hvotes w hw
+    refine Finset.mem_image.mpr ⟨⟨w, Msg.vote e C C' s⟩, ?_, rfl⟩
+    rw [Finset.mem_filter]
+    refine ⟨?_, ?_⟩
+    · simp only [votes, Finset.mem_filter]
+      exact ⟨hmem, trivial⟩
+    · exact ⟨rfl, rfl⟩
+  have := Finset.card_le_card hsub
+  omega
+
 end Majorum.Finality5
