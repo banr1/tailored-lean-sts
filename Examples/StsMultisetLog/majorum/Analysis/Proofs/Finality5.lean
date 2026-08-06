@@ -912,4 +912,342 @@ theorem chFin_comparable {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
   · have hnest := justified_nest hsync hmono hone hmc hcb hfn hk2 hk1 hfin2 hfin1.1 hc
     exact comparable_of_common_extension hle1 (chainLe_trans hle2 hnest)
 
+/-! ### Lemma 17: the honest proposal fixes every active's frozen checkpoint -/
+
+/-- Once a fold's tracked field reaches `J`, no step whose writes are all `J` can move it
+    off again. -/
+theorem foldl_keeps {α β : Type} {f : β → α → β} {pr : β → Checkpoint (Chain Tx)}
+    {J : Checkpoint (Chain Tx)} :
+    ∀ (l : List α) (acc : β),
+      (∀ (acc' : β) (a : α), a ∈ l → (pr acc').c ≤ J.c →
+        pr (f acc' a) = pr acc' ∨ pr (f acc' a) = J) →
+      pr acc = J → pr (l.foldl f acc) = J := by
+  intro l
+  induction l with
+  | nil => exact fun acc _ h => h
+  | cons a l ih =>
+      intro acc hstep hacc
+      rw [List.foldl_cons]
+      refine ih _ (fun acc' b hb => hstep acc' b (List.mem_cons_of_mem a hb)) ?_
+      rcases hstep acc a List.mem_cons_self (by rw [hacc]) with h | h
+      · rw [h, hacc]
+      · exact h
+
+/-- **A fold pinned to one value**: every step either stands still or writes `J`, the seed
+    sits no higher than `J`, and one designated element writes `J` — so the fold ends at
+    `J`. -/
+theorem foldl_absorbing {α β : Type} {f : β → α → β} {pr : β → Checkpoint (Chain Tx)}
+    {J : Checkpoint (Chain Tx)} {l : List α}
+    (hstep : ∀ (acc : β) (a : α), a ∈ l → (pr acc).c ≤ J.c →
+      pr (f acc a) = pr acc ∨ pr (f acc a) = J)
+    {a₀ : α} (ha₀ : a₀ ∈ l)
+    (hfire : ∀ acc : β, (pr acc).c ≤ J.c → pr (f acc a₀) = J)
+    {s : β} (hs : (pr s).c ≤ J.c) :
+    pr (l.foldl f s) = J := by
+  induction l generalizing s with
+  | nil => cases ha₀
+  | cons a l ih =>
+      rw [List.foldl_cons]
+      have hstep' : ∀ (acc : β) (b : α), b ∈ l → (pr acc).c ≤ J.c →
+          pr (f acc b) = pr acc ∨ pr (f acc b) = J :=
+        fun acc b hb => hstep acc b (List.mem_cons_of_mem a hb)
+      rcases List.mem_cons.mp ha₀ with rfl | ha₀l
+      · exact foldl_keeps l _ hstep' (hfire s hs)
+      · refine ih hstep' ha₀l ?_
+        rcases hstep s a List.mem_cons_self hs with h | h
+        · rw [h]
+          exact hs
+        · rw [h]
+
+set_option maxHeartbeats 1000000 in
+/-- **The proposal fold adopts the one checkpoint its slot's proposals carry.** If every
+    valid slot-`t` proposal in the view names the same justified checkpoint `J`, one such
+    proposal is in the view, and the seed does not already sit above `J`, then the fold's
+    frozen checkpoint *is* `J`. This is what makes every active validator of an
+    honest-proposer slot freeze the *same* checkpoint — Lemma 17's conclusion. -/
+theorem processProposals_gjFrozen_eq {V : View Node M} {t : Nat}
+    {s : NodeState Node (Chain Tx) (QCert Node Tx)} {J : Checkpoint (Chain Tx)}
+    (hJj : JustifiedIn (Fintype.card Node) V J) (hseed : s.gjFrozen.c ≤ J.c)
+    (huniq : ∀ sm ∈ V, ∀ chp chC qc gjp, sm.msg = .propose chp chC qc gjp t →
+      ValidProposal5 (Fintype.card Node) proposer V sm → gjp = J)
+    {sm₀ : SignedMsg Node M} (hsm₀ : sm₀ ∈ V) {chp₀ chC₀ : Chain Tx}
+    {qc₀ : Option (QCert Node Tx)}
+    (hmsg₀ : sm₀.msg = .propose chp₀ chC₀ qc₀ J t)
+    (hvalid₀ : ValidProposal5 (Fintype.card Node) proposer V sm₀) :
+    (processProposals (components (Fintype.card Node) kappa pool proposer) V t s).gjFrozen
+      = J := by
+  unfold processProposals
+  refine foldl_absorbing (pr := NodeState.gjFrozen) ?_ (Finset.mem_toList.mpr hsm₀) ?_ hseed
+  · -- every step stands still or writes `J`
+    intro acc a ha hacc
+    have haV : a ∈ V := Finset.mem_toList.mp ha
+    obtain ⟨asd, amsg⟩ := a
+    cases amsg with
+    | vote ch src tgt t' => exact Or.inl rfl
+    | propose chp chC qc gjp t' =>
+        dsimp only
+        simp only [apply_ite NodeState.gjFrozen, ite_self]
+        by_cases hg : t' = t ∧
+            (components (Fintype.card Node) kappa pool proposer).validProposal V
+              ⟨asd, .propose chp chC qc gjp t'⟩ ∧
+            (components (Fintype.card Node) kappa pool proposer).justified gjp V = true ∧
+            acc.gjFrozen.c ≤ gjp.c
+        · rw [if_pos hg]
+          exact Or.inr (huniq _ haV chp chC qc gjp (by rw [hg.1]) hg.2.1)
+        · rw [if_neg hg]
+          exact Or.inl rfl
+  · -- and the designated proposal writes it
+    intro acc hacc
+    obtain ⟨asd, amsg⟩ := sm₀
+    have hm0 : amsg = Msg.propose chp₀ chC₀ qc₀ J t := hmsg₀
+    subst hm0
+    dsimp only
+    simp only [apply_ite NodeState.gjFrozen, ite_self]
+    rw [if_pos (⟨trivial, hvalid₀, decide_eq_true hJj, hacc⟩ :
+      True ∧ (components (Fintype.card Node) kappa pool proposer).validProposal V
+          ⟨asd, .propose chp₀ chC₀ qc₀ J t⟩ ∧
+        (components (Fintype.card Node) kappa pool proposer).justified J V = true ∧
+        acc.gjFrozen.c ≤ J.c)]
+
+/-- **An honest proposal's fields, at its own tick**: the sender is the slot's proposer, the
+    carried checkpoint is `GJ` of its view then, and the proposed chain, fast-confirmed chain
+    and certificate are what `fastconfirm` and the fork choice returned. -/
+theorem propose_fields5 {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
+    (hmc : S.MonotoneCorruption) (hmono : TimeMonotone x5)
+    {t : Nat} {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int))) :
+    vp = proposer t ∧ ∃ kp, kp < ip ∧ x5.lbl kp = .tick vp (Q.slotLength * t) ∧
+      x5[kp].time = Q.slotLength * t ∧ x5.Awake kp vp ∧
+      (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M)
+        ∈ x5[kp + 1].sent - x5[kp].sent ∧
+      gjp = gj (Fintype.card Node) x5[kp][vp].view ∧
+      chp = extend pool ((components (Fintype.card Node) kappa pool proposer).mfc
+          x5[kp][vp].view x5[kp][vp].view
+          ((components (Fintype.card Node) kappa pool proposer).fastConfirm
+            x5[kp][vp].view (t - 1)).1 t) t ∧
+      chC = ((components (Fintype.card Node) kappa pool proposer).fastConfirm
+        x5[kp][vp].view (t - 1)).1 ∧
+      qc = ((components (Fintype.card Node) kappa pool proposer).fastConfirm
+        x5[kp][vp].view (t - 1)).2 := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨kp, hkpi, hlblp, hemp⟩ := MfcEquiv.propose_provenance5 hsync hmc hmono hsent
+    hhon_i rfl
+  have htkp : x5[kp].time = Q.slotLength * t := MfcEquiv.tick_reading5 hsync hlblp
+  have hhonp : vp ∉ S.adv ((x5[kp].time : Int)) := fun hadv =>
+    hhon_i (hmc _ _ (by exact_mod_cast time_le_of_le hmono (Nat.le_of_lt hkpi)) hadv)
+  rcases emitted_step (C := components (Fintype.card Node) kappa pool proposer) hemp
+    with ⟨tr, hlbl', -, -, -, pk, -, hsend⟩ | hadv
+  · have hSL0 : 0 < Q.slotLength := by omega
+    have hmod0 : (Q.slotLength * t) % Q.slotLength = 0 := Nat.mul_mod_right _ _
+    have hdiv0 : (Q.slotLength * t) / Q.slotLength = t :=
+      Nat.mul_div_cancel_left t hSL0
+    have htr : tr = Q.slotLength * t := by
+      rw [hlblp] at hlbl'
+      injection hlbl' with h1 h2
+      exact h2.symm
+    subst htr
+    obtain ⟨hprop, -, hm⟩ := MfcEquiv.handler_propose_send hmod0 hsend
+    rw [hdiv0] at hprop hm
+    rw [Msg.propose.injEq] at hm
+    have hawk : x5.Awake kp vp := by
+      have hstep := x5.step kp
+      rw [hlblp] at hstep
+      have h := hstep.1
+      simp only [spec] at h
+      exact h
+    refine ⟨hprop, kp, hkpi, hlblp, htkp, hawk, hemp,
+      by rw [hm.2.2.2.1, MfcEquiv.components_gj], ?_, hm.2.1, hm.2.2.1⟩
+    rw [hm.1, MfcEquiv.components_extend]
+  · exact absurd hadv hhonp
+
+set_option maxHeartbeats 1000000 in
+/-- **An honest proposal is valid in any view that has caught up with the proposer's.** The
+    certificate clause is discharged on `fastconfirm`'s quorum branch by the certificate the
+    fast confirmation itself carries (its votes are in the proposer's view, hence in the
+    later one), and on the `GJ` branch by the justification rung — the proposal's chain
+    *is* the greatest justified chain there. Algorithm 2's counterpart is the `hvalidprop`
+    step inside `chi_le_mfc`. -/
+theorem honest_propose_valid5 {x5 : Exec Pr5 S}
+    {t : Nat} {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {kp : Nat}
+    (hprop : vp = proposer t)
+    (hgjp : gjp = gj (Fintype.card Node) x5[kp][vp].view)
+    (hchp : chp = extend pool ((components (Fintype.card Node) kappa pool proposer).mfc
+        x5[kp][vp].view x5[kp][vp].view
+        ((components (Fintype.card Node) kappa pool proposer).fastConfirm
+          x5[kp][vp].view (t - 1)).1 t) t)
+    (hchC : chC = ((components (Fintype.card Node) kappa pool proposer).fastConfirm
+      x5[kp][vp].view (t - 1)).1)
+    (hqc : qc = ((components (Fintype.card Node) kappa pool proposer).fastConfirm
+      x5[kp][vp].view (t - 1)).2)
+    {V : View Node M} (hsub : ∀ sm ∈ x5[kp][vp].view, sm ∈ V) :
+    ValidProposal5 (Fintype.card Node) proposer V
+      ⟨vp, Msg.propose chp chC qc gjp t⟩ := by
+  refine ⟨hprop, ?_, ?_, ?_⟩
+  · rw [hchp]
+    exact proposedAt_extend _ _ _
+  · rw [hchp, hchC]
+    exact chainLe_trans (base_le_mfc _ _ _ _) (chainLe_extend _ _ _)
+  · -- the rung, by `fastconfirm`'s branch
+    have hfc : (components (Fintype.card Node) kappa pool proposer).fastConfirm
+          x5[kp][vp].view (t - 1)
+        = if chainLe (gj (Fintype.card Node) x5[kp][vp].view).ch
+              (fastConfirmSimple (Fintype.card Node) x5[kp][vp].view (t - 1)).1 then
+            fastConfirmSimple (Fintype.card Node) x5[kp][vp].view (t - 1)
+          else ((gj (Fintype.card Node) x5[kp][vp].view).ch, none) := by
+      unfold Components.fastConfirm
+      rw [MfcEquiv.components_fastConfirmSimple, MfcEquiv.components_gj,
+        MfcEquiv.components_prefixLe]
+    by_cases hg : chainLe (gj (Fintype.card Node) x5[kp][vp].view).ch
+        (fastConfirmSimple (Fintype.card Node) x5[kp][vp].view (t - 1)).1
+    · -- the quorum branch: the fast confirmation's own certificate
+      rw [hfc, if_pos hg] at hchC hqc
+      by_cases hnil : chC = []
+      · exact Or.inl hnil
+      · refine Or.inr (Or.inl ?_)
+        cases hsnd : (fastConfirmSimple (Fintype.card Node) x5[kp][vp].view (t - 1)).2 with
+        | none =>
+            exact absurd (hchC.trans (fastConfirmSimple_none_fst hsnd)) hnil
+        | some cert =>
+            have hfcpair : fastConfirmSimple (Fintype.card Node) x5[kp][vp].view (t - 1)
+                = ((fastConfirmSimple (Fintype.card Node) x5[kp][vp].view (t - 1)).1,
+                  some cert) := by
+              rw [← hsnd]
+            have hcertdef := fastConfirmSimple_snd_spec hfcpair
+            refine ⟨cert, by rw [hqc, hsnd], ?_, ?_⟩
+            · rcases fastConfirmSimple_fst_cases (n := Fintype.card Node) x5[kp][vp].view
+                  (t - 1) with h0 | hsupp
+              · exact absurd (hchC.trans h0) hnil
+              · rw [hcertdef, Finset.image_image]
+                simpa [Function.comp_def] using hsupp
+            · rintro e hemem
+              rw [hcertdef] at hemem
+              obtain ⟨sm, hsm_supp, rfl⟩ := Finset.mem_image.mp hemem
+              rw [Finset.mem_filter] at hsm_supp
+              obtain ⟨hsmv, hsmslot, hsmch⟩ := hsm_supp
+              have hsmview : sm ∈ x5[kp][vp].view := by
+                simp only [votes, Finset.mem_filter] at hsmv
+                exact hsmv.1
+              obtain ⟨e0, s0, t0', slot0, hm0⟩ := exists_vote_of_mem_votes hsmv
+              refine ⟨by rw [hchC]; exact hsmch, by omega, s0, t0', ?_⟩
+              have heq : (⟨sm.sender, Msg.vote (msgChain sm.msg) s0 t0' (msgSlot sm.msg)⟩ :
+                  SignedMsg Node M) = sm := by
+                have h1 : msgChain sm.msg = e0 := by rw [hm0]; exact rfl
+                have h2 : msgSlot sm.msg = slot0 := by rw [hm0]; exact rfl
+                rw [h1, h2, ← hm0]
+              rw [heq]
+              exact hsub sm hsmview
+    · -- the `GJ` branch: the proposal's chain is the greatest justified chain
+      rw [hfc, if_neg hg] at hchC hqc
+      refine Or.inr (Or.inr ⟨hqc, ?_, ?_⟩)
+      · rw [hchC, hgjp]
+      · rw [hgjp]
+        exact justifiedIn_mono hsub (gj_justified _ _)
+
+set_option maxHeartbeats 2000000 in
+/-- **Lemma 17** (`Lemma 17, arXiv:2601.03862v1 p.23`), the conclusion the re-justification
+    argument runs on: in a slot with an honest proposer, every active validator's vote tick
+    freezes *the proposal's own* greatest-justified checkpoint —
+    `GJfrozen^{voting(t)}_i = GJ_p`.
+
+    The three things `processProposals_gjFrozen_eq` needs: `GJ_p` is justified in the voter's
+    view (it is `GJ` of the proposer's view, which synchrony has delivered by the vote
+    reading); the checkpoint the voter carries in was frozen at the previous slot's merge, a
+    view the proposer had also received, so its slot cannot exceed `GJ_p`'s; and every valid
+    slot-`t` proposal in the voter's view *is* this proposal, because validity pins the
+    sender to the slot's proposer and that honest proposer's tick sends once. -/
+theorem lemma17_gjFrozen {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    {vi : Node} {j : Nat} (hact : vi ∈ Active Q S (t : Int))
+    (hlbl : x5.lbl j = .tick vi (Q.slotLength * t + Q.delta)) :
+    (processProposals (components (Fintype.card Node) kappa pool proposer)
+      x5[j][vi].view t x5[j][vi].st).gjFrozen = gjp := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, -, hsync, hmono, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
+    ⟨hcb, hfn⟩, hgst⟩ := id H5
+  have hcard : 0 < Fintype.card Node := by omega
+  have hg0 : Q.gst = 0 := hgst
+  have htj : x5[j].time = Q.slotLength * t + Q.delta := MfcEquiv.tick_reading5 hsync hlbl
+  have hAwj : x5.Awake j vi := by
+    have hstep := x5.step j
+    rw [hlbl] at hstep
+    have h := hstep.1
+    simp only [spec] at h
+    exact h
+  have hvot : Q.voting (t : Int) = ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  -- the proposer's tick: its view, its emission, `GJ_p`, and the message's shape
+  obtain ⟨hprop, kp, hkpi, hlblp, htkp, hawkp, hemp, hgjp, hchp, hchC, hqc⟩ :=
+    propose_fields5 hsync hmc hmono hsent hhon_i
+  have htkp1 : x5[kp + 1].time = x5[kp].time := MfcEquiv.tick_time5 hlblp
+  -- the proposal, and everything the proposer had seen, reach the voter's view
+  have hview : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M)
+      ∈ x5[j][vi].view := by
+    refine hsyn (kp + 1) j vi _ (MfcEquiv.mem_of_mem_sub hemp) ?_ hAwj
+    rw [htkp1, htkp, htj]
+    omega
+  have hviewp : ∀ sm ∈ x5[kp][vp].view, sm ∈ x5[j][vi].view := by
+    intro sm hsm
+    refine hsyn kp j vi _ (views_sound x5 kp vp _ hsm) ?_ hAwj
+    rw [htkp, htj]
+    omega
+  have hJj : JustifiedIn (Fintype.card Node) x5[j][vi].view gjp := by
+    rw [hgjp]
+    exact justifiedIn_mono hviewp (gj_justified _ _)
+  -- the carried checkpoint was frozen at the previous merge, which the proposer had seen
+  obtain ⟨t0, rfl⟩ : ∃ t0, t = t0 + 1 := ⟨t - 1, by omega⟩
+  have hact' : vi ∈ Active Q S ((t0 : Int) + 1) := by
+    have hcast : (((t0 + 1 : Nat)) : Int) = (t0 : Int) + 1 := by push_cast; omega
+    rw [← hcast]
+    exact hact
+  obtain ⟨im, himj, htim, -, -, -, hgf⟩ :=
+    MfcEquiv.frozen_at_vote_tick5 hsync hstepw hdil hone hact' hlbl
+  have hexp : Q.slotLength * (t0 + 1) = Q.slotLength * t0 + Q.slotLength := Nat.mul_succ ..
+  have hseed : x5[j][vi].st.gjFrozen.c ≤ gjp.c := by
+    rw [hgf, hgjp]
+    refine le_gj_c_of_justified hcard (justifiedIn_mono ?_ (gj_justified _ _))
+    intro sm hsm
+    refine hsyn im kp vp _ (views_sound x5 im vi _ hsm) ?_ hawkp
+    rw [htim, htkp]
+    omega
+  -- every valid slot-`t` proposal in the voter's view is this very message
+  have huniq : ∀ sm ∈ x5[j][vi].view, ∀ chp' chC' qc' gjp',
+      sm.msg = .propose chp' chC' qc' gjp' (t0 + 1) →
+      ValidProposal5 (Fintype.card Node) proposer x5[j][vi].view sm → gjp' = gjp := by
+    intro sm hsm chp' chC' qc' gjp' hmsg' hvalid'
+    have hsender : sm.sender = vp := by
+      have h : sm.sender = proposer (t0 + 1) := by
+        have hv := hvalid'
+        unfold ValidProposal5 at hv
+        rw [hmsg'] at hv
+        exact hv.1
+      rw [h, hprop]
+    have hsmlog : sm ∈ x5[j].sent := views_sound x5 j vi _ hsm
+    have hhonsm : sm.sender ∉ S.adv ((x5[j].time : Int)) := by
+      rw [hsender, htj, ← hvot]
+      exact hhon_t
+    obtain ⟨k', hk'j, hlbl', hem'⟩ :=
+      MfcEquiv.propose_provenance5 hsync hmc hmono hsmlog hhonsm hmsg'
+    rw [hsender] at hlbl'
+    have hk'kp : k' = kp := hone k' kp vp _ hlbl' hlblp
+    subst hk'kp
+    have heq := tick_sends_subsingleton5 hlblp hem' hemp
+    rw [heq] at hmsg'
+    simp only at hmsg'
+    rw [Msg.propose.injEq] at hmsg'
+    exact hmsg'.2.2.2.1.symm
+  exact processProposals_gjFrozen_eq hJj hseed huniq hview rfl
+    (honest_propose_valid5 hprop hgjp hchp hchC hqc hviewp)
+
 end Majorum.Finality5
