@@ -3644,6 +3644,59 @@ theorem chFin_txpool5 {x5 : Exec Pr5 S} {τ : Type}
   · -- and its body covers the pool at `propose(t)`, hence at `r`
     exact hcover t tx (hmonoP r (Q.slotLength * t) hr htx)
 
+set_option maxHeartbeats 2000000 in
+/-- **Before slot `t+1`'s vote reading, no justified chain exceeds `chp`** — and this needs
+    nothing about the proposal's carried checkpoint, unlike
+    `chAva_and_justified_le_chp5`, whose induction is only needed *at* `voting(t+1)`. A
+    justified chain descends to some vote tick's available chain
+    (`justified_to_voteChAva`, whose tick comes with its joining check open), that tick's
+    reading is a vote reading strictly before `voting(t+1)`, hence at most `voting(t)`, and
+    `chAva_le_chp_before5` bounds it there. -/
+theorem justified_le_chp_before5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {i : Nat} {w : Node} (htime : x5[i].time < Q.slotLength * (t + 1) + Q.delta)
+    {C : Checkpoint (Chain Tx)}
+    (hC : JustifiedIn (Fintype.card Node) x5[i][w].view C) :
+    chainLe C.ch chp := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, -, hsync, hmono, -, -, -⟩, -, -, -, -, -, ⟨hcb, hfn⟩, -⟩ := id H5
+  have hexp : Q.slotLength * (t + 1) = Q.slotLength * t + Q.slotLength := Nat.mul_succ ..
+  rcases MfcEquiv.justified_to_voteChAva hsync hmc hmono hcb hfn (le_refl _) (i := i)
+      C.c C rfl i w (le_refl i) hC with hnil | ⟨k, v, τ, hk, hlblk, hmodk, hgatek, hle⟩
+  · rw [hnil]
+    exact chainLe_nil _
+  · rw [← MfcEquiv.vote_tick_chAva hlblk hmodk hgatek] at hle
+    refine chainLe_trans hle (chAva_le_chp_before5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t
+      hgat ?_)
+    -- the tick's reading is a vote reading before the view, hence at most `voting(t)`
+    have htk : x5[k].time = τ := MfcEquiv.tick_reading5 hsync hlblk
+    have htk1 : x5[k + 1].time = τ := by
+      rw [MfcEquiv.tick_time5 hlblk]
+      exact htk
+    have hkle : x5[k].time ≤ x5[i].time := time_le_of_le hmono (Nat.le_of_lt hk)
+    have hdm := Nat.div_add_mod τ Q.slotLength
+    have hs : Q.slotLength * (τ / Q.slotLength) + Q.delta = τ := by
+      rw [hmodk] at hdm
+      omega
+    have hslt : τ / Q.slotLength < t + 1 := by
+      by_contra hcon
+      have hge : t + 1 ≤ τ / Q.slotLength := by omega
+      have hmul : Q.slotLength * (t + 1) ≤ Q.slotLength * (τ / Q.slotLength) :=
+        Nat.mul_le_mul_left _ hge
+      omega
+    have hmul2 : Q.slotLength * (τ / Q.slotLength) ≤ Q.slotLength * t :=
+      Nat.mul_le_mul_left _ (by omega)
+    omega
+
 set_option maxHeartbeats 1000000 in
 /-- **Any two justified chains are comparable.** Each justified checkpoint's chain sits below
     some validator's available chain (`justified_to_voteChAva`, descending through fin-vote
