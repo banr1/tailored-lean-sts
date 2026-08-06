@@ -1531,4 +1531,67 @@ theorem finvote_of_active5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
   · rw [voting_reading_div Q t, hgj']
     exact hlow
 
+set_option maxHeartbeats 2000000 in
+/-- **Re-justification, one round**: with an honest proposer whose carried checkpoint is older
+    than the previous slot, and every validator awake, the checkpoint `(GJ_p.ch, t)` is
+    justified in every awake validator's view from `voting(t) + Δ` on.
+
+    Every honest validator is active (`active_of_globalAwake`), so each sends the fin-vote
+    `GJ_p → (GJ_p.ch, t)` (`finvote_of_active5`); synchrony delivers them; they are more than
+    two thirds (`honest_quorum`); and `justified_of_quorum_votes` closes it, `GJ_p` itself
+    being justified there. -/
+theorem rejustified_target5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hlow : gjp.c < t - 1)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {i : Nat} {w : Node} (hAw : x5.Awake i w)
+    (htime : Q.slotLength * t + 2 * Q.delta ≤ x5[i].time) :
+    JustifiedIn (Fintype.card Node) x5[i][w].view ⟨gjp.ch, t⟩ := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, -, hsync, hmono, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
+    ⟨hcb, hfn⟩, hgst⟩ := id H5
+  have hg0 : Q.gst = 0 := hgst
+  have hvot : Q.voting (t : Int) = ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  -- `GJ_p` is justified in the target view
+  obtain ⟨hprop, kp, hkpi, hlblp, htkp, hawkp, hemp, hgjp, -, -, -⟩ :=
+    propose_fields5 hsync hmc hmono hsent hhon_i
+  have hJp : JustifiedIn (Fintype.card Node) x5[i][w].view gjp := by
+    rw [hgjp]
+    refine justifiedIn_mono ?_ (gj_justified _ _)
+    intro sm hsm
+    refine hsyn kp i w _ (views_sound x5 kp vp _ hsm) ?_ hAw
+    rw [htkp]
+    omega
+  -- the honest validators, each with its fin-vote in the target view
+  have hslotlt : gjp.c < (⟨gjp.ch, t⟩ : Checkpoint (Chain Tx)).c := by
+    show gjp.c < t
+    omega
+  have hchainle : chainLe gjp.ch (⟨gjp.ch, t⟩ : Checkpoint (Chain Tx)).ch := by
+    show chainLe gjp.ch gjp.ch
+    exact chainLe_refl _
+  refine justified_of_quorum_votes hJp hslotlt hchainle
+    (W := Finset.univ \ S.adv (Q.voting (t : Int))) (honest_quorum hcb hfn _) ?_
+  intro w' hw'
+  have hhonw' : ∀ r : Int, r ≤ Q.voting (t : Int) → w' ∉ S.adv r := by
+    intro r hr hadv
+    exact absurd (hmc r (Q.voting (t : Int)) hr hadv) (Finset.mem_sdiff.mp hw').2
+  have hact : w' ∈ Active Q S (t : Int) :=
+    active_of_globalAwake hga hgat (fun r _ h2 => hhonw' r h2)
+  obtain ⟨iv, ch, htiv, hvsent⟩ :=
+    finvote_of_active5 H5 ht hsent hhon_i hhon_t (by omega) hact
+  refine ⟨ch, t, ?_⟩
+  refine hsyn iv i w _ hvsent ?_ hAw
+  rw [htiv]
+  omega
+
 end Majorum.Finality5
