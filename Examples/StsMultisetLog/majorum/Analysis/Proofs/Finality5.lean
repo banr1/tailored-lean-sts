@@ -2429,6 +2429,145 @@ theorem vote_tick_bounds_chp5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1
       exact hgjle
     · exact hjust _ (of_decide_eq_true h)
 
+set_option maxHeartbeats 4000000 in
+/-- **Through slot `t+1`'s vote reading, neither an available chain nor a justified chain
+    exceeds `chp`.** The two halves are one induction because each feeds the other one index
+    apart: the available half at `m` needs the justified half at `m-1` (the slot-`(t+1)` fold
+    reads justified checkpoints out of the view), and the justified half at `m` needs the
+    available half at every index up to `m` (a justified chain descends to some vote tick's
+    available chain — `justified_to_voteChAva`, whose tick comes with its joining check open,
+    so the descent lands on a *state* and `vote_tick_chAva` applies).
+
+    Note where the strictness matters: at time exactly `voting(t+1)` a view may already hold
+    slot-`(t+1)` fin-votes, from validators whose ticks came first, so
+    `no_justified_above_slot` does not apply there and the targets have to be pinned in tick
+    order — which is what the induction does. -/
+theorem chAva_and_justified_le_chp5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hlow : gjp.c < t - 1)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int)) :
+    ∀ m : Nat, x5[m].time ≤ Q.slotLength * (t + 1) + Q.delta →
+      (∀ u : Node, chainLe x5[m][u].st.chAva chp) ∧
+      (∀ (u : Node) (C : Checkpoint (Chain Tx)),
+        JustifiedIn (Fintype.card Node) x5[m][u].view C → chainLe C.ch chp) := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, hah, hsync, hmono, -, -, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, -⟩, -,
+    ⟨hcb, hfn⟩, -⟩ := id H5
+  have hexp : Q.slotLength * (t + 1) = Q.slotLength * t + Q.slotLength := Nat.mul_succ ..
+  have hexp2 : Q.slotLength * (t + 1 + 1) = Q.slotLength * (t + 1) + Q.slotLength :=
+    Nat.mul_succ ..
+  intro m
+  induction m using Nat.strong_induction_on with
+  | _ m IH =>
+  intro htm
+  -- the available half first: it only reaches back one index
+  have hchAva : ∀ u : Node, chainLe x5[m][u].st.chAva chp := by
+    intro u
+    by_cases hearly : x5[m].time ≤ Q.slotLength * t + Q.delta
+    · exact chAva_le_chp_before5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t hgat hearly
+    · -- past the vote reading, so `m` has a predecessor
+      obtain ⟨m', rfl⟩ : ∃ m', m = m' + 1 := by
+        cases m with
+        | zero =>
+            exact absurd (by
+              have h0 : x5[0].time = 0 := x5.init.1
+              omega) hearly
+        | succ m' => exact ⟨m', rfl⟩
+      have hle' : x5[m'].time ≤ x5[m' + 1].time := time_le_of_le hmono (Nat.le_succ m')
+      have htm' : x5[m'].time ≤ Q.slotLength * (t + 1) + Q.delta := le_trans hle' htm
+      have hIH := IH m' (by omega) htm'
+      rcases MfcEquiv.chAva_step5 (x5 := x5) (m := m') (p := u) with
+        hkeep | ⟨ti, hlbl, hgate, hw⟩ | ⟨ti, hlbl, -, hw⟩
+      · rw [hkeep]
+        exact hIH.1 u
+      · -- a vote write in the window is slot `t+1`'s
+        have hti : x5[m'].time = Q.slotLength * ti + Q.delta :=
+          MfcEquiv.tick_reading5 hsync hlbl
+        have htm1 : x5[m' + 1].time = x5[m'].time := MfcEquiv.tick_time5 hlbl
+        have htieq : ti = t + 1 := by
+          rcases Nat.lt_trichotomy ti (t + 1) with h1 | h1 | h1
+          · exfalso
+            have hle : Q.slotLength * (ti + 1) ≤ Q.slotLength * (t + 1) :=
+              Nat.mul_le_mul_left _ (by omega)
+            have he : Q.slotLength * (ti + 1) = Q.slotLength * ti + Q.slotLength :=
+              Nat.mul_succ ..
+            omega
+          · exact h1
+          · exfalso
+            have hle : Q.slotLength * (t + 1 + 1) ≤ Q.slotLength * ti :=
+              Nat.mul_le_mul_left _ (by omega)
+            omega
+        subst htieq
+        -- the joining check is open, so the voter is active in slot `t+1`
+        have hact1 : u ∈ Active Q S ((t : Int) + 1) := by
+          have h := active_of_open_join5 hsync hstepw hdil hwpt (by omega) hlbl hti hgate
+          have hcast : (((t + 1 : Nat)) : Int) = (t : Int) + 1 := by push_cast; omega
+          rw [← hcast]
+          exact h
+        obtain ⟨hmfc, hgjf⟩ := vote_tick_bounds_chp5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t
+          hlow hgat hact1 hlbl (hIH.2 u)
+        rw [hw]
+        rcases MfcEquiv.voteChAva_cases x5 m' u (Q.slotLength * (t + 1) + Q.delta) with
+          h | h | h <;> rw [h, voting_reading_div Q (t + 1)]
+        · rw [show (processProposals (components (Fintype.card Node) kappa pool proposer)
+              x5[m'][u].view (t + 1) x5[m'][u].st).chAva = x5[m'][u].st.chAva from
+            MfcEquiv.processProposals_chAva _ _ _ _]
+          exact hIH.1 u
+        · exact chainLe_trans (kappaPrefix_le_self _ _ _) hmfc
+        · exact hgjf
+      · -- a fast-confirm write in the window is slot `t`'s, and it writes `chp`
+        have hti : x5[m'].time = Q.slotLength * ti + 2 * Q.delta :=
+          MfcEquiv.tick_reading5 hsync hlbl
+        have htm1 : x5[m' + 1].time = x5[m'].time := MfcEquiv.tick_time5 hlbl
+        have htieq : ti = t := by
+          rcases Nat.lt_trichotomy ti t with h1 | h1 | h1
+          · exfalso
+            have hle : Q.slotLength * (ti + 1) ≤ Q.slotLength * t :=
+              Nat.mul_le_mul_left _ (by omega)
+            have he : Q.slotLength * (ti + 1) = Q.slotLength * ti + Q.slotLength :=
+              Nat.mul_succ ..
+            omega
+          · exact h1
+          · exfalso
+            have hle : Q.slotLength * (t + 1) ≤ Q.slotLength * ti :=
+              Nat.mul_le_mul_left _ (by omega)
+            omega
+        subst htieq
+        have hAwm' : x5.Awake m' u := by
+          have hstep := x5.step m'
+          rw [hlbl] at hstep
+          have h := hstep.1
+          simp only [spec] at h
+          exact h
+        rw [hw, fastConfirm_eq_chp5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t hlow hgat hAwm'
+          (by omega) (by omega)]
+        exact chainLe_refl _
+  refine ⟨hchAva, ?_⟩
+  -- the justified half: a justified chain descends to some vote tick's available chain
+  intro u C hC
+  rcases MfcEquiv.justified_to_voteChAva hsync hmc hmono hcb hfn (le_refl _) (i := m)
+      C.c C rfl m u (le_refl m) hC with hnil | ⟨k, v, τ, hk, hlblk, hmodk, hgatek, hle⟩
+  · rw [hnil]
+    exact chainLe_nil _
+  · rw [← MfcEquiv.vote_tick_chAva hlblk hmodk hgatek] at hle
+    have htk1 : x5[k + 1].time ≤ Q.slotLength * (t + 1) + Q.delta := by
+      have h1 := time_le_of_le hmono (Nat.le_of_lt hk)
+      have h2 : x5[k + 1].time = x5[k].time := MfcEquiv.tick_time5 hlblk
+      omega
+    rcases Nat.lt_or_ge (k + 1) m with hlt | hge
+    · exact chainLe_trans hle ((IH (k + 1) hlt htk1).1 v)
+    · have hkm : k + 1 = m := by omega
+      rw [hkm] at hle
+      exact chainLe_trans hle (hchAva v)
+
 set_option maxHeartbeats 1000000 in
 /-- **Any two justified chains are comparable.** Each justified checkpoint's chain sits below
     some validator's available chain (`justified_to_voteChAva`, descending through fin-vote
