@@ -2777,6 +2777,7 @@ theorem finvote_of_active5_next {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ :
     {vi : Node} (hact1 : vi ∈ Active Q S ((t : Int) + 1)) :
     ∃ (m : Nat) (ch : Chain Tx) (src : Checkpoint (Chain Tx)),
       x5[m].time = Q.slotLength * (t + 1) + Q.delta ∧
+      x5[m + 1].time = Q.slotLength * (t + 1) + Q.delta ∧
       (⟨vi, Msg.vote ch src ⟨chp, t + 1⟩ (t + 1)⟩ : SignedMsg Node M) ∈ x5[m + 1].sent ∧
       (src = ⟨gjp.ch, t⟩ ∨
         JustifiedIn (Fintype.card Node) x5[m][vi].view ⟨chp, t + 1⟩) := by
@@ -2872,7 +2873,8 @@ theorem finvote_of_active5_next {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ :
         exact hp.2.2.1
     refine ⟨m, pick5 x5 m vi (Q.slotLength * (t + 1) + Q.delta),
       (processProposals (components (Fintype.card Node) kappa pool proposer)
-        x5[m][vi].view (t + 1) x5[m][vi].st).gjFrozen, htm, ?_, Or.inl hsrc⟩
+        x5[m][vi].view (t + 1) x5[m][vi].st).gjFrozen, htm,
+      by rw [MfcEquiv.tick_time5 hlblm]; exact htm, ?_, Or.inl hsrc⟩
     rw [← htgt]
     exact hlog
   · -- the re-justification branch: the source is justified at slot `t+1`, hence `(chp, t+1)`
@@ -2927,11 +2929,101 @@ theorem finvote_of_active5_next {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ :
       rw [heta, hch, hc]
     refine ⟨m, pick5 x5 m vi (Q.slotLength * (t + 1) + Q.delta),
       (processProposals (components (Fintype.card Node) kappa pool proposer)
-        x5[m][vi].view (t + 1) x5[m][vi].st).gjFrozen, htm, ?_, Or.inr ?_⟩
+        x5[m][vi].view (t + 1) x5[m][vi].st).gjFrozen, htm,
+      by rw [MfcEquiv.tick_time5 hlblm]; exact htm, ?_, Or.inr ?_⟩
     · rw [← htgt]
       exact hlog
     · rw [← hGeq]
       exact hJ
+
+set_option maxHeartbeats 4000000 in
+/-- **Lemma 18's justification step: `(chp, t+1)` is justified in every awake view from
+    `voting(t+1) + Δ` on.** Each honest validator is active in slot `t+1`, so each sends a
+    fin-vote targeting `(chp, t+1)` (`finvote_of_active5_next`), and their sources fall into
+    two cases. If some honest validator's own view already justified `(chp, t+1)`, delivery
+    carries that justification forward (`view_subset_of_time5`, `justifiedIn_mono`).
+    Otherwise every honest source is the merge's `(GJ_p.ch, t)`, those votes are more than two
+    thirds, and `justified_of_quorum_votes` justifies the target — `(GJ_p.ch, t)` being
+    justified there by Lemma 18's first round, its slot below `t+1`, and its chain below
+    `chp`. -/
+theorem justified_chp_next5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hlow : gjp.c < t - 1)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {i : Nat} {w : Node} (hAw : x5.Awake i w)
+    (htime : Q.slotLength * (t + 1) + 2 * Q.delta ≤ x5[i].time) :
+    JustifiedIn (Fintype.card Node) x5[i][w].view ⟨chp, t + 1⟩ := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, hah, hsync, hmono, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, -⟩, -,
+    ⟨hcb, hfn⟩, -⟩ := id H5
+  have hexp : Q.slotLength * (t + 1) = Q.slotLength * t + Q.slotLength := Nat.mul_succ ..
+  have hvot : Q.voting (t : Int) = ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  have hvot1 : Q.voting ((t : Int) + 1)
+      = ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  have hgat1 : (Q.gat : Int) ≤ Q.voting ((t : Int) + 1) - 3 * (Q.delta : Int) := by
+    rw [hvot1]
+    rw [hvot] at hgat
+    have hstep : ((Q.slotLength * t + Q.delta : Nat) : Int)
+        ≤ ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int) := by
+      have h : Q.slotLength * t + Q.delta ≤ Q.slotLength * (t + 1) + Q.delta := by omega
+      exact_mod_cast h
+    omega
+  -- the honest validators, each active in slot `t+1` and each with its fin-vote
+  have hcastn : (((t + 1 : Nat)) : Int) = (t : Int) + 1 := by push_cast; try omega
+  have hcastv : Q.voting (((t + 1 : Nat)) : Int) = Q.voting ((t : Int) + 1) := by
+    rw [hcastn]
+  have hhon_of : ∀ q : Node, q ∈ (Finset.univ \ S.adv (Q.voting ((t : Int) + 1))) →
+      q ∈ Active Q S ((t : Int) + 1) := by
+    intro q hq
+    rw [← hcastn]
+    refine active_of_globalAwake hga (by rw [hcastv]; exact hgat1) ?_
+    intro r _ h2 hadv
+    rw [hcastv] at h2
+    exact (Finset.mem_sdiff.mp hq).2 (hmc r _ h2 hadv)
+  by_cases hcase : ∃ q ∈ (Finset.univ \ S.adv (Q.voting ((t : Int) + 1))),
+      ∃ m : Nat, x5[m].time = Q.slotLength * (t + 1) + Q.delta ∧
+        JustifiedIn (Fintype.card Node) x5[m][q].view ⟨chp, t + 1⟩
+  · -- some honest validator already saw it justified; delivery carries that forward
+    obtain ⟨q, -, m, htm, hJ⟩ := hcase
+    exact justifiedIn_mono (view_subset_of_time5 hsyn hAw (by omega)) hJ
+  · -- otherwise every honest fin-vote has the merge's checkpoint as its source
+    refine justified_of_quorum_votes (C := ⟨gjp.ch, t⟩) ?_ (by show t < t + 1; omega) ?_
+      (W := Finset.univ \ S.adv (Q.voting ((t : Int) + 1))) (honest_quorum hcb hfn _) ?_
+    · -- `(GJ_p.ch, t)` is justified in this view
+      exact rejustified_target5 H5 hga ht hsent hhon_i hhon_t hlow hgat hAw (by omega)
+    · -- and its chain is below `chp`
+      show chainLe gjp.ch chp
+      obtain ⟨-, kp, -, -, -, -, -, hgjp, hchp, -, -⟩ :=
+        propose_fields5 hsync hmc hmono hsent hhon_i
+      rw [hgjp, hchp]
+      exact chainLe_trans (gj_le_fastConfirm _ _)
+        (chainLe_trans (base_le_mfc _ _ _ _) (chainLe_extend _ _ _))
+    · intro q hq
+      obtain ⟨m, ch, src, htm, htm1, hlog, hsrc⟩ :=
+        finvote_of_active5_next H5 hκ hwin5 hga ht hsent hhon_i hhon_t hlow hgat
+          (hhon_of q hq)
+      rcases hsrc with hsrceq | hJ
+      · -- the extension branch: the vote is a link from `(GJ_p.ch, t)`
+        subst hsrceq
+        refine ⟨ch, t + 1, ?_⟩
+        refine hsyn (m + 1) i w _ hlog ?_ hAw
+        rw [htm1]
+        omega
+      · exact absurd ⟨q, hq, m, htm, hJ⟩ hcase
 
 set_option maxHeartbeats 1000000 in
 /-- **Any two justified chains are comparable.** Each justified checkpoint's chain sits below
