@@ -1420,4 +1420,32 @@ theorem justified_slot_unique {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
       rw [← hst]
       exact hall sm hsm.1 hslot hhonsm e src tgt s hmsg
 
+/-! ### Lemma 18: re-justification -/
+
+/-- **After the global awake time, every honest validator is active.** `Active`'s window is
+    `[voting(t) - 3Δ, voting(t)]`, so a slot whose window starts past `GAT` has every
+    validator that is honest throughout it awake throughout it. -/
+theorem active_of_globalAwake (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {p : Node} (hhon : ∀ r : Int, Q.voting (t : Int) - 3 * (Q.delta : Int) ≤ r →
+      r ≤ Q.voting (t : Int) → p ∉ S.adv r) :
+    p ∈ Active Q S (t : Int) := by
+  refine mem_awakeThroughout.mpr fun r h1 h2 => ?_
+  refine hga r (by omega) ?_
+  rw [Finset.mem_sdiff]
+  exact ⟨Finset.mem_univ _, hhon r h1 h2⟩
+
+/-- **The honest validators are more than two thirds** — the counting `f < n/3` gives, used
+    for both of Lemma 18's quorums. -/
+theorem honest_quorum (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < Fintype.card Node)
+    (r : Int) : 2 * Fintype.card Node ≤ 3 * (Finset.univ \ S.adv r).card := by
+  have h3 : (Finset.univ \ S.adv r).card + (S.adv r).card
+      ≥ (Finset.univ : Finset Node).card := by
+    have h := Finset.card_le_card_sdiff_add_card (s := (Finset.univ : Finset Node))
+      (t := S.adv r)
+    omega
+  have h2 := hcb r
+  have h4 : (Finset.univ : Finset Node).card = Fintype.card Node := Finset.card_univ
+  omega
+
 end Majorum.Finality5
