@@ -1595,6 +1595,130 @@ theorem rejustified_target5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
   omega
 
 set_option maxHeartbeats 2000000 in
+/-- **Lemma 18's second round, the pinning step: an honest slot-`t` vote is one message.**
+    In a slot with an honest proposer whose carried checkpoint is older than the previous
+    slot, and with every validator awake, an honest validator's slot-`t` vote is exactly
+    `[vote, chp, GJ_p → (GJ_p.ch, t), t]`: its chain by `activeVotesEq5_of_propose`, its
+    source and target by `finvote_of_active5`, and the two are the same message because a
+    validator votes once per slot (`honest_vote_unique`). -/
+theorem honest_slot_vote_pinned5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hlow : gjp.c ≠ t - 1)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {i : Nat} {w : Node} (htime : Q.slotLength * t + Q.delta ≤ x5[i].time) :
+    ∀ sm ∈ votes x5[i][w].view, msgSlot sm.msg = t →
+      sm.sender ∉ S.adv ((x5[i].time : Int)) →
+      sm.msg = Msg.vote chp gjp ⟨gjp.ch, t⟩ t := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, -, hsync, hmono, -, -, -⟩, -, -, hone, -, -, -, -⟩ := id H5
+  obtain ⟨H2, heq⟩ := MfcEquiv.lemma10 rfl H5 hκ hwin5
+  have hvot : Q.voting (t : Int) = ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  have hvotcast : ((Q.slotLength * t + Q.delta : Nat) : Int) ≤ ((x5[i].time : Int)) := by
+    exact_mod_cast htime
+  have hvotes : MfcEquiv.ActiveVotesEq5 x5 t chp :=
+    MfcEquiv.activeVotesEq5_of_propose rfl heq H5 H2 ht hsent hhon_i hhon_t
+  have hact_of_hon : ∀ q : Node, q ∉ S.adv ((x5[i].time : Int)) →
+      q ∈ Active Q S (t : Int) := by
+    intro q hq
+    refine active_of_globalAwake hga hgat (fun r _ h2 hadv => hq (hmc r _ ?_ hadv))
+    rw [hvot] at h2
+    omega
+  intro sm hsm hslot hhonsm
+  obtain ⟨e, src, tgt, s, hmsg⟩ := exists_vote_of_mem_votes hsm
+  have hst : s = t := by
+    rw [hmsg] at hslot
+    exact hslot
+  subst hst
+  have hsmlog : sm ∈ x5[i].sent := by
+    have h := hsm
+    simp only [votes, Finset.mem_filter] at h
+    exact views_sound x5 i w _ h.1
+  have hact := hact_of_hon _ hhonsm
+  -- the chain: the active's slot-`t` vote is `chp`
+  obtain ⟨iv, src', tgt', htiv, hvsent⟩ := hvotes sm.sender hact
+  have hhoniv : (⟨sm.sender, Msg.vote chp src' tgt' s⟩ :
+      SignedMsg Node M).sender ∉ S.adv ((x5[iv].time : Int)) := by
+    show sm.sender ∉ S.adv ((x5[iv].time : Int))
+    intro hadv
+    refine hhonsm (hmc _ _ ?_ hadv)
+    rw [htiv]
+    exact hvotcast
+  have h1 := honest_vote_unique hsync hone hmc hmono hsmlog hvsent hhonsm hhoniv rfl hmsg rfl
+  -- the source and target: the active's fin-vote re-justifies `(GJ_p.ch, t)`
+  obtain ⟨iv2, ch2, htiv2, hvsent2⟩ :=
+    finvote_of_active5 H5 ht hsent hhon_i hhon_t hlow hact
+  have hhoniv2 : (⟨sm.sender, Msg.vote ch2 gjp ⟨gjp.ch, s⟩ s⟩ :
+      SignedMsg Node M).sender ∉ S.adv ((x5[iv2].time : Int)) := by
+    show sm.sender ∉ S.adv ((x5[iv2].time : Int))
+    intro hadv
+    refine hhonsm (hmc _ _ ?_ hadv)
+    rw [htiv2]
+    exact hvotcast
+  have h2 := honest_vote_unique hsync hone hmc hmono hsmlog hvsent2 hhonsm hhoniv2 rfl hmsg
+    rfl
+  -- one message, so both readings of it hold
+  have hm1 : sm.msg = Msg.vote chp src' tgt' s := by rw [← h1]
+  have hm2 : sm.msg = Msg.vote ch2 gjp ⟨gjp.ch, s⟩ s := by rw [← h2]
+  rw [hm1, Msg.vote.injEq] at hm2
+  obtain ⟨-, hsrc, htgt, -⟩ := hm2
+  rw [hm1, hsrc, htgt]
+
+set_option maxHeartbeats 2000000 in
+/-- **The greatest justified checkpoint of the window is the re-justified target.** Between
+    `fconf(t)` and `voting(t+1)`, `(GJ_p.ch, t)` is justified in every awake view (Lemma 18's
+    first round) and nothing above slot `t` is (`no_justified_above_slot`), so `GJ`'s slot is
+    `t`; and the slot-`t` justified checkpoint is unique, being the one the honest slot-`t`
+    votes targeted (`justified_slot_unique` over `honest_slot_vote_pinned5`). -/
+theorem gj_eq_target5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hlow : gjp.c < t - 1)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {i : Nat} {w : Node} (hAw : x5.Awake i w)
+    (htime : Q.slotLength * t + 2 * Q.delta ≤ x5[i].time)
+    (htime' : x5[i].time < Q.slotLength * (t + 1) + Q.delta) :
+    gj (Fintype.card Node) x5[i][w].view = ⟨gjp.ch, t⟩ := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, -, hsync, hmono, -, -, -⟩, -, -, hone, -, -, ⟨hcb, hfn⟩, -⟩ := id H5
+  have hcard : 0 < Fintype.card Node := by omega
+  -- the target is justified, and nothing above slot `t` is
+  have hT : JustifiedIn (Fintype.card Node) x5[i][w].view ⟨gjp.ch, t⟩ :=
+    rejustified_target5 H5 hga ht hsent hhon_i hhon_t hlow hgat hAw htime
+  have hge : t ≤ (gj (Fintype.card Node) x5[i][w].view).c := le_gj_c_of_justified hcard hT
+  have hle := no_justified_above_slot hsync hone hmc hmono hcb hfn htime'
+    (gj_justified (Fintype.card Node) x5[i][w].view)
+  -- and the slot-`t` justified checkpoint is the one the honest votes targeted
+  have hallT : ∀ sm ∈ votes x5[i][w].view, msgSlot sm.msg = t →
+      sm.sender ∉ S.adv ((x5[i].time : Int)) →
+      ∀ (e : Chain Tx) (src tgt : Checkpoint (Chain Tx)) (s : Nat),
+        sm.msg = .vote e src tgt s → tgt = ⟨gjp.ch, t⟩ := by
+    intro sm hsm hslot hhonsm e src tgt s hmsg
+    have hp := honest_slot_vote_pinned5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t
+      (by omega) hgat (by omega) sm hsm hslot hhonsm
+    rw [hmsg, Msg.vote.injEq] at hp
+    exact hp.2.2.1
+  exact justified_slot_unique hsync hone hmc hmono hcb hfn ht hallT
+    (gj_justified (Fintype.card Node) x5[i][w].view) (le_antisymm hle hge)
+
+set_option maxHeartbeats 2000000 in
 /-- **Lemma 18's second round, first step: the slot fast-confirms exactly the proposal.**
     With an honest proposer at slot `t` and every validator awake, each honest validator is
     active (`active_of_globalAwake`), so its slot-`t` vote is exactly `chp`
