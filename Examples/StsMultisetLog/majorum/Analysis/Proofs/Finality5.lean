@@ -2862,8 +2862,8 @@ theorem finvote_of_active5_next {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ :
       x5[m].time = Q.slotLength * (t + 1) + Q.delta ∧
       x5[m + 1].time = Q.slotLength * (t + 1) + Q.delta ∧
       (⟨vi, Msg.vote ch src ⟨chp, t + 1⟩ (t + 1)⟩ : SignedMsg Node M) ∈ x5[m + 1].sent ∧
-      (src = T ∨
-        JustifiedIn (Fintype.card Node) x5[m][vi].view ⟨chp, t + 1⟩) := by
+      (src = T ∨ (src = ⟨chp, t + 1⟩ ∧
+        JustifiedIn (Fintype.card Node) x5[m][vi].view ⟨chp, t + 1⟩)) := by
   have hδ := Q.deltaPos
   have hsl : Q.slotLength = 4 * Q.delta := rfl
   obtain ⟨⟨hmc, hah, hsync, hmono, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, -⟩, -,
@@ -3010,7 +3010,7 @@ theorem finvote_of_active5_next {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ :
     refine ⟨m, pick5 x5 m vi (Q.slotLength * (t + 1) + Q.delta),
       (processProposals (components (Fintype.card Node) kappa pool proposer)
         x5[m][vi].view (t + 1) x5[m][vi].st).gjFrozen, htm,
-      by rw [MfcEquiv.tick_time5 hlblm]; exact htm, ?_, Or.inr ?_⟩
+      by rw [MfcEquiv.tick_time5 hlblm]; exact htm, ?_, Or.inr ⟨hGeq, ?_⟩⟩
     · rw [← htgt]
       exact hlog
     · rw [← hGeq]
@@ -3098,7 +3098,7 @@ theorem justified_chp_next5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 �
         refine hsyn (m + 1) i w _ hlog ?_ hAw
         rw [htm1]
         omega
-      · exact absurd ⟨q, hq, m, htm, hJ⟩ hcase
+      · exact absurd ⟨q, hq, m, htm, hJ.2⟩ hcase
 
 set_option maxHeartbeats 4000000 in
 /-- **Slot `t+1`'s pinning data, from slot `t`'s conclusion.** With an honest proposer at
