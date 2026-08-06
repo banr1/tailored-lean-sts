@@ -1594,6 +1594,136 @@ theorem rejustified_target5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
   rw [htiv]
   omega
 
+/-- Every admissible pick extends the vote tick's fork choice: a hit passes the filter's
+    prefix conjunct, and the fallback *is* the fork choice. Algorithm 5's
+    `chainLe_of_votePicks2`, over `components_voteHits`. -/
+theorem chainLe_of_votePicks5 {V : View Node M} {r : Time}
+    {s : NodeState Node (Chain Tx) (QCert Node Tx)} {pick : Chain Tx}
+    (h : pick ∈ (components (Fintype.card Node) kappa pool proposer).votePicks Q V r s) :
+    chainLe ((components (Fintype.card Node) kappa pool proposer).mfc
+      (processProposals (components (Fintype.card Node) kappa pool proposer) V
+        (r / Q.slotLength) s).vFrozen V
+      (processProposals (components (Fintype.card Node) kappa pool proposer) V
+        (r / Q.slotLength) s).chFrozen (r / Q.slotLength)) pick := by
+  simp only [Components.votePicks] at h
+  rcases mem_pickSet.mp h with ⟨-, rfl⟩ | hhit
+  · exact chainLe_refl _
+  · rw [MfcEquiv.components_voteHits] at hhit
+    obtain ⟨-, -, -, -, -, -, hle⟩ := mem_voteHits2.mp hhit
+    exact hle
+
+set_option maxHeartbeats 1000000 in
+/-- **An honest vote's chain extends the fork choice its own tick read.** The chain sent is
+    the tick's pick (`handler_vote_fin_content`), and every pick extends that tick's
+    processed fork choice. -/
+theorem vote_chain_ge_mfc5 {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
+    (hmc : S.MonotoneCorruption) (hmono : TimeMonotone x5) {i : Nat}
+    {sm : SignedMsg Node M} {e : Chain Tx} {src tgt : Checkpoint (Chain Tx)} {s : Nat}
+    (hmem : sm ∈ x5[i].sent) (hhon : sm.sender ∉ S.adv ((x5[i].time : Int)))
+    (hmsg : sm.msg = .vote e src tgt s) :
+    ∃ k, k < i ∧ x5.lbl k = .tick sm.sender (Q.slotLength * s + Q.delta) ∧
+      x5[k].time = Q.slotLength * s + Q.delta ∧
+      x5[k][sm.sender].st.activeAt ≤ Q.slotLength * s + Q.delta ∧
+      chainLe ((components (Fintype.card Node) kappa pool proposer).mfc
+        (processProposals (components (Fintype.card Node) kappa pool proposer)
+          x5[k][sm.sender].view s x5[k][sm.sender].st).vFrozen
+        x5[k][sm.sender].view
+        (processProposals (components (Fintype.card Node) kappa pool proposer)
+          x5[k][sm.sender].view s x5[k][sm.sender].st).chFrozen s) e := by
+  obtain ⟨k, hki, hlbl, htime, hopen, -, pick, hpick, hsend⟩ :=
+    vote_provenance hsync hmc hmono hmem hhon hmsg
+  have hcontent := MfcEquiv.handler_vote_fin_content (voting_reading_mod Q s) hsend
+  rw [voting_reading_div Q s] at hcontent
+  have heq := hmsg.symm.trans hcontent
+  rw [Msg.vote.injEq] at heq
+  obtain ⟨hch, -, -, -⟩ := heq
+  refine ⟨k, hki, hlbl, htime, hopen, ?_⟩
+  rw [hch]
+  have hb := chainLe_of_votePicks5 (Q := Q) hpick
+  rw [voting_reading_div Q s] at hb
+  exact hb
+
+set_option maxHeartbeats 1000000 in
+/-- **`chAva` does not move between a slot's vote reading and its fast-confirm reading.** Its
+    only writes are at those two readings (`chAva_step5`), and no reading of either kind
+    falls strictly in between: the arithmetic excludes other slots, and this validator's own
+    two ticks are the endpoints, one per reading. -/
+theorem chAva_quiet_between {x5 : Exec Pr5 S} (hsync : SynchronizedClocks x5)
+    (hmono : TimeMonotone x5) (hone : OneTickPerReading x5) {t : Nat} {p : Node} {k jf : Nat}
+    (hlblv : x5.lbl k = .tick p (Q.slotLength * t + Q.delta))
+    (hlblf : x5.lbl jf = .tick p (Q.slotLength * t + 2 * Q.delta)) :
+    ∀ m, k + 1 ≤ m → m ≤ jf → x5[m][p].st.chAva = x5[k + 1][p].st.chAva := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  have htv : x5[k].time = Q.slotLength * t + Q.delta := MfcEquiv.tick_reading5 hsync hlblv
+  have htf : x5[jf].time = Q.slotLength * t + 2 * Q.delta :=
+    MfcEquiv.tick_reading5 hsync hlblf
+  have htv1 : x5[k + 1].time = Q.slotLength * t + Q.delta := by
+    rw [MfcEquiv.tick_time5 hlblv]; exact htv
+  intro m hkm
+  induction m, hkm using Nat.le_induction with
+  | base => exact fun _ => rfl
+  | succ m hm ih =>
+      intro hmjf
+      -- the step from `m` to `m+1` is inside the window, so it is not a `chAva` write
+      have htm : x5[m].time ≤ Q.slotLength * t + 2 * Q.delta := by
+        have := time_le_of_le hmono (Nat.le_of_lt (by omega : m < jf))
+        omega
+      have htmge : Q.slotLength * t + Q.delta ≤ x5[m].time := by
+        have := time_le_of_le hmono hm
+        omega
+      have hstep : x5[m + 1][p].st.chAva = x5[m][p].st.chAva := by
+        rcases MfcEquiv.chAva_step5 (x5 := x5) (m := m) (p := p) with
+          h | ⟨ti, hlbl, -, -⟩ | ⟨ti, hlbl, -, -⟩
+        · exact h
+        · -- a vote reading strictly after this slot's is the next slot's, too late
+          exfalso
+          have hti : x5[m].time = Q.slotLength * ti + Q.delta :=
+            MfcEquiv.tick_reading5 hsync hlbl
+          have hteq : ti = t := by
+            rcases Nat.lt_trichotomy ti t with h1 | h1 | h1
+            · exfalso
+              have : Q.slotLength * (ti + 1) ≤ Q.slotLength * t :=
+                Nat.mul_le_mul_left _ (by omega)
+              have hexp : Q.slotLength * (ti + 1) = Q.slotLength * ti + Q.slotLength :=
+                Nat.mul_succ ..
+              omega
+            · exact h1
+            · exfalso
+              have : Q.slotLength * (t + 1) ≤ Q.slotLength * ti :=
+                Nat.mul_le_mul_left _ (by omega)
+              have hexp : Q.slotLength * (t + 1) = Q.slotLength * t + Q.slotLength :=
+                Nat.mul_succ ..
+              omega
+          subst hteq
+          -- so it is *this* validator's slot-`t` vote tick, which is `k < m`
+          have hmk : m = k := hone m k p _ hlbl hlblv
+          omega
+        · -- a fast-confirm reading in the window is this slot's, hence the endpoint `jf`
+          exfalso
+          have hti : x5[m].time = Q.slotLength * ti + 2 * Q.delta :=
+            MfcEquiv.tick_reading5 hsync hlbl
+          have hteq : ti = t := by
+            rcases Nat.lt_trichotomy ti t with h1 | h1 | h1
+            · exfalso
+              have : Q.slotLength * (ti + 1) ≤ Q.slotLength * t :=
+                Nat.mul_le_mul_left _ (by omega)
+              have hexp : Q.slotLength * (ti + 1) = Q.slotLength * ti + Q.slotLength :=
+                Nat.mul_succ ..
+              omega
+            · exact h1
+            · exfalso
+              have : Q.slotLength * (t + 1) ≤ Q.slotLength * ti :=
+                Nat.mul_le_mul_left _ (by omega)
+              have hexp : Q.slotLength * (t + 1) = Q.slotLength * t + Q.slotLength :=
+                Nat.mul_succ ..
+              omega
+          subst hteq
+          have hmk : m = jf := hone m jf p _ hlbl hlblf
+          omega
+      rw [hstep]
+      exact ih (by omega)
+
 set_option maxHeartbeats 2000000 in
 /-- **Lemma 18's second round, the pinning step: an honest slot-`t` vote is one message.**
     In a slot with an honest proposer whose carried checkpoint is older than the previous
