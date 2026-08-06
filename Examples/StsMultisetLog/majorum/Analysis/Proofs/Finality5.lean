@@ -1948,6 +1948,123 @@ theorem fcs_eq_chp5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa
     exact List.append_ne_nil_of_right_ne_nil _ (by simp)
   exact fcs_eq_of_honest_agreement hsync hone hmc hmono hcb hfn hchpne hsupp hall
 
+set_option maxHeartbeats 4000000 in
+/-- **Lemma 18's second round, second step: every honest validator leaves slot `t` with
+    `chAva = chp`.** At its slot-`t` vote tick all three `chAva` candidates sit below `chp`:
+    the previous chain by Lemma 13 and the pick's own bound (`vote_chain_ge_mfc5`), the
+    κ-deep prefix by `kappaPrefix_le_self`, and the frozen justified chain by Lemma 17
+    together with `GJ_p.ch ⪯ chp`. Nothing moves it until the fast-confirm tick
+    (`chAva_quiet_between`), where `fastconfirm` returns `chp` — `fcs_eq_chp5` for the
+    quorum branch, closed by `gj_eq_target5` — and the write takes the longer of the two,
+    which antisymmetry makes `chp` either way. -/
+theorem chAva_eq_chp_at_fconf5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hlow : gjp.c < t - 1)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {vi : Node} {jf : Nat} (hact : vi ∈ Active Q S (t : Int))
+    (hlblf : x5.lbl jf = .tick vi (Q.slotLength * t + 2 * Q.delta)) :
+    x5[jf + 1][vi].st.chAva = chp := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, hah, hsync, hmono, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
+    ⟨hcb, hfn⟩, hgst⟩ := id H5
+  obtain ⟨H2, heq⟩ := MfcEquiv.lemma10 rfl H5 hκ hwin5
+  have hwin2 := MfcEquiv.window_transfer H5 hwin5
+  have hvot : Q.voting (t : Int) = ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  have htf : x5[jf].time = Q.slotLength * t + 2 * Q.delta :=
+    MfcEquiv.tick_reading5 hsync hlblf
+  have hAwf : x5.Awake jf vi := by
+    have hstep := x5.step jf
+    rw [hlblf] at hstep
+    have h := hstep.1
+    simp only [spec] at h
+    exact h
+  -- `vi` is honest at its vote reading, so its slot-`t` vote hands back its own vote tick
+  obtain ⟨iv, src, tgt, htiv, hvsent⟩ :=
+    MfcEquiv.activeVotesEq5_of_propose rfl heq H5 H2 ht hsent hhon_i hhon_t vi hact
+  have hhonv : (⟨vi, Msg.vote chp src tgt t⟩ : SignedMsg Node M).sender
+      ∉ S.adv ((x5[iv].time : Int)) := by
+    show vi ∉ S.adv ((x5[iv].time : Int))
+    rw [htiv]
+    have hawk : vi ∈ S.awake ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+      refine mem_awakeThroughout.mp hact _ ?_ ?_ <;>
+        · show _
+          unfold Params.voting
+          push_cast
+          omega
+    exact Finset.disjoint_left.mp (hah _) hawk
+  obtain ⟨k, hkiv, hlblv, htv, hopen, hmfcle⟩ :=
+    vote_chain_ge_mfc5 hsync hmc hmono hvsent hhonv rfl
+  dsimp only at hlblv hopen hmfcle
+  -- the fork choice at that tick is below `chp`, and so is every candidate the write offers
+  obtain ⟨s0, rfl⟩ : ∃ s0, t = s0 + 1 := ⟨t - 1, by omega⟩
+  have hActs0 : vi ∈ Active Q S ((s0 : Int) + 1) := by
+    have hcast : (((s0 + 1 : Nat)) : Int) = (s0 : Int) + 1 := by push_cast; omega
+    rw [← hcast]
+    exact hact
+  have hold := (MfcEquiv.lemma13 rfl heq H5 H2 hκ hwin2 k vi k vi s0 hActs0).2 hlblv
+    (le_of_eq htv)
+  have hgjle : chainLe gjp.ch chp := by
+    obtain ⟨-, kp, -, -, -, -, -, hgjp, hchp, -, -⟩ :=
+      propose_fields5 hsync hmc hmono hsent hhon_i
+    rw [hgjp, hchp]
+    exact chainLe_trans (gj_le_fastConfirm _ _)
+      (chainLe_trans (base_le_mfc _ _ _ _) (chainLe_extend _ _ _))
+  have hpre : chainLe x5[k + 1][vi].st.chAva chp := by
+    rw [MfcEquiv.vote_tick_chAva hlblv (voting_reading_mod Q (s0 + 1)) hopen]
+    rcases MfcEquiv.voteChAva_cases x5 k vi (Q.slotLength * (s0 + 1) + Q.delta) with
+      h | h | h <;> rw [h, voting_reading_div Q (s0 + 1)]
+    · rw [show (processProposals (components (Fintype.card Node) kappa pool proposer)
+          x5[k][vi].view (s0 + 1) x5[k][vi].st).chAva = x5[k][vi].st.chAva from
+        MfcEquiv.processProposals_chAva _ _ _ _]
+      exact chainLe_trans hold hmfcle
+    · exact chainLe_trans (kappaPrefix_le_self _ _ _) hmfcle
+    · rw [lemma17_gjFrozen H5 (by omega) hsent hhon_i hhon_t hact hlblv]
+      exact hgjle
+  -- nothing moves it until the fast-confirm tick
+  have hkjf : k + 1 ≤ jf := by
+    rcases Nat.lt_or_ge k jf with h | h
+    · omega
+    · exfalso
+      have := time_le_of_le hmono h
+      omega
+  have hpref : chainLe x5[jf][vi].st.chAva chp := by
+    rw [chAva_quiet_between hsync hmono hone hlblv hlblf jf hkjf (le_refl jf)]
+    exact hpre
+  -- and there `fastconfirm` returns `chp`
+  have hfcs : (fastConfirmSimple (Fintype.card Node) x5[jf][vi].view (s0 + 1)).1 = chp :=
+    fcs_eq_chp5 H5 hκ hwin5 hga (by omega) hsent hhon_i hhon_t hgat hAwf (le_of_eq htf.symm)
+  have hgjeq : gj (Fintype.card Node) x5[jf][vi].view = ⟨gjp.ch, s0 + 1⟩ :=
+    gj_eq_target5 H5 hκ hwin5 hga (by omega) hsent hhon_i hhon_t hlow hgat hAwf
+      (le_of_eq htf.symm) (by
+        have hexp : Q.slotLength * (s0 + 1 + 1) = Q.slotLength * (s0 + 1) + Q.slotLength :=
+          Nat.mul_succ ..
+        omega)
+  have hfc : ((components (Fintype.card Node) kappa pool proposer).fastConfirm
+      x5[jf][vi].view (s0 + 1)).1 = chp := by
+    unfold Components.fastConfirm
+    rw [MfcEquiv.components_fastConfirmSimple, MfcEquiv.components_gj,
+      MfcEquiv.components_prefixLe]
+    dsimp only
+    rw [if_pos (by rw [hgjeq, hfcs]; exact hgjle)]
+    exact hfcs
+  -- the write keeps the longer chain, and antisymmetry makes both branches `chp`
+  rw [Availability5.chAva_at_fconf5 hlblf, hfc]
+  by_cases hb : chainLe chp x5[jf][vi].st.chAva
+  · rw [if_pos hb]
+    exact chainLe_antisymm hpref hb
+  · rw [if_neg hb]
+
 set_option maxHeartbeats 1000000 in
 /-- **Any two justified chains are comparable.** Each justified checkpoint's chain sits below
     some validator's available chain (`justified_to_voteChAva`, descending through fin-vote
