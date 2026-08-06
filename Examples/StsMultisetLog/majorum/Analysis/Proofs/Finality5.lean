@@ -1804,6 +1804,116 @@ theorem honest_slot_vote_pinned5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ 
   obtain ⟨-, hsrc, htgt, -⟩ := hm2
   rw [hm1, hsrc, htgt]
 
+/-- **What a slot's development actually needs of its proposal.** A checkpoint `T` at slot
+    `s` whose chain prefixes the slot's proposed chain, justified in every awake view from
+    `fconf(s)` on, and named as the target of every honest slot-`s` fin-vote.
+
+    Slot `t`'s instance comes from the re-justification branch (`slotPinned_of_low`); slot
+    `t+1`'s, from the justification of `(chp, t+1)` and `finvote_target_eq_chp5`. Factoring it
+    out is what lets the same development run at either slot: `GJ_p.c < t - 1` is *not*
+    available at `t+1`, since `(GJ_p.ch, t)` is justified by then. -/
+structure SlotPinned (x5 : Exec Pr5 S) (s : Nat) (chp : Chain Tx)
+    (T : Checkpoint (Chain Tx)) : Prop where
+  /-- `T` is the slot's own checkpoint. -/
+  slot : T.c = s
+  /-- Its chain prefixes the slot's proposal. -/
+  chain : chainLe T.ch chp
+  /-- It is justified in every awake view from the slot's fast-confirm reading on. -/
+  justified : ∀ (i : Nat) (w : Node), x5.Awake i w →
+    Q.slotLength * s + 2 * Q.delta ≤ x5[i].time →
+    JustifiedIn (Fintype.card Node) x5[i][w].view T
+  /-- Every honest slot-`s` fin-vote targets it. -/
+  target : ∀ (i : Nat) (w : Node), Q.slotLength * s + Q.delta ≤ x5[i].time →
+    ∀ sm ∈ votes x5[i][w].view, msgSlot sm.msg = s →
+      sm.sender ∉ S.adv ((x5[i].time : Int)) →
+      ∀ (e : Chain Tx) (src tgt : Checkpoint (Chain Tx)) (r : Nat),
+        sm.msg = .vote e src tgt r → tgt = T
+
+set_option maxHeartbeats 2000000 in
+/-- **Every honest slot-`t` vote is for `chp`**, in any view from the vote reading on — the
+    chain half of `honest_slot_vote_pinned5`, which needs nothing about the proposal's
+    carried checkpoint. -/
+theorem honest_slot_vote_chain5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {i : Nat} {w : Node} (htime : Q.slotLength * t + Q.delta ≤ x5[i].time) :
+    ∀ sm ∈ votes x5[i][w].view, msgSlot sm.msg = t →
+      sm.sender ∉ S.adv ((x5[i].time : Int)) → msgChain sm.msg = chp := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, -, hsync, hmono, -, -, -⟩, -, -, hone, -, -, -, -⟩ := id H5
+  obtain ⟨H2, heq⟩ := MfcEquiv.lemma10 rfl H5 hκ hwin5
+  have hvot : Q.voting (t : Int) = ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  have hvotcast : ((Q.slotLength * t + Q.delta : Nat) : Int) ≤ ((x5[i].time : Int)) := by
+    exact_mod_cast htime
+  have hvotes : MfcEquiv.ActiveVotesEq5 x5 t chp :=
+    MfcEquiv.activeVotesEq5_of_propose rfl heq H5 H2 ht hsent hhon_i hhon_t
+  intro sm hsm hslot hhonsm
+  have hact : sm.sender ∈ Active Q S (t : Int) := by
+    refine active_of_globalAwake hga hgat (fun r _ h2 hadv => hhonsm (hmc r _ ?_ hadv))
+    rw [hvot] at h2
+    omega
+  obtain ⟨e, src, tgt, s, hmsg⟩ := exists_vote_of_mem_votes hsm
+  have hst : s = t := by
+    rw [hmsg] at hslot
+    exact hslot
+  subst hst
+  have hsmlog : sm ∈ x5[i].sent := by
+    have h := hsm
+    simp only [votes, Finset.mem_filter] at h
+    exact views_sound x5 i w _ h.1
+  obtain ⟨iv, src', tgt', htiv, hvsent⟩ := hvotes sm.sender hact
+  have hhoniv : (⟨sm.sender, Msg.vote chp src' tgt' s⟩ :
+      SignedMsg Node M).sender ∉ S.adv ((x5[iv].time : Int)) := by
+    show sm.sender ∉ S.adv ((x5[iv].time : Int))
+    intro hadv
+    refine hhonsm (hmc _ _ ?_ hadv)
+    rw [htiv]
+    exact hvotcast
+  have h1 := honest_vote_unique hsync hone hmc hmono hsmlog hvsent hhonsm hhoniv rfl hmsg rfl
+  rw [← h1]
+  rfl
+
+set_option maxHeartbeats 2000000 in
+/-- **Slot `t`'s pinning data, from the re-justification branch.** -/
+theorem slotPinned_of_low {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hlow : gjp.c < t - 1)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int)) :
+    SlotPinned x5 t chp ⟨gjp.ch, t⟩ := by
+  obtain ⟨⟨hmc, -, hsync, hmono, -, -, -⟩, -, -, -, -, -, -, -⟩ := id H5
+  refine ⟨rfl, ?_, ?_, ?_⟩
+  · show chainLe gjp.ch chp
+    obtain ⟨-, kp, -, -, -, -, -, hgjp, hchp, -, -⟩ :=
+      propose_fields5 hsync hmc hmono hsent hhon_i
+    rw [hgjp, hchp]
+    exact chainLe_trans (gj_le_fastConfirm _ _)
+      (chainLe_trans (base_le_mfc _ _ _ _) (chainLe_extend _ _ _))
+  · intro i w hAw htime
+    exact rejustified_target5 H5 hga ht hsent hhon_i hhon_t hlow hgat hAw htime
+  · intro i w htime sm hsm hslot hhonsm e src tgt r hmsg
+    have hp := honest_slot_vote_pinned5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t
+      (by omega) hgat htime sm hsm hslot hhonsm
+    rw [hmsg, Msg.vote.injEq] at hp
+    exact hp.2.2.1
+
 set_option maxHeartbeats 2000000 in
 /-- **The greatest justified checkpoint of the window is the re-justified target.** Between
     `fconf(t)` and `voting(t+1)`, `(GJ_p.ch, t)` is justified in every awake view (Lemma 18's
