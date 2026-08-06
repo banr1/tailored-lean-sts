@@ -3594,6 +3594,56 @@ theorem chp_le_chFin5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kap
     omega
   exact chainLe_trans hbase (lemma16 hsync hmono hone hmc hcb hfn vi hja)
 
+set_option maxHeartbeats 4000000 in
+/-- **Theorem 6's transaction-pool clause**: every transaction pooled by a round of slot `t`
+    sits in a block of the finalized chain, from `fconf(t+3)` on. The proposal's own block
+    carries the slot's pool (`propose_chain_facts5`), and `chp_le_chFin5` puts the proposal
+    inside the finalized chain — the mempool interpreted at the statement level exactly as in
+    Theorems 2 and 4. -/
+theorem chFin_txpool5 {x5 : Exec Pr5 S} {τ : Type}
+    (memTx : τ → Tx → Prop) (poolSet : Time → Set τ)
+    (hmonoP : ∀ r r' : Time, r ≤ r' → poolSet r ⊆ poolSet r')
+    (hcover : ∀ s : Nat, ∀ tx ∈ poolSet (Q.slotLength * s), memTx tx (pool s))
+    (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    {T : Checkpoint (Chain Tx)} (hp : SlotPinned x5 t chp T)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
+    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
+    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
+      SignedMsg Node M) ∈ x5[ip'].sent)
+    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
+    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int)))
+    {vi : Node} {a : Nat} (hact3 : vi ∈ Active Q S (((t + 1 + 1 + 1 : Nat)) : Int))
+    (hlate : Q.slotLength * (t + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time)
+    {r : Time} (hr : r ≤ Q.slotLength * t) :
+    ∀ tx ∈ poolSet r, ∃ b ∈ x5[a][vi].st.chFin, memTx tx b.txs := by
+  have hle := chp_le_chFin5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t hp hgat hsent' hhon_i'
+    hhon_t' hact3 hlate
+  obtain ⟨-, -, chM, hchp_ext⟩ :=
+    Availability5.propose_chain_facts5 H5 hκ hwin5 hsent rfl ht hhon_i
+  intro tx htx
+  refine ⟨⟨t, pool t⟩, ?_, ?_⟩
+  · -- the proposal's own block sits in the finalized chain
+    have hmem : (⟨t, pool t⟩ : Block Tx) ∈ chp := by
+      rw [hchp_ext]
+      unfold extend
+      simp
+    have hsub : chp ⊆ x5[a][vi].st.chFin := by
+      have h := hle
+      rw [chainLe_iff_prefix] at h
+      exact h.subset
+    exact hsub hmem
+  · -- and its body covers the pool at `propose(t)`, hence at `r`
+    exact hcover t tx (hmonoP r (Q.slotLength * t) hr htx)
+
 set_option maxHeartbeats 1000000 in
 /-- **Any two justified chains are comparable.** Each justified checkpoint's chain sits below
     some validator's available chain (`justified_to_voteChAva`, descending through fin-vote
