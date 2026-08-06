@@ -1448,4 +1448,87 @@ theorem honest_quorum (hcb : S.CorruptionBounded Q.f) (hfn : 3 * Q.f < Fintype.c
   have h4 : (Finset.univ : Finset Node).card = Fintype.card Node := Finset.card_univ
   omega
 
+/-- Algorithm 5's vote-phase send, on the **re-justification** branch: with the joining
+    check open, and the processed frozen checkpoint not the previous slot's, the tick sends a
+    vote whose fin-vote runs from that checkpoint to `(its chain, this slot)`. -/
+theorem handler_vote_sends5_rejustify {pick : Chain Tx} {p : Node} {r : Time}
+    {V : View Node M} {s : NodeState Node (Chain Tx) (QCert Node Tx)}
+    (hmod : r % Q.slotLength = Q.delta) (hgate : s.activeAt ≤ r)
+    (hne : (processProposals (components (Fintype.card Node) kappa pool proposer) V
+      (r / Q.slotLength) s).gjFrozen.c ≠ r / Q.slotLength - 1) :
+    (Msg.vote pick
+        (processProposals (components (Fintype.card Node) kappa pool proposer) V
+          (r / Q.slotLength) s).gjFrozen
+        ⟨(processProposals (components (Fintype.card Node) kappa pool proposer) V
+          (r / Q.slotLength) s).gjFrozen.ch, r / Q.slotLength⟩
+        (r / Q.slotLength))
+      ∈ (handlerCore (components (Fintype.card Node) kappa pool proposer) Q pick p r V
+        s).send := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  simp only [handlerCore, apply_ite NodeStepResult.send]
+  rw [if_neg (by omega), if_pos hmod, if_pos hgate, if_neg hne]
+  exact Multiset.mem_singleton_self _
+
+set_option maxHeartbeats 2000000 in
+/-- **Every active validator's slot-`t` fin-vote reads `GJ_p → (GJ_p.ch, t)`** when slot `t`
+    has an honest proposer whose carried checkpoint is older than the previous slot — Lemma
+    18's first step. Lemma 17 pins the source; the re-justification branch of the target
+    fires exactly because that source is not the previous slot's checkpoint. -/
+theorem finvote_of_active5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hlow : gjp.c ≠ t - 1)
+    {vi : Node} (hact : vi ∈ Active Q S (t : Int)) :
+    ∃ (i : Nat) (ch : Chain Tx), x5[i].time = Q.slotLength * t + Q.delta ∧
+      (⟨vi, Msg.vote ch gjp ⟨gjp.ch, t⟩ t⟩ : SignedMsg Node M) ∈ x5[i].sent := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, -, hsync, hmono, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, hrel⟩, hslp,
+    ⟨hcb, hfn⟩, hgst⟩ := id H5
+  have hvot : Q.voting (t : Int) = ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  -- the validator ticks at its vote reading, with the joining check open
+  obtain ⟨i₁, hi₁⟩ := hdiv (Q.slotLength * t + Q.delta)
+  obtain ⟨i₀, hi₀, hti₀⟩ := exists_time_eq hstepw hi₁
+  have hAw₀ : x5.Awake i₀ vi := by
+    show vi ∈ S.awake ((x5[i₀].time : Int))
+    rw [hti₀]
+    refine mem_awakeThroughout.mp hact _ ?_ ?_ <;> rw [hvot] <;> omega
+  obtain ⟨j, htj, hlblj⟩ := hdil (Q.slotLength * t + Q.delta) vi ⟨i₀, hti₀, hAw₀⟩
+  have hgate : x5[j][vi].st.activeAt ≤ Q.slotLength * t + Q.delta := by
+    refine MfcEquiv.activeAt_le_voting5 hsync hmono (t1 := t) ?_ (le_of_eq htj)
+    intro ρ h1 h2
+    refine mem_awakeThroughout.mp hact ρ ?_ ?_ <;> rw [hvot] <;> omega
+  -- Lemma 17 pins the frozen checkpoint, and the target's branch follows
+  have hgj := lemma17_gjFrozen H5 ht hsent hhon_i hhon_t hact hlblj
+  -- the same facts, in the spelling `tick_send_mem5` expects
+  have hgj' : (processProposals (components (Fintype.card Node) kappa pool proposer)
+      (setClock vi (Q.slotLength * t + Q.delta) (x5.cfg j))[vi].view t
+      (setClock vi (Q.slotLength * t + Q.delta) (x5.cfg j))[vi].st).gjFrozen = gjp := by
+    simp only [setClock_getElem, if_pos rfl, if_true]
+    exact hgj
+  have hgate' : (setClock vi (Q.slotLength * t + Q.delta) (x5.cfg j))[vi].st.activeAt
+      ≤ Q.slotLength * t + Q.delta := by
+    simp only [setClock_getElem, if_pos rfl, if_true]
+    exact hgate
+  have hsend := handler_vote_sends5_rejustify (kappa := kappa) (pool := pool)
+      (proposer := proposer) (pick := pick5 x5 j vi (Q.slotLength * t + Q.delta))
+      (p := vi) (V := (setClock vi (Q.slotLength * t + Q.delta) (x5.cfg j))[vi].view)
+      (s := (setClock vi (Q.slotLength * t + Q.delta) (x5.cfg j))[vi].st)
+    (voting_reading_mod Q t) hgate' ?_
+  · rw [voting_reading_div Q t, hgj'] at hsend
+    refine ⟨j + 1, pick5 x5 j vi (Q.slotLength * t + Q.delta), ?_, ?_⟩
+    · rw [MfcEquiv.tick_time5 hlblj]
+      exact htj
+    · exact MfcEquiv.tick_send_mem5 hlblj hsend
+  · rw [voting_reading_div Q t, hgj']
+    exact hlow
+
 end Majorum.Finality5
