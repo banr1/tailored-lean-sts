@@ -481,6 +481,8 @@ theorem lemma18_justified {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ 
     {i : Nat} {w : Node} (hAw : x5.Awake i w)
     (htime : Q.slotLength * (t + 1) + 2 * Q.delta ≤ x5[i].time) :
     JustifiedIn (Fintype.card Node) x5[i][w].view ⟨chp, t + 1⟩ :=
-  Finality5.justified_chp_next5 H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat hAw htime
+  Finality5.justified_chp_next5 H hκ hwin hga ht hsent hhon_i hhon_t
+    (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat hAw
+    htime
 
 end Majorum
