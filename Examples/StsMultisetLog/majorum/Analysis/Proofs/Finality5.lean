@@ -1594,4 +1594,37 @@ theorem rejustified_target5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
   rw [htiv]
   omega
 
+set_option maxHeartbeats 1000000 in
+/-- **Any two justified chains are comparable.** Each justified checkpoint's chain sits below
+    some validator's available chain (`justified_to_voteChAva`, descending through fin-vote
+    targets), and available chains are totally ordered (`chAva_comparable`, itself from
+    Lemma 10's dominance and Algorithm 2's safety). Note what this is *not*: cross-slot
+    nesting of justified checkpoints does not follow from the slashing conditions alone —
+    conflicting justified checkpoints at different slots violate neither E1 nor E2 — so this
+    goes through the available chain instead. -/
+theorem justified_chains_comparable {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
+    (hκ : 1 ≤ kappa) (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    {i₁ : Nat} {w₁ : Node} {C₁ : Checkpoint (Chain Tx)}
+    (h₁ : JustifiedIn (Fintype.card Node) x5[i₁][w₁].view C₁)
+    {i₂ : Nat} {w₂ : Node} {C₂ : Checkpoint (Chain Tx)}
+    (h₂ : JustifiedIn (Fintype.card Node) x5[i₂][w₂].view C₂) :
+    chainLe C₁.ch C₂.ch ∨ chainLe C₂.ch C₁.ch := by
+  obtain ⟨⟨hmc, -, hsync, hmono, -, -, -⟩, -, -, -, -, -, ⟨hcb, hfn⟩, -⟩ := id H5
+  -- each justified chain sits below some available chain
+  have hdesc : ∀ (i : Nat) (w : Node) (C : Checkpoint (Chain Tx)),
+      JustifiedIn (Fintype.card Node) x5[i][w].view C →
+      ∃ (a : Nat) (v : Node), chainLe C.ch x5[a][v].st.chAva := by
+    intro i w C hC
+    rcases MfcEquiv.justified_to_voteChAva hsync hmc hmono hcb hfn (le_refl _)
+        (i := i) C.c _ rfl i w (le_refl i) hC with hnil | hd
+    · exact ⟨0, w, by rw [hnil]; exact chainLe_nil _⟩
+    · obtain ⟨k, v, tr, -, hlbl, hmod, hgate, hle⟩ := hd
+      exact ⟨k + 1, v, by rw [MfcEquiv.vote_tick_chAva hlbl hmod hgate]; exact hle⟩
+  obtain ⟨a₁, v₁, hle₁⟩ := hdesc i₁ w₁ C₁ h₁
+  obtain ⟨a₂, v₂, hle₂⟩ := hdesc i₂ w₂ C₂ h₂
+  -- and available chains are totally ordered
+  rcases Availability5.chAva_comparable H5 hκ hwin5 a₁ v₁ a₂ v₂ with h | h
+  · exact comparable_of_common_extension (chainLe_trans hle₁ h) hle₂
+  · exact comparable_of_common_extension hle₁ (chainLe_trans hle₂ h)
+
 end Majorum.Finality5
