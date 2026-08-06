@@ -2282,6 +2282,153 @@ theorem majority_le_chp5 {x5 : Exec Pr5 S} (hcb : S.CorruptionBounded Q.f)
   unfold Majority at hmaj
   omega
 
+set_option maxHeartbeats 4000000 in
+/-- **At slot `t+1`'s vote reading, the fork choice and the frozen checkpoint are both below
+    `chp`** — given only that nothing justified in that view exceeds `chp`, which is what the
+    induction of `chAva_and_justified_le_chp5` supplies.
+
+    The frozen chain starts at the merge value, `chp` itself (`frozen_at_vote_tick5` with
+    `fastConfirm_eq_chp5`), and `processProposals_bounded` keeps it there: a certified
+    proposal's `chC` has more than `f` slot-`t` supporters in the view, so
+    `le_chp_of_support5` bounds it, and a justified proposal's checkpoint is bounded by
+    hypothesis. The fork choice is then that base or a majority chain (`majority_le_chp5`),
+    and the frozen checkpoint is the merge's — `(GJ_p.ch, t)` by `gj_eq_target5` — or one
+    justified in the view. -/
+theorem vote_tick_bounds_chp5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hlow : gjp.c < t - 1)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {m : Nat} {u : Node} (hact1 : u ∈ Active Q S ((t : Int) + 1))
+    (hlbl : x5.lbl m = .tick u (Q.slotLength * (t + 1) + Q.delta))
+    (hjust : ∀ C, JustifiedIn (Fintype.card Node) x5[m][u].view C → chainLe C.ch chp) :
+    chainLe ((components (Fintype.card Node) kappa pool proposer).mfc
+        (processProposals (components (Fintype.card Node) kappa pool proposer)
+          x5[m][u].view (t + 1) x5[m][u].st).vFrozen x5[m][u].view
+        (processProposals (components (Fintype.card Node) kappa pool proposer)
+          x5[m][u].view (t + 1) x5[m][u].st).chFrozen (t + 1)) chp ∧
+      chainLe (processProposals (components (Fintype.card Node) kappa pool proposer)
+        x5[m][u].view (t + 1) x5[m][u].st).gjFrozen.ch chp := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, hah, hsync, hmono, -, -, hdil⟩, hstepw, -, hone, ⟨hsyn, -⟩, -,
+    ⟨hcb, hfn⟩, -⟩ := id H5
+  obtain ⟨H2, heq⟩ := MfcEquiv.lemma10 rfl H5 hκ hwin5
+  have hcard : 0 < Fintype.card Node := by omega
+  have hexp : Q.slotLength * (t + 1) = Q.slotLength * t + Q.slotLength := Nat.mul_succ ..
+  have htm : x5[m].time = Q.slotLength * (t + 1) + Q.delta :=
+    MfcEquiv.tick_reading5 hsync hlbl
+  have hAwm : x5.Awake m u := by
+    have hstep := x5.step m
+    rw [hlbl] at hstep
+    have h := hstep.1
+    simp only [spec] at h
+    exact h
+  have hvot : Q.voting (t : Int) = ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  -- every honest slot-`t` vote in this view is `chp`
+  have hall : ∀ sm ∈ votes x5[m][u].view, msgSlot sm.msg = t →
+      sm.sender ∉ S.adv ((x5[m].time : Int)) → msgChain sm.msg = chp := by
+    intro sm hsm hslot hhon
+    rw [honest_slot_vote_pinned5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t (by omega) hgat
+      (by omega) sm hsm hslot hhon]
+    rfl
+  -- and every honest validator is one of the slot-`t` voters counted there
+  have hvotes : MfcEquiv.ActiveVotesEq5 x5 t chp :=
+    MfcEquiv.activeVotesEq5_of_propose rfl heq H5 H2 ht hsent hhon_i hhon_t
+  have hvoters : (Finset.univ \ S.adv ((x5[m].time : Int)))
+      ⊆ voters x5[m][u].view (t + 1) := by
+    intro q hq
+    have hqhon : q ∉ S.adv ((x5[m].time : Int)) := (Finset.mem_sdiff.mp hq).2
+    have hqact : q ∈ Active Q S (t : Int) := by
+      refine active_of_globalAwake hga hgat (fun r _ h2 hadv => hqhon (hmc r _ ?_ hadv))
+      rw [hvot] at h2
+      have : ((Q.slotLength * t + Q.delta : Nat) : Int) ≤ ((x5[m].time : Int)) := by
+        have : Q.slotLength * t + Q.delta ≤ x5[m].time := by omega
+        exact_mod_cast this
+      omega
+    obtain ⟨iv, src, tgt, htiv, hvsent⟩ := hvotes q hqact
+    have hview : (⟨q, Msg.vote chp src tgt t⟩ : SignedMsg Node M) ∈ x5[m][u].view := by
+      refine hsyn iv m u _ hvsent ?_ hAwm
+      rw [htiv]
+      omega
+    simp only [voters, fil1Exp, Finset.mem_image]
+    refine ⟨⟨q, Msg.vote chp src tgt t⟩, Finset.mem_filter.2 ⟨?_, rfl⟩, rfl⟩
+    simp only [votes, Finset.mem_filter]
+    exact ⟨hview, trivial⟩
+  -- the merge freeze: the chain is `chp` and the checkpoint is `(GJ_p.ch, t)`
+  obtain ⟨im, himm, htim, hlblim, -, hcf, hgf⟩ :=
+    MfcEquiv.frozen_at_vote_tick5 hsync hstepw hdil hone hact1 hlbl
+  have hAwim : x5.Awake im u := by
+    have hstep := x5.step im
+    rw [hlblim] at hstep
+    have h := hstep.1
+    simp only [spec] at h
+    exact h
+  have hgjle : chainLe gjp.ch chp := by
+    obtain ⟨-, kp, -, -, -, -, -, hgjp, hchp, -, -⟩ :=
+      propose_fields5 hsync hmc hmono hsent hhon_i
+    rw [hgjp, hchp]
+    exact chainLe_trans (gj_le_fastConfirm _ _)
+      (chainLe_trans (base_le_mfc _ _ _ _) (chainLe_extend _ _ _))
+  have hseed : chainLe x5[m][u].st.chFrozen chp := by
+    rw [hcf, fastConfirm_eq_chp5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t hlow hgat hAwim
+      (by omega) (by omega)]
+    exact chainLe_refl _
+  have hgjseed : x5[m][u].st.gjFrozen = ⟨gjp.ch, t⟩ := by
+    rw [hgf]
+    exact gj_eq_target5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t hlow hgat hAwim
+      (by omega) (by omega)
+  -- the processed frozen chain stays below `chp`
+  have hchF : chainLe (processProposals (components (Fintype.card Node) kappa pool proposer)
+      x5[m][u].view (t + 1) x5[m][u].st).chFrozen chp := by
+    refine (MfcEquiv.processProposals_bounded (n := Fintype.card Node) hseed ?_ ?_).1.1
+    · -- a certified proposal's chain: more than `f` slot-`t` supporters in the view
+      intro sm hsm chp' chC' qc' ck' hmsg hvalid
+      unfold ValidProposal5 at hvalid
+      rw [hmsg] at hvalid
+      obtain ⟨-, -, -, hchCv⟩ := hvalid
+      rcases hchCv with hnil | ⟨cert, -, hcert, hcertv⟩ | ⟨-, hchCeq, hJ⟩
+      · rw [hnil]
+        exact chainLe_nil _
+      · refine le_chp_of_support5 hcb hall ?_
+        have hsupp := MfcEquiv.support_of_cert (n := Fintype.card Node)
+          (V := x5[m][u].view) (ch := chC') (t := t) hcert ?_
+        · omega
+        · intro e he
+          obtain ⟨h1, h2, src, tgt, h3⟩ := hcertv e he
+          exact ⟨h1, by omega, src, tgt, h3⟩
+      · rw [hchCeq]
+        exact hjust _ hJ
+    · -- a justified proposal's checkpoint: bounded by hypothesis
+      intro sm hsm chp' chC' qc' gjp' hmsg hJ
+      exact hjust _ hJ
+  refine ⟨?_, ?_⟩
+  · -- the fork choice is that base or a majority chain
+    rw [MfcEquiv.components_mfc]
+    rcases mfc_base_or_majority
+        (processProposals (components (Fintype.card Node) kappa pool proposer)
+          x5[m][u].view (t + 1) x5[m][u].st).vFrozen x5[m][u].view
+        (processProposals (components (Fintype.card Node) kappa pool proposer)
+          x5[m][u].view (t + 1) x5[m][u].st).chFrozen (t + 1) with hb | hmaj
+    · rw [hb]
+      exact hchF
+    · exact majority_le_chp5 hcb hfn hall hvoters hmaj
+  · -- and the frozen checkpoint is the merge's or one justified in the view
+    rcases processProposals_gjFrozen_cases (components (Fintype.card Node) kappa pool proposer)
+      x5[m][u].view (t + 1) x5[m][u].st with h | h
+    · rw [h, hgjseed]
+      exact hgjle
+    · exact hjust _ (of_decide_eq_true h)
+
 set_option maxHeartbeats 1000000 in
 /-- **Any two justified chains are comparable.** Each justified checkpoint's chain sits below
     some validator's available chain (`justified_to_voteChAva`, descending through fin-vote
