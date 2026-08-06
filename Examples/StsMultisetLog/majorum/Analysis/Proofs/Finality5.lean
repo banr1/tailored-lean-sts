@@ -3191,6 +3191,179 @@ theorem slotPinned_next5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ 
       (MfcEquiv.mem_of_mem_sub hem) hmsg hhonk
     exact this
 
+/-- **A quorum of matching fin-votes is a supermajority link** — `justified_of_quorum_votes`
+    without the justification of the source. -/
+theorem link_of_quorum_votes {V : View Node M} {C C' : Checkpoint (Chain Tx)}
+    (hslot : C.c < C'.c) (hchain : chainLe C.ch C'.ch)
+    {W : Finset Node} (hW : 2 * Fintype.card Node ≤ 3 * W.card)
+    (hvotes : ∀ w ∈ W, ∃ e : Chain Tx, ∃ s : Nat,
+      (⟨w, Msg.vote e C C' s⟩ : SignedMsg Node M) ∈ V) :
+    link (Fintype.card Node) V C C' := by
+  refine ⟨hslot, hchain, ?_⟩
+  have hsub : W ⊆ linkVoters V C C' := by
+    intro w hw
+    obtain ⟨e, s, hmem⟩ := hvotes w hw
+    refine Finset.mem_image.mpr ⟨⟨w, Msg.vote e C C' s⟩, ?_, rfl⟩
+    rw [Finset.mem_filter]
+    refine ⟨?_, ?_⟩
+    · simp only [votes, Finset.mem_filter]
+      exact ⟨hmem, trivial⟩
+    · exact ⟨rfl, rfl⟩
+  have := Finset.card_le_card hsub
+  omega
+
+set_option maxHeartbeats 4000000 in
+/-- **Lemma 18's finalization half, with the honest proposer at `t+1` that the paper's proof
+    needs** (the thirteenth finding). `(chp, t+1)` is finalized in every awake view from
+    `fconf(t+2)` on: justified by `justified_chp_next5`, and linked to `(chp', t+2)` — the
+    slot-`(t+1)` proposal's checkpoint — because every honest slot-`(t+2)` fin-vote targets
+    that, and their sources are either `(chp, t+1)` itself, whence the link, or a slot-`(t+2)`
+    checkpoint, which can only have been justified by such a link already in the log: link
+    validity forces a source strictly below slot `t+2`, and the classification leaves only
+    `(chp, t+1)`. -/
+theorem finalized_chp_next5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    {T : Checkpoint (Chain Tx)} (hp : SlotPinned x5 t chp T)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
+    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
+    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
+      SignedMsg Node M) ∈ x5[ip'].sent)
+    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
+    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int)))
+    {i : Nat} {w : Node} (hAw : x5.Awake i w)
+    (htime : Q.slotLength * (t + 1 + 1) + 2 * Q.delta ≤ x5[i].time) :
+    FinalizedIn (Fintype.card Node) x5[i][w].view ⟨chp, t + 1⟩ := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, hah, hsync, hmono, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, -⟩, -,
+    ⟨hcb, hfn⟩, -⟩ := id H5
+  have hcard : 0 < Fintype.card Node := by omega
+  have hexp : Q.slotLength * (t + 1) = Q.slotLength * t + Q.slotLength := Nat.mul_succ ..
+  have hexp2 : Q.slotLength * (t + 1 + 1) = Q.slotLength * (t + 1) + Q.slotLength :=
+    Nat.mul_succ ..
+  have ht1 : 1 ≤ t + 1 := by omega
+  -- slot `t+1`'s pinning data, and its own voting/awakeness bookkeeping
+  have hp' := slotPinned_next5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t hp hgat hsent' hhon_i'
+    hhon_t'
+  have hvot1 : Q.voting (((t + 1 : Nat)) : Int)
+      = ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  have hvot2 : Q.voting (((t + 1 + 1 : Nat)) : Int)
+      = ((Q.slotLength * (t + 1 + 1) + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  have hgat1 : (Q.gat : Int) ≤ Q.voting (((t + 1 : Nat)) : Int) - 3 * (Q.delta : Int) := by
+    rw [hvot1]
+    rw [show Q.voting (t : Int) = ((Q.slotLength * t + Q.delta : Nat) : Int) from by
+      unfold Params.voting; push_cast; omega] at hgat
+    have hstep : ((Q.slotLength * t + Q.delta : Nat) : Int)
+        ≤ ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int) := by
+      have h : Q.slotLength * t + Q.delta ≤ Q.slotLength * (t + 1) + Q.delta := by omega
+      exact_mod_cast h
+    omega
+  -- the honest validators of slot `t+2`, each active there
+  have hact_of : ∀ q : Node, q ∈ (Finset.univ \ S.adv (Q.voting (((t + 1 + 1 : Nat)) : Int)))
+      → q ∈ Active Q S ((t : Int) + 1 + 1) := by
+    intro q hq
+    have hcast : (((t + 1 + 1 : Nat)) : Int) = (t : Int) + 1 + 1 := by push_cast; try omega
+    rw [← hcast]
+    refine active_of_globalAwake hga ?_ (fun r _ h2 hadv =>
+      (Finset.mem_sdiff.mp hq).2 (hmc r _ h2 hadv))
+    rw [hvot2]
+    rw [hvot1] at hgat1
+    have hstep : ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int)
+        ≤ ((Q.slotLength * (t + 1 + 1) + Q.delta : Nat) : Int) := by
+      have h : Q.slotLength * (t + 1) + Q.delta
+          ≤ Q.slotLength * (t + 1 + 1) + Q.delta := by omega
+      exact_mod_cast h
+    omega
+  refine ⟨hp'.justified i w hAw (by omega), ⟨⟨chp', t + 1 + 1⟩, rfl, ?_⟩⟩
+  by_cases hcase : ∃ q ∈ (Finset.univ \ S.adv (Q.voting (((t + 1 + 1 : Nat)) : Int))),
+      ∃ m : Nat, x5[m].time = Q.slotLength * (t + 1 + 1) + Q.delta ∧
+        JustifiedIn (Fintype.card Node) x5[m][q].view ⟨chp', t + 1 + 1⟩
+  · -- already justified in some honest view: its own link's source is `(chp, t+1)`
+    obtain ⟨q, hq, m, htm, hJ⟩ := hcase
+    refine link_mono (view_subset_of_time5 (a := m) (u := q) hsyn hAw (by omega)) ?_
+    cases hJ with
+    | link hjust hlk =>
+        -- an honest voter of that link, and its own slot-`(t+2)` vote
+        obtain ⟨q', hq'mem, hq'hon⟩ :=
+          exists_honest_sender (r := ((x5[m].time : Int))) hcb hfn hlk.2.2
+        obtain ⟨smq, hsmqV, hsmqs, e', τ, hsmqmsg⟩ := mem_linkVoters hq'mem
+        have hsmqlog : smq ∈ x5[m].sent := views_sound x5 m q _ hsmqV
+        have hhonq : smq.sender ∉ S.adv ((x5[m].time : Int)) := by
+          rw [hsmqs]
+          exact hq'hon
+        have hτ : τ = t + 1 + 1 := by
+          obtain ⟨htgtc, -⟩ := vote_fields5 hsync hmc hmono hsmqlog hhonq hsmqmsg
+          have h : t + 1 + 1 = τ := htgtc
+          omega
+        subst hτ
+        have hactq' : smq.sender ∈ Active Q S ((t : Int) + 1 + 1) := by
+          refine hact_of _ (Finset.mem_sdiff.mpr ⟨Finset.mem_univ _, ?_⟩)
+          rw [hvot2, hsmqs] at *
+          intro hadv
+          refine hq'hon (hmc _ _ ?_ hadv)
+          have : ((Q.slotLength * (t + 1 + 1) + Q.delta : Nat) : Int)
+              ≤ ((x5[m].time : Int)) := by
+            have h : Q.slotLength * (t + 1 + 1) + Q.delta ≤ x5[m].time := by omega
+            exact_mod_cast h
+          omega
+        obtain ⟨m2, ch2, src2, htm2, htm21, hlog2, hsrc2⟩ :=
+          finvote_of_active5_next H5 hκ hwin5 hga ht1 hsent' hhon_i' hhon_t' hp' hgat1 hactq'
+        -- the two votes are the same message, so the link's source is that one
+        have hhon2 : smq.sender ∉ S.adv ((x5[m2 + 1].time : Int)) := by
+          rw [htm21]
+          intro hadv
+          refine hhonq (hmc _ _ ?_ hadv)
+          have h : Q.slotLength * (t + 1 + 1) + Q.delta ≤ x5[m].time := by omega
+          exact_mod_cast h
+        have heq2 := honest_vote_unique hsync hone hmc hmono hsmqlog hlog2 hhonq
+          (by rw [hsmqs] at *; exact hhon2) (by rw [hsmqs]) hsmqmsg rfl
+        rw [← heq2] at hsmqmsg
+        simp only at hsmqmsg
+        rw [Msg.vote.injEq] at hsmqmsg
+        obtain ⟨-, hsrceq, -, -⟩ := hsmqmsg
+        rcases hsrc2 with hs | ⟨hs, -⟩
+        · -- the link's source is `(chp, t+1)`
+          first
+            | (rw [hsrceq, hs] at hlk; exact hlk)
+            | (rw [← hsrceq, hs] at hlk; exact hlk)
+        · -- a slot-`(t+2)` source cannot be a link's, its target being at that slot too
+          exfalso
+          have hlt : ((⟨chp', t + 1 + 1⟩ : Checkpoint (Chain Tx))).c
+              < ((⟨chp', t + 1 + 1⟩ : Checkpoint (Chain Tx))).c := by
+            first
+              | (rw [hsrceq, hs] at hlk; exact hlk.1)
+              | (rw [← hsrceq, hs] at hlk; exact hlk.1)
+          exact absurd hlt (lt_irrefl _)
+  · -- otherwise every honest slot-`(t+2)` source is `(chp, t+1)`, and the quorum is the link
+    refine link_of_quorum_votes (by show t + 1 < t + 1 + 1; omega) hp'.chain
+      (W := Finset.univ \ S.adv (Q.voting (((t + 1 + 1 : Nat)) : Int)))
+      (honest_quorum hcb hfn _) ?_
+    intro q hq
+    obtain ⟨m, ch, src, htm, htm1, hlog, hsrc⟩ :=
+      finvote_of_active5_next H5 hκ hwin5 hga ht1 hsent' hhon_i' hhon_t' hp' hgat1
+        (hact_of q hq)
+    rcases hsrc with hs | ⟨-, hJ⟩
+    · subst hs
+      refine ⟨ch, t + 1 + 1, ?_⟩
+      refine hsyn (m + 1) i w _ hlog ?_ hAw
+      rw [htm1]
+      omega
+    · exact absurd ⟨q, hq, m, htm, hJ⟩ hcase
+
 set_option maxHeartbeats 1000000 in
 /-- **Any two justified chains are comparable.** Each justified checkpoint's chain sits below
     some validator's available chain (`justified_to_voteChAva`, descending through fin-vote
