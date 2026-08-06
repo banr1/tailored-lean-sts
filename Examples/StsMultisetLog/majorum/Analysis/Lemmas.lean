@@ -421,4 +421,66 @@ theorem lemma16 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (p : Node)
   Finality5.lemma16 H.wellformed.2.2.1 H.wellformed.2.2.2.1 H.oneTick H.wellformed.1
     H.resilience.1 H.resilience.2 p h
 
+/-- **Lemma 17** (`Lemma 17, arXiv:2601.03862v1 p.23`). In a slot `t` with an honest proposer
+    sending `[propose, chp, chC_p, Q_Cp, GJ_p, t, v_p]`, every validator active in slot `t`
+    votes for chain `chp` and freezes the proposal's own greatest-justified checkpoint,
+    `GJfrozen^{voting(t)}_i = GJ_p`.
+
+    Both halves, as the paper states them. The vote half crosses the Lemma-10 equivalence —
+    Algorithm 2's base case pins the vote and dynamic equivalence leaves a vote's chain alone
+    — so it carries `1 ≤ κ` and `HonestProposalWindow5`, which the paper's Lemma 17 does not;
+    the freezing half needs neither. -/
+theorem lemma17 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int))) :
+    (∀ vi ∈ Active Q S (t : Int), ∃ (i : Nat) (src tgt : Checkpoint (Chain Tx)),
+      x5[i].time = Q.slotLength * t + Q.delta ∧
+      (⟨vi, Msg.vote chp src tgt t⟩ :
+        SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[i].sent) ∧
+    (∀ (vi : Node) (j : Nat), vi ∈ Active Q S (t : Int) →
+      x5.lbl j = .tick vi (Q.slotLength * t + Q.delta) →
+      (processProposals (components (Fintype.card Node) kappa pool proposer)
+        x5[j][vi].view t x5[j][vi].st).gjFrozen = gjp) :=
+  ⟨MfcEquiv.activeVotesEq5_of_propose rfl (MfcEquiv.lemma10 rfl H hκ hwin).2 H
+      (MfcEquiv.lemma10 rfl H hκ hwin).1 ht hsent hhon_i hhon_t,
+    fun vi j hact hlbl => Finality5.lemma17_gjFrozen H ht hsent hhon_i hhon_t hact hlbl⟩
+
+/-- **Lemma 18, the justification half** (`Lemma 18, arXiv:2601.03862v1 p.24`). Assume
+    `f < n/3`, let `v_p` be honest by the time it proposes `chp` in slot `t`, and let its
+    carried checkpoint be older than the previous slot. Then `(chp, t+1)` is **justified** in
+    every awake validator's view from `voting(t+1) + Δ` on.
+
+    The paper's Lemma 18 also claims `chp` is *finalized* at slot `t+2`, and that half does
+    not follow from its hypotheses: finalization needs a supermajority link, so the
+    slot-`(t+2)` fin-votes must agree on their **target** as well as their source, and the
+    paper's proof argues only the source ("all honest validators vote with source
+    `(chp, t+1)`"). The target is each voter's own available chain, and with a *corrupt*
+    slot-`(t+1)` proposer those need not agree — such a proposer can split the honest
+    slot-`(t+1)` votes so that different views fast-confirm different chains, `f < n/3`
+    notwithstanding. Theorem 6, the only consumer, supplies an honest proposer at `t+1`,
+    which closes the gap; so the missing hypothesis is that. Recorded in `CONTEXT.md` as the
+    thirteenth authors'-note finding. -/
+theorem lemma18_justified {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hlow : gjp.c < t - 1)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {i : Nat} {w : Node} (hAw : x5.Awake i w)
+    (htime : Q.slotLength * (t + 1) + 2 * Q.delta ≤ x5[i].time) :
+    JustifiedIn (Fintype.card Node) x5[i][w].view ⟨chp, t + 1⟩ :=
+  Finality5.justified_chp_next5 H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat hAw htime
+
 end Majorum
