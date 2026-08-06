@@ -2162,6 +2162,48 @@ theorem chAva_eq_chp_at_fconf5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 
     exact chainLe_antisymm hpre hb
   · rw [if_neg hb]
 
+/-- **A fold either keeps a field of its seed or the last write to it satisfies `P`** —
+    stated abstractly so the concrete `match` is never restated: the step obligation is
+    discharged inline on the goal `refine` produces. -/
+theorem foldl_seed_or_prop {α β γ : Type} {f : β → α → β} {g : β → γ} {P : γ → Prop}
+    (hstep : ∀ (acc : β) (a : α), g (f acc a) = g acc ∨ P (g (f acc a))) :
+    ∀ (l : List α) (s₀ : β), g (l.foldl f s₀) = g s₀ ∨ P (g (l.foldl f s₀)) := by
+  intro l
+  induction l with
+  | nil => exact fun _ => Or.inl rfl
+  | cons a l ih =>
+      intro s₀
+      rw [List.foldl_cons]
+      rcases ih (f s₀ a) with h | h
+      · rw [h]
+        exact hstep s₀ a
+      · exact Or.inr h
+
+set_option maxHeartbeats 1000000 in
+/-- **The processed frozen checkpoint is the seed's or a justified one**: `gjFrozen` is
+    written only on the checkpoint branch, whose condition carries the view's own
+    justification. Algorithm 2's `processProposals2_chFrozen`, for Algorithm 5's other
+    field. -/
+theorem processProposals_gjFrozen_cases (C : Components Node (Chain Tx) (QCert Node Tx))
+    (V : View Node M) (t : Nat) (s : NodeState Node (Chain Tx) (QCert Node Tx)) :
+    (processProposals C V t s).gjFrozen = s.gjFrozen ∨
+      C.justified ((processProposals C V t s).gjFrozen) V := by
+  unfold processProposals
+  refine foldl_seed_or_prop (g := NodeState.gjFrozen)
+    (P := fun ck => C.justified ck V) ?_ _ _
+  intro acc sm
+  obtain ⟨asd, amsg⟩ := sm
+  cases amsg with
+  | vote ch src tgt t' => exact Or.inl rfl
+  | propose chp chC qc gjp t' =>
+      dsimp only
+      split_ifs with h1 h2 h3 h4 h5 <;>
+        first
+          | exact Or.inl rfl
+          | exact Or.inr h1.2.2.1
+          | exact Or.inr h2.2.2.1
+          | exact Or.inr h3.2.2.1
+
 /-- **Only prefixes of `chp` have slot-`t` support**, in a view where every honest slot-`t`
     vote is `chp`: support by more than `f` senders holds an honest one, whose vote's chain
     *is* `chp`, and support flows down from extensions. -/
