@@ -35,7 +35,7 @@ def ViewsSound (c : Config Node Msg NodeState) : Prop :=
     assumed.
 
     Against `Sts2`'s version: no motive to supply, no eliminator to have written, and the
-    `obtain` is paid once rather than per case. What each case needs from the guard it reads
+    `obtain` is paid once rather than per case. What each case needs from the condition it reads
     out of `hen` — for `deliver`, `hen.1` is `m ∈ c.sent`, exactly as in `Sts2`, because
     `ActionSpec.Enabled` is unchanged from it. -/
 theorem viewsSound {c : Config Node Msg NodeState} (h : Reachable Pr S c) : ViewsSound c := by
@@ -55,7 +55,7 @@ theorem viewsSound {c : Config Node Msg NodeState} (h : Reachable Pr S c) : View
           intro p m hm
           simp [spec] at hm
           exact Or.inl (ih p m hm)
-      -- deliver: the one new message was in `sent` by the action's own guard
+      -- deliver: the one new message was in `sent` by the action's own condition
       | deliver q msg =>
           intro p m hm
           by_cases hpq : p = q

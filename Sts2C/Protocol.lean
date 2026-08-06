@@ -27,7 +27,7 @@ actually depends on:
   **assumption** (`Execution.Synchronized`) rather than a fact of the model, and
   monotonicity is free, since `Step.tick` only increments.
 
-The guard `c[p].clock < c.time` on `tick` stops a clock running ahead of real
+The condition `c[p].clock < c.time` on `tick` stops a clock running ahead of real
 time and gives exactly one tick per validator per round, so a `tick` reaction still
 need not be idempotent.
 

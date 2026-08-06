@@ -78,7 +78,7 @@ def voting (t : Nat) : Time := Q.slotLength * t + Q.delta
     the protocol disagree. That is a lemma about the protocol, to be discharged
     where the protocol lives.
 
-    Guarded by `2 ≤ t` so `t - 2` is genuine subtraction rather than `Nat`
+    Requires `2 ≤ t` so `t - 2` is genuine subtraction rather than `Nat`
     truncation, and by `proposing t` rather than `voting t` — "every slot after
     GST" means the slot *starts* after GST. -/
 def Compliant (S : Schedule Node) : Prop :=

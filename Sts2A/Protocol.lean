@@ -27,7 +27,7 @@ actually depends on:
   **assumption** (`Execution.Synchronized`) rather than a fact of the model, and
   monotonicity is free, since `Step.tick` only increments.
 
-The guard `c[p].clock < c.time` on `tick` stops a clock running ahead of real
+The condition `c[p].clock < c.time` on `tick` stops a clock running ahead of real
 time and gives exactly one tick per validator per round, so a `tick` reaction still
 need not be idempotent.
 
@@ -220,7 +220,7 @@ inductive Action (Node Msg Ev : Type) where
     * **No enabling predicate.** `Enabled` below is derived (`∃ c', Step …`), so there is
       no second copy of the conditions to keep in step with the constructors, and no
       feasibility obligation to discharge — being enabled *is* having a successor.
-    * **No separation of guard from effect.** Each constructor is read as a whole. The
+    * **No separation of condition from effect.** Each constructor is read as a whole. The
       conditions are therefore written exactly once, but they are not addressable: a
       statement that wants "the condition under which `tick` may occur" has to go through
       the inversion lemmas below.

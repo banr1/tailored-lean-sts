@@ -6,7 +6,7 @@ import Framework.Sts2.Reachable
 Liveness is a property of executions, not of reachable states, so a state-based
 `Invariant` over a `System` cannot express it. Hence `Execution`, and hence why
 every network and participation assumption in this framework is a **predicate on
-executions** rather than a guard on `Step`: the two models we care about impose
+executions** rather than a condition on `Step`: the two models we care about impose
 different ones over the same step relation.
 
 Each predicate here is à la carte. A "model" is whichever conjunction of them a

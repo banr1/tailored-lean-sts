@@ -52,7 +52,7 @@ theorem viewsSound {c : Config Node Msg NodeState} (h : Reachable Pr S c) : View
       · intro d q t res _ _ hv p m hm
         simp at hm
         exact Or.inl (hv p m hm)
-      -- deliver: the one new message was in `sent` by the action's own guard
+      -- deliver: the one new message was in `sent` by the action's own condition
       · intro d q msg res hen _ hv p m hm
         by_cases hpq : p = q
         · subst hpq
