@@ -2065,6 +2065,84 @@ theorem chAva_eq_chp_at_fconf5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 
     exact chainLe_antisymm hpref hb
   · rw [if_neg hb]
 
+/-- **Only prefixes of `chp` have slot-`t` support**, in a view where every honest slot-`t`
+    vote is `chp`: support by more than `f` senders holds an honest one, whose vote's chain
+    *is* `chp`, and support flows down from extensions. -/
+theorem le_chp_of_support5 {x5 : Exec Pr5 S} (hcb : S.CorruptionBounded Q.f)
+    {i : Nat} {w : Node} {t : Nat} {chp ch : Chain Tx}
+    (hall : ∀ sm ∈ votes x5[i][w].view, msgSlot sm.msg = t →
+      sm.sender ∉ S.adv ((x5[i].time : Int)) → msgChain sm.msg = chp)
+    (hsupp : Q.f < (((votes x5[i][w].view).filter (fun sm => msgSlot sm.msg = t ∧
+      chainLe ch (msgChain sm.msg))).image SignedMsg.sender).card) :
+    chainLe ch chp := by
+  -- more than `f` supporters cannot all be corrupt
+  by_cases hsub : (((votes x5[i][w].view).filter (fun sm => msgSlot sm.msg = t ∧
+      chainLe ch (msgChain sm.msg))).image SignedMsg.sender) ⊆ S.adv ((x5[i].time : Int))
+  · exfalso
+    have h1 := Finset.card_le_card hsub
+    have h2 := hcb ((x5[i].time : Int))
+    omega
+  · rw [Finset.not_subset] at hsub
+    obtain ⟨q, hqmem, hqhon⟩ := hsub
+    obtain ⟨sm, hsm, hsmq⟩ := Finset.mem_image.mp hqmem
+    rw [Finset.mem_filter] at hsm
+    have hchain : msgChain sm.msg = chp :=
+      hall sm hsm.1 hsm.2.1 (by rw [hsmq]; exact hqhon)
+    rw [← hchain]
+    exact hsm.2.2
+
+set_option maxHeartbeats 1000000 in
+/-- **Nothing beyond `chp` passes the slot-`(t+1)` majority test.** The test counts slot-`t`
+    voters — `fil1Exp` keeps the votes of the previous slot — and every honest one of those
+    voted `chp`, so a chain `chp` does not extend is supported by corrupt senders only. The
+    honest validators are all voters there, so support must exceed `(n − f)/2 > f`, and
+    `le_chp_of_support5` closes it. -/
+theorem majority_le_chp5 {x5 : Exec Pr5 S} (hcb : S.CorruptionBounded Q.f)
+    (hfn : 3 * Q.f < Fintype.card Node)
+    {i : Nat} {w : Node} {t : Nat} {chp ch : Chain Tx}
+    (hall : ∀ sm ∈ votes x5[i][w].view, msgSlot sm.msg = t →
+      sm.sender ∉ S.adv ((x5[i].time : Int)) → msgChain sm.msg = chp)
+    (hvoters : (Finset.univ \ S.adv ((x5[i].time : Int)))
+      ⊆ voters x5[i][w].view (t + 1))
+    {V : View Node M} (hmaj : Majority V x5[i][w].view (t + 1) ch) :
+    chainLe ch chp := by
+  by_cases hnil : ch = []
+  · rw [hnil]
+    exact chainLe_nil _
+  -- the majority's own senders support `ch` at slot `t` in this view
+  refine le_chp_of_support5 hcb hall ?_
+  have hsub : (((votesFor V ch (t + 1)) ∩ (votesFor x5[i][w].view ch (t + 1))).image
+        SignedMsg.sender)
+      ⊆ (((votes x5[i][w].view).filter (fun sm => msgSlot sm.msg = t ∧
+        chainLe ch (msgChain sm.msg))).image SignedMsg.sender) := by
+    intro q hq
+    obtain ⟨sm, hsm, hsmq⟩ := Finset.mem_image.mp hq
+    have hsm2 := (Finset.mem_inter.mp hsm).2
+    unfold votesFor at hsm2
+    rw [Finset.mem_filter] at hsm2
+    obtain ⟨hsmf, hle⟩ := hsm2
+    unfold filLmd at hsmf
+    rw [Finset.mem_filter] at hsmf
+    unfold fil1Exp at hsmf
+    rw [Finset.mem_filter] at hsmf
+    obtain ⟨⟨hsmE, hslot⟩, -⟩ := hsmf
+    have hslot' : msgSlot sm.msg = t := by omega
+    -- the equivocation filter runs over the view's votes, so membership is immediate
+    have hvote : sm ∈ votes x5[i][w].view := by
+      have h := hsmE
+      unfold filEq at h
+      rw [Finset.mem_filter] at h
+      exact h.1
+    refine Finset.mem_image.mpr ⟨sm, ?_, hsmq⟩
+    rw [Finset.mem_filter]
+    exact ⟨hvote, hslot', hle⟩
+  -- and the honest validators are all voters, so that support exceeds `f`
+  have hcards := Finset.card_le_card hsub
+  have hhon := Finset.card_le_card hvoters
+  have hq := honest_quorum hcb hfn ((x5[i].time : Int))
+  unfold Majority at hmaj
+  omega
+
 set_option maxHeartbeats 1000000 in
 /-- **Any two justified chains are comparable.** Each justified checkpoint's chain sits below
     some validator's available chain (`justified_to_voteChAva`, descending through fin-vote
