@@ -1594,6 +1594,106 @@ theorem rejustified_target5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
   rw [htiv]
   omega
 
+set_option maxHeartbeats 2000000 in
+/-- **Lemma 18's second round, first step: the slot fast-confirms exactly the proposal.**
+    With an honest proposer at slot `t` and every validator awake, each honest validator is
+    active (`active_of_globalAwake`), so its slot-`t` vote is exactly `chp`
+    (`MfcEquiv.activeVotesEq5_of_propose`); synchrony puts those votes in every awake view
+    from `fconf(t)` on, where they are more than two thirds (`honest_quorum`); and
+    `honest_vote_unique` makes them the *only* honest slot-`t` votes there, so
+    `fcs_eq_of_honest_agreement` pins the fast confirmation to `chp`. -/
+theorem fcs_eq_chp5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {i : Nat} {w : Node} (hAw : x5.Awake i w)
+    (htime : Q.slotLength * t + 2 * Q.delta ≤ x5[i].time) :
+    (fastConfirmSimple (Fintype.card Node) x5[i][w].view t).1 = chp := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, -, hsync, hmono, -, -, -⟩, -, -, hone, ⟨hsyn, -⟩, -, ⟨hcb, hfn⟩, -⟩ := id H5
+  obtain ⟨H2, heq⟩ := MfcEquiv.lemma10 rfl H5 hκ hwin5
+  have hvot : Q.voting (t : Int) = ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  have hvotcast : ((Q.slotLength * t + Q.delta : Nat) : Int) ≤ ((x5[i].time : Int)) := by
+    have : Q.slotLength * t + Q.delta ≤ x5[i].time := by omega
+    exact_mod_cast this
+  -- every honest validator is active in slot `t`, and votes exactly `chp` there
+  have hvotes : MfcEquiv.ActiveVotesEq5 x5 t chp :=
+    MfcEquiv.activeVotesEq5_of_propose rfl heq H5 H2 ht hsent hhon_i hhon_t
+  have hact_of_hon : ∀ q : Node, q ∉ S.adv ((x5[i].time : Int)) →
+      q ∈ Active Q S (t : Int) := by
+    intro q hq
+    refine active_of_globalAwake hga hgat (fun r _ h2 hadv => hq (hmc r _ ?_ hadv))
+    rw [hvot] at h2
+    omega
+  -- the honest votes are in `w`'s view, and there are more than two thirds of them
+  have hin_view : ∀ q : Node, q ∉ S.adv ((x5[i].time : Int)) →
+      ∃ (src tgt : Checkpoint (Chain Tx)),
+        (⟨q, Msg.vote chp src tgt t⟩ : SignedMsg Node M) ∈ x5[i][w].view := by
+    intro q hq
+    obtain ⟨iv, src, tgt, htiv, hvsent⟩ := hvotes q (hact_of_hon q hq)
+    refine ⟨src, tgt, ?_⟩
+    refine hsyn iv i w _ hvsent ?_ hAw
+    rw [htiv]
+    omega
+  have hsupp : 2 * Fintype.card Node ≤ 3 * (((votes x5[i][w].view).filter (fun sm =>
+      msgSlot sm.msg = t ∧ chainLe chp (msgChain sm.msg))).image SignedMsg.sender).card := by
+    refine le_trans (honest_quorum hcb hfn ((x5[i].time : Int))) ?_
+    have hsub : (Finset.univ \ S.adv ((x5[i].time : Int))) ⊆
+        (((votes x5[i][w].view).filter (fun sm =>
+          msgSlot sm.msg = t ∧ chainLe chp (msgChain sm.msg))).image SignedMsg.sender) := by
+      intro q hq
+      obtain ⟨src, tgt, hmem⟩ := hin_view q (Finset.mem_sdiff.mp hq).2
+      refine Finset.mem_image.mpr ⟨⟨q, Msg.vote chp src tgt t⟩, ?_, rfl⟩
+      rw [Finset.mem_filter]
+      refine ⟨?_, rfl, chainLe_refl chp⟩
+      simp only [votes, Finset.mem_filter]
+      exact ⟨hmem, trivial⟩
+    have := Finset.card_le_card hsub
+    omega
+  -- and they are the only honest slot-`t` votes in that view
+  have hall : ∀ sm ∈ votes x5[i][w].view, msgSlot sm.msg = t →
+      sm.sender ∉ S.adv ((x5[i].time : Int)) → msgChain sm.msg = chp := by
+    intro sm hsm hslot hhonsm
+    obtain ⟨e, src, tgt, s, hmsg⟩ := exists_vote_of_mem_votes hsm
+    have hst : s = t := by
+      rw [hmsg] at hslot
+      exact hslot
+    subst hst
+    have hsmlog : sm ∈ x5[i].sent := by
+      have h := hsm
+      simp only [votes, Finset.mem_filter] at h
+      exact views_sound x5 i w _ h.1
+    obtain ⟨iv, src', tgt', htiv, hvsent⟩ := hvotes sm.sender (hact_of_hon _ hhonsm)
+    have hhoniv : (⟨sm.sender, Msg.vote chp src' tgt' s⟩ :
+        SignedMsg Node M).sender ∉ S.adv ((x5[iv].time : Int)) := by
+      show sm.sender ∉ S.adv ((x5[iv].time : Int))
+      intro hadv
+      refine hhonsm (hmc _ _ ?_ hadv)
+      rw [htiv]
+      exact hvotcast
+    have huniq := honest_vote_unique hsync hone hmc hmono hsmlog hvsent hhonsm hhoniv
+      rfl hmsg rfl
+    rw [← huniq]
+    rfl
+  -- `chp` is nonempty: an honest proposal extends its base with the slot's block
+  have hchpne : chp ≠ [] := by
+    obtain ⟨-, -, chM, hchp⟩ :=
+      Availability5.propose_chain_facts5 H5 hκ hwin5 hsent rfl ht hhon_i
+    rw [hchp]
+    unfold extend
+    exact List.append_ne_nil_of_right_ne_nil _ (by simp)
+  exact fcs_eq_of_honest_agreement hsync hone hmc hmono hcb hfn hchpne hsupp hall
+
 set_option maxHeartbeats 1000000 in
 /-- **Any two justified chains are comparable.** Each justified checkpoint's chain sits below
     some validator's available chain (`justified_to_voteChAva`, descending through fin-vote
