@@ -2568,6 +2568,29 @@ theorem chAva_and_justified_le_chp5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (h
       rw [hkm] at hle
       exact chainLe_trans hle (hchAva v)
 
+/-- Algorithm 5's vote-phase send on the **extension** branch: with the joining check open
+    and the processed frozen checkpoint at the previous slot, the target is this tick's own
+    available chain at this slot. The companion of `handler_vote_sends5_rejustify`. -/
+theorem handler_vote_sends5_extend {pick : Chain Tx} {p : Node} {r : Time}
+    {V : View Node M} {s : NodeState Node (Chain Tx) (QCert Node Tx)}
+    (hmod : r % Q.slotLength = Q.delta) (hgate : s.activeAt ≤ r)
+    (heq : (processProposals (components (Fintype.card Node) kappa pool proposer) V
+      (r / Q.slotLength) s).gjFrozen.c = r / Q.slotLength - 1) :
+    (Msg.vote pick
+        (processProposals (components (Fintype.card Node) kappa pool proposer) V
+          (r / Q.slotLength) s).gjFrozen
+        ⟨(handlerCore (components (Fintype.card Node) kappa pool proposer) Q pick p r V
+          s).state.chAva, r / Q.slotLength⟩
+        (r / Q.slotLength))
+      ∈ (handlerCore (components (Fintype.card Node) kappa pool proposer) Q pick p r V
+        s).send := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  simp only [handlerCore, apply_ite NodeStepResult.send, apply_ite NodeStepResult.state,
+    if_neg (show ¬ (r % Q.slotLength = 0) from by omega), if_pos hmod, if_pos hgate,
+    if_pos heq]
+  exact Multiset.mem_singleton_self _
+
 set_option maxHeartbeats 1000000 in
 /-- **Any two justified chains are comparable.** Each justified checkpoint's chain sits below
     some validator's available chain (`justified_to_voteChAva`, descending through fin-vote
