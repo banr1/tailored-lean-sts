@@ -3543,6 +3543,57 @@ theorem chp_le_chFin_at_vote5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1
   rw [vote_tick_chFin5 hlbl (voting_reading_mod Q (t + 1 + 1 + 1)) hgate]
   exact le_commonPrefix _ _ hchAva hgfch
 
+set_option maxHeartbeats 4000000 in
+/-- **Theorem 6's conclusion, at every round past `fconf(t+3)`**: `chp_le_chFin_at_vote5` at
+    the slot-`(t+3)` vote tick that diligence provides, carried forward by `lemma16`. -/
+theorem chp_le_chFin5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    {T : Checkpoint (Chain Tx)} (hp : SlotPinned x5 t chp T)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
+    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
+    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
+      SignedMsg Node M) ∈ x5[ip'].sent)
+    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
+    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int)))
+    {vi : Node} {a : Nat} (hact3 : vi ∈ Active Q S (((t + 1 + 1 + 1 : Nat)) : Int))
+    (hlate : Q.slotLength * (t + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time) :
+    chainLe chp x5[a][vi].st.chFin := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, hah, hsync, hmono, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, -⟩, -,
+    ⟨hcb, hfn⟩, -⟩ := id H5
+  have hvot3 : Q.voting (((t + 1 + 1 + 1 : Nat)) : Int)
+      = ((Q.slotLength * (t + 1 + 1 + 1) + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  -- the slot-`(t+3)` vote tick, from diligence
+  obtain ⟨j, htj, hlblj⟩ := hdil (Q.slotLength * (t + 1 + 1 + 1) + Q.delta) vi
+    (by
+      obtain ⟨i₃, hi₃⟩ := hdiv (Q.slotLength * (t + 1 + 1 + 1) + Q.delta)
+      obtain ⟨i₂, hi₂, hti₂⟩ := exists_time_eq hstepw hi₃
+      refine ⟨i₂, hti₂, ?_⟩
+      show vi ∈ S.awake ((x5[i₂].time : Int))
+      rw [hti₂]
+      refine mem_awakeThroughout.mp hact3 _ ?_ ?_ <;> rw [hvot3] <;> omega)
+  have hbase := chp_le_chFin_at_vote5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t hp hgat hsent'
+    hhon_i' hhon_t' hact3 hlblj
+  -- and `chainfin` only grows
+  have hja : j + 1 ≤ a := by
+    by_contra hcon
+    have ha_le : a ≤ j := by omega
+    have h1 : x5[a].time ≤ x5[j].time := time_le_of_le hmono ha_le
+    omega
+  exact chainLe_trans hbase (lemma16 hsync hmono hone hmc hcb hfn vi hja)
+
 set_option maxHeartbeats 1000000 in
 /-- **Any two justified chains are comparable.** Each justified checkpoint's chain sits below
     some validator's available chain (`justified_to_voteChAva`, descending through fin-vote

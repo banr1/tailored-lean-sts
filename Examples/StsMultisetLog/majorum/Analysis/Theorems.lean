@@ -351,6 +351,48 @@ theorem chFin_le_chAva {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (i : Nat) (p : N
   Finality5.chFin_le_chAva5 H.wellformed.2.2.1 H.wellformed.2.2.2.1 H.oneTick
     H.wellformed.1 H.resilience.1 H.resilience.2 i p
 
+/-- **Theorem 6's liveness half, in the regime Lemma 18 covers**
+    (`Theorem 6, arXiv:2601.03862v1 p.24`). With honest proposers at slots `t` and `t+1` —
+    the paper's "let `t` and `t+1` be slots after `max(GST, GAT) + 4Δ`", whose honesty its
+    proof takes from Lemma 1 — and a slot-`t` proposal whose carried checkpoint is older than
+    the previous slot, the proposed chain prefixes the finalized chain of every validator
+    active in slot `t+3`, from `fconf(t+3)` on: `chp ⪯ chainfin^r_i`.
+
+    Two things this is not. It is **not** the whole of Theorem 6: the paper splits on
+    `GJ^{propose(t)}_p.c`, and the complementary case `= t − 1` (its Case 1 and Case 2) is
+    still owed — that case reaches `(chp, t+1)` through the slot-`(t+1)` proposer's own
+    checkpoint rather than through re-justification. And the transaction-pool clause
+    (`txpool^{propose(t)} ⊆ chainfin^r_i`) is not included; it is Lemma 6's, as in Theorem 4's
+    liveness half.
+
+    The activity hypothesis replaces the paper's `v_i ∈ H_r`, for the reason Theorem 4's
+    liveness half carries one: a validator that has just woken has written nothing, and this
+    model starts `chainfin` at genesis. -/
+theorem theorem6_liveness_of_low {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hlow : gjp.c < t - 1)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
+    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
+    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip'].sent)
+    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
+    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int)))
+    {vi : Node} {a : Nat} (hact3 : vi ∈ Active Q S (((t + 1 + 1 + 1 : Nat)) : Int))
+    (hlate : Q.slotLength * (t + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time) :
+    chp ⪯ x5[a][vi].st.chFin :=
+  Finality5.chp_le_chFin5 H hκ hwin hga ht hsent hhon_i hhon_t
+    (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat hsent'
+    hhon_i' hhon_t' hact3 hlate
+
 end Algorithm5Proved
 
 end Majorum

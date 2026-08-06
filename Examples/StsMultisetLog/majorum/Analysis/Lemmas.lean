@@ -451,22 +451,22 @@ theorem lemma17 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
       (MfcEquiv.lemma10 rfl H hκ hwin).1 ht hsent hhon_i hhon_t,
     fun vi j hact hlbl => Finality5.lemma17_gjFrozen H ht hsent hhon_i hhon_t hact hlbl⟩
 
-/-- **Lemma 18, the justification half** (`Lemma 18, arXiv:2601.03862v1 p.24`). Assume
-    `f < n/3`, let `v_p` be honest by the time it proposes `chp` in slot `t`, and let its
-    carried checkpoint be older than the previous slot. Then `(chp, t+1)` is **justified** in
-    every awake validator's view from `voting(t+1) + Δ` on.
+/-- **Lemma 18** (`Lemma 18, arXiv:2601.03862v1 p.24`). Assume `f < n/3`, let `v_p` be honest
+    by the time it proposes `chp` in slot `t`, and let its carried checkpoint be older than
+    the previous slot. Then `(chp, t+1)` is **justified** in every awake view from
+    `voting(t+1) + Δ` on, and **finalized** in every awake view from `voting(t+2) + Δ` on.
 
-    The paper's Lemma 18 also claims `chp` is *finalized* at slot `t+2`, and that half does
-    not follow from its hypotheses: finalization needs a supermajority link, so the
-    slot-`(t+2)` fin-votes must agree on their **target** as well as their source, and the
-    paper's proof argues only the source ("all honest validators vote with source
-    `(chp, t+1)`"). The target is each voter's own available chain, and with a *corrupt*
-    slot-`(t+1)` proposer those need not agree — such a proposer can split the honest
-    slot-`(t+1)` votes so that different views fast-confirm different chains, `f < n/3`
-    notwithstanding. Theorem 6, the only consumer, supplies an honest proposer at `t+1`,
-    which closes the gap; so the missing hypothesis is that. Recorded in `CONTEXT.md` as the
-    thirteenth authors'-note finding. -/
-theorem lemma18_justified {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    **The finalization half carries a hypothesis the paper's Lemma 18 does not: an honest
+    proposer at slot `t+1`** (the thirteenth authors'-note finding, in `CONTEXT.md`).
+    Finalization needs a supermajority link out of `(chp, t+1)`, so the slot-`(t+2)` fin-votes
+    must agree on their **target** as well as their source, and the paper's proof argues only
+    the source ("all honest validators vote with source `(chp, t+1)`"). The target is each
+    voter's own available chain, and a *corrupt* slot-`(t+1)` proposer can split the honest
+    slot-`(t+1)` votes so that different views fast-confirm different chains — `n/2` honest
+    plus `f < n/3` corrupt clears `2n/3` either way — leaving the available chains, and so the
+    targets, different. Theorem 6, the only consumer, has honest proposers at both `t` and
+    `t+1`, so nothing downstream is weakened. -/
+theorem lemma18 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
     (hga : S.GlobalAwakeTime Q.gat Finset.univ)
     {t : Nat} (ht : 1 ≤ t)
@@ -478,11 +478,25 @@ theorem lemma18_justified {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ 
     (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
     (hlow : gjp.c < t - 1)
     (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
-    {i : Nat} {w : Node} (hAw : x5.Awake i w)
-    (htime : Q.slotLength * (t + 1) + 2 * Q.delta ≤ x5[i].time) :
-    JustifiedIn (Fintype.card Node) x5[i][w].view ⟨chp, t + 1⟩ :=
-  Finality5.justified_chp_next5 H hκ hwin hga ht hsent hhon_i hhon_t
-    (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat hAw
-    htime
+    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
+    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
+    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip'].sent)
+    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
+    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int))) :
+    (∀ (i : Nat) (w : Node), x5.Awake i w →
+      Q.slotLength * (t + 1) + 2 * Q.delta ≤ x5[i].time →
+      JustifiedIn (Fintype.card Node) x5[i][w].view ⟨chp, t + 1⟩) ∧
+    (∀ (i : Nat) (w : Node), x5.Awake i w →
+      Q.slotLength * (t + 1 + 1) + 2 * Q.delta ≤ x5[i].time →
+      FinalizedIn (Fintype.card Node) x5[i][w].view ⟨chp, t + 1⟩) :=
+  ⟨fun i w hAw htime =>
+      Finality5.justified_chp_next5 H hκ hwin hga ht hsent hhon_i hhon_t
+        (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat hAw
+        htime,
+    fun i w hAw htime =>
+      Finality5.finalized_chp_next5 H hκ hwin hga ht hsent hhon_i hhon_t
+        (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat
+        hsent' hhon_i' hhon_t' hAw htime⟩
 
 end Majorum
