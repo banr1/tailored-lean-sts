@@ -363,12 +363,9 @@ theorem chFin_le_chAva {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (i : Nat) (p : N
     their **source** (`sourceVoters`), so the slot-`(t+2)` fin-vote targets are free to
     differ — see the thirteenth finding in `CONTEXT.md`.
 
-    Two things this is not. It is **not** the whole of Theorem 6: the paper splits on
-    `GJ^{propose(t)}_p.c`, and the complementary case `= t − 1` (its Case 1 and Case 2) is
-    still owed — that case reaches `(chp, t+1)` through the slot-`(t+1)` proposer's own
-    checkpoint rather than through re-justification. And the transaction-pool clause
-    (`txpool^{propose(t)} ⊆ chainfin^r_i`) is not included; it is Lemma 6's, as in Theorem 4's
-    liveness half.
+    This is one of the three branches the paper's proof splits into, on
+    `GJ^{propose(t)}_p.c`; `theorem6_liveness_case1` and `theorem6_liveness_case2` are the
+    other two, and the transaction-pool clause of each is its `_txpool_` companion.
 
     The activity hypothesis replaces the paper's `v_i ∈ H_r`, for the reason Theorem 4's
     liveness half carries one: a validator that has just woken has written nothing, and this
@@ -429,12 +426,9 @@ theorem theorem6_liveness_txpool_of_low {x5 : Exec Pr5 S} {τ : Type}
     the paper's "`GJ^{propose(t+1)}_{p2} = C = (ch', t)`" — and then the slot-`t` proposal
     prefixes the finalized chain of every validator active in slot `t+3`.
 
-    Nothing is assumed about slot `t`'s own carried checkpoint here, so between this and
-    `theorem6_liveness_of_low` the only case of Theorem 6 left open is the paper's Case 2:
-    `GJ^{propose(t)}_p.c = t − 1` *and* no slot-`t` justification at `propose(t+1)`. That case
-    does follow from Theorem 6's hypotheses — apply the relaxed `lemma18` at slot `t+1`, whose
-    honest proposer Theorem 6 assumes — and is simply not written yet; see the fourteenth
-    finding in `CONTEXT.md` for what it finalizes and when. -/
+    Nothing is assumed about slot `t`'s own carried checkpoint here, so this and
+    `theorem6_liveness_of_low` overlap; what they leave is the paper's Case 2,
+    `theorem6_liveness_case2`. -/
 theorem theorem6_liveness_case1 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
     (hga : S.GlobalAwakeTime Q.gat Finset.univ)
@@ -493,6 +487,93 @@ theorem theorem6_liveness_txpool_case1 {x5 : Exec Pr5 S} {τ : Type}
     (Finality5.slotPinned_case1_5 H hκ hwin hga ht hsent hhon_i hhon_t hgat hsent' hhon_i'
       hhon_t' hgjc).self
     (Finality5.gat_le_voting_succ5 hgat) hact3 hlate hr
+
+/-- **Theorem 6's liveness half, in the paper's Case 2**
+    (`Theorem 6, arXiv:2601.03862v1 p.24`). The last regime: at `propose(t+1)` the slot-`(t+1)`
+    proposer sees no slot-`t` justification — its carried checkpoint is not of slot `t`, and
+    `propose_gj_c_lt5` puts it below — so Lemma 18 applies *at slot `t+1`*, whose honest
+    proposer Theorem 6 assumes. That finalizes the slot-`(t+1)` proposal's own checkpoint
+    `(chp', t+2)`, and `chp ⪯ chp'` by Lemma 12 (`chp_le_chp_next5`).
+
+    The conclusion lands a slot later than in the other two branches: validators active in slot
+    `t+4`, from `fconf(t+4)` on. The paper states one round bound for all three of its cases;
+    this branch cannot reach it, because what it finalizes by `t+3` is a checkpoint of slot
+    `t+2`, whose chain is `chp'` — `chp` arrives with it, but only once slot `t+2`'s
+    finalization does.
+
+    Nothing is assumed here about slot `t`'s own carried checkpoint, so this,
+    `theorem6_liveness_of_low` and `theorem6_liveness_case1` between them cover every case of
+    the paper's proof. -/
+theorem theorem6_liveness_case2 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
+    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
+    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip'].sent)
+    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
+    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int)))
+    (hgjc : gjp'.c ≠ t)
+    {vi : Node} {a : Nat} (hact4 : vi ∈ Active Q S (((t + 1 + 1 + 1 + 1 : Nat)) : Int))
+    (hlate : Q.slotLength * (t + 1 + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time) :
+    chp ⪯ x5[a][vi].st.chFin := by
+  have hgat1 := Finality5.gat_le_voting_succ5 hgat
+  have hlow' : gjp'.c < t + 1 - 1 := by
+    have h := Finality5.propose_gj_c_lt5 H (t := t + 1) (by omega) hsent' hhon_i'
+    omega
+  have hp1 := Finality5.slotPinned_chp_next5 H hκ hwin hga (t := t + 1) (by omega) hsent'
+    hhon_i' hhon_t'
+    (Finality5.slotPinned_of_low H hκ hwin hga (t := t + 1) (by omega) hsent' hhon_i' hhon_t'
+      hlow' hgat1) hgat1
+  exact chainLe_trans
+    (Finality5.chp_le_chp_next5 H hκ hwin hga ht hsent hhon_i hhon_t hgat hsent' hhon_i'
+      hhon_t')
+    (Finality5.chp_le_chFin5 H hκ hwin hga hp1 (Finality5.gat_le_voting_succ5 hgat1) hact4
+      hlate)
+
+/-- **Theorem 6's transaction-pool clause, in Case 2** — the companion of
+    `theorem6_liveness_case2`, and slot `t+1`'s instance of `chFin_txpool5`: the finalized
+    chain contains the slot-`(t+1)` proposal's block, whose body covers everything pooled by
+    `propose(t+1)` and so everything pooled by `propose(t)`. -/
+theorem theorem6_liveness_txpool_case2 {x5 : Exec Pr5 S} {τ : Type}
+    (memTx : τ → Tx → Prop) (poolSet : Time → Set τ)
+    (hmonoP : ∀ r r' : Time, r ≤ r' → poolSet r ⊆ poolSet r')
+    (hcover : ∀ s : Nat, ∀ tx ∈ poolSet (Q.slotLength * s), memTx tx (pool s))
+    (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
+    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
+    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip'].sent)
+    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
+    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int)))
+    (hgjc : gjp'.c ≠ t)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {vi : Node} {a : Nat} (hact4 : vi ∈ Active Q S (((t + 1 + 1 + 1 + 1 : Nat)) : Int))
+    (hlate : Q.slotLength * (t + 1 + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time)
+    {r : Time} (hr : r ≤ Q.slotLength * t) :
+    ∀ tx ∈ poolSet r, ∃ b ∈ x5[a][vi].st.chFin, memTx tx b.txs := by
+  have hgat1 := Finality5.gat_le_voting_succ5 hgat
+  have hlow' : gjp'.c < t + 1 - 1 := by
+    have h := Finality5.propose_gj_c_lt5 H (t := t + 1) (by omega) hsent' hhon_i'
+    omega
+  have hp1 := Finality5.slotPinned_chp_next5 H hκ hwin hga (t := t + 1) (by omega) hsent'
+    hhon_i' hhon_t'
+    (Finality5.slotPinned_of_low H hκ hwin hga (t := t + 1) (by omega) hsent' hhon_i' hhon_t'
+      hlow' hgat1) hgat1
+  refine Finality5.chFin_txpool5 memTx poolSet hmonoP hcover H hκ hwin hga (t := t + 1)
+    (by omega) hsent' hhon_i' hp1 (Finality5.gat_le_voting_succ5 hgat1) hact4 hlate ?_
+  exact le_trans hr (Nat.mul_le_mul_left _ (by omega))
 
 end Algorithm5Proved
 
