@@ -64,6 +64,16 @@ def LiveActive (out : Node → Config Node Msg NodeState → Out) (mem : Tx → 
   ∀ (i j : Nat) (p : Node) (tx : Tx), tafter ≤ x[i].time → tx ∈ pool x[i].time →
     x[i].time + tconf ≤ x[j].time → active p x[j].time → mem tx (out p x[j])
 
+/-- Liveness weakens as the confirmation time grows: a later deadline is a weaker demand.
+    Definition 7 states one `Tconf` for both of its chains, which differ, so the smaller one
+    has to be relaxed to the shared bound. -/
+theorem LiveActive.mono_tconf {out : Node → Config Node Msg NodeState → Out}
+    {mem : Tx → Out → Prop} {pool : Time → Set Tx} {active : Node → Time → Prop}
+    {tafter tconf tconf' : Time} {x : Exec Pr S}
+    (h : LiveActive out mem pool active tafter tconf x) (hle : tconf ≤ tconf') :
+    LiveActive out mem pool active tafter tconf' x :=
+  fun i j p tx hi htx hj hact => h i j p tx hi htx (by omega) hact
+
 /-- **Definition 3 (Secure protocol)** over `LiveActive`: safe after `tafter`, and live after
     it with confirmation time `tconf`. The safety half is the framework's, which quantifies
     over *honest* validators and does match the paper's Definition 1. -/

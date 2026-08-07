@@ -631,6 +631,149 @@ theorem theorem6_liveness_txpool_case2 {x5 : Exec Pr5 S} {τ : Type}
     (by omega) hsent' hhon_i' hp1 (Finality5.gat_le_voting_succ5 hgat1) hact4 hlate ?_
   exact le_trans hr (Nat.mul_le_mul_left _ (by omega))
 
+/-- **Lemma 1, as a hypothesis with an explicit window.** From any time `τ`, a pair of
+    consecutive slots `t`, `t+1` with honest proposers, `propose(t)` landing in
+    `[τ, τ + W·4Δ]`.
+
+    The paper gets this from Lemma 1 *with overwhelming probability*, from the proposer
+    election; there is no probability layer here, so it is assumed, and `W` — the window it
+    holds over — is what makes Theorem 7's confirmation time finite. `HonestProposalWindow5`
+    will not do: it gives one honest proposal per `κ` slots, and Theorem 6 needs two in a row
+    (Case 1 reads the second proposer's carried checkpoint, Case 2 applies Lemma 18 to it).
+
+    Each half carries what the Theorem 6 faces consume: the proposal in the log, and the
+    proposer honest both when it emitted and at its slot's vote round. -/
+def HonestProposerPairs (W : Nat) (x5 : Exec Pr5 S) : Prop :=
+  ∀ τ : Time, ∃ t : Nat, 1 ≤ t ∧ τ ≤ Q.slotLength * t ∧
+    Q.slotLength * t ≤ τ + Q.slotLength * W ∧
+    ∃ (ip : Nat) (vp : Node) (chp chC : Chain Tx) (qc : Option (QCert Node Tx))
+      (gjp : Checkpoint (Chain Tx)),
+      (⟨vp, Msg.propose chp chC qc gjp t⟩ :
+        SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip].sent ∧
+      vp ∉ S.adv ((x5[ip].time : Int)) ∧ vp ∉ S.adv (Q.voting (t : Int)) ∧
+      ∃ (ip' : Nat) (vp' : Node) (chp' chC' : Chain Tx) (qc' : Option (QCert Node Tx))
+        (gjp' : Checkpoint (Chain Tx)),
+        (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
+          SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip'].sent ∧
+        vp' ∉ S.adv ((x5[ip'].time : Int)) ∧
+        vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int))
+
+set_option maxHeartbeats 1000000 in
+/-- **Theorem 7** (`Theorem 7, arXiv:2601.03862v1 p.24`). "Algorithm `3sf-tob-noga` is a
+    secure ebb-and-flow protocol." Definition 7's three conjuncts, assembled:
+
+    * `chainava` is dynamically available — `theorem4_dynamicallyAvailable`, relaxed to the
+      shared confirmation time;
+    * `chainfin` is always safe (`chFin_safe`, at every pair of indices) and live after
+      `max(GST, GAT) + slack` — the liveness half runs Theorem 6 at the honest pair the window
+      hypothesis provides, splitting on the second proposer's carried checkpoint exactly as
+      the paper's proof does: `theorem6_liveness_txpool_case1` when it is of slot `t`,
+      `theorem6_liveness_txpool_case2` when it is not;
+    * `chainfin ⪯ chainava` — `chFin_le_chAva`.
+
+    `GST = 0`, as `SettingGA` fixes it. The two chains' confirmation times differ, so `tconf`
+    is required to dominate both: `4Δ·2κ + Δ + 1` for the available chain, and
+    `4Δ·(W + 4) + 2Δ` for the finalized one, whose `+4` is Case 2's extra slot. `slack` needs
+    only to clear `2Δ`, which is what puts the honest pair's vote window past `GAT`.
+
+    A validator active at the later round need not have been active in slot `t+3` or `t+4`
+    itself: past `GAT` every honest validator is awake (`GlobalAwakeTime`), and corruption is
+    monotone, so activity at any later round hands back activity at those slots. -/
+theorem theorem7 {x5 : Exec Pr5 S} {τ : Type}
+    (memTx : τ → Tx → Prop) (poolSet : Time → Set τ)
+    (hmonoP : ∀ r r' : Time, r ≤ r' → poolSet r ⊆ poolSet r')
+    (hcover : ∀ s : Nat, ∀ tx ∈ poolSet (Q.slotLength * s), memTx tx (pool s))
+    (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {W : Nat} (hpairs : HonestProposerPairs W x5)
+    {slack tconf : Time} (hslack : 2 * Q.delta ≤ slack)
+    (htc1 : Q.slotLength * (2 * kappa) + Q.delta + 1 ≤ tconf)
+    (htc2 : Q.slotLength * (W + 4) + 2 * Q.delta ≤ tconf) :
+    ThmEbbAndFlow (fun p c => c[p].st.chAva) (fun p c => c[p].st.chFin) (fun a b => a ⪯ b)
+      (fun (tx : τ) (o : Chain Tx) => ∃ b ∈ o, memTx tx b.txs) poolSet (ActiveAtRound Q S)
+      0 Q.gat slack tconf x5 := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, hah, -, hmono, -, -, -⟩, -, -, -, -, -, -, -⟩ := id H
+  refine ⟨⟨(theorem4_dynamicallyAvailable memTx poolSet hmonoP hcover H hκ hwin).1,
+      (theorem4_dynamicallyAvailable memTx poolSet hmonoP hcover H hκ hwin).2.mono_tconf htc1⟩,
+    ⟨fun i j p q _ _ _ _ => chFin_safe H i p j q, ?_⟩,
+    fun i p _ => chFin_le_chAva H i p⟩
+  -- the finalized chain's liveness, after `max(0, GAT) + slack`
+  intro i j p tx hafter htx hlate hact
+  have hgat_le : Q.gat + slack ≤ x5[i].time := by
+    have h := le_max_right 0 Q.gat
+    omega
+  -- the honest pair of slots past the pooling round
+  obtain ⟨t, ht1, htlo, hthi, ip, vp, chp, chC, qc, gjp, hsent, hhon_i, hhon_t,
+    ip', vp', chp', chC', qc', gjp', hsent', hhon_i', hhon_t'⟩ := hpairs x5[i].time
+  -- `p` is honest at the later round, hence honest and awake from `GAT` on
+  obtain ⟨t', ht'lt, hawk'⟩ := hact
+  have hawkj : p ∈ S.awake ((x5[j].time : Int)) := by
+    refine hawk' ((x5[j].time : Int)) ?_ (le_refl _)
+    have h1 : Q.voting ((t' : Nat) : Int) = ((Q.slotLength * t' + Q.delta : Nat) : Int) := by
+      unfold Params.voting
+      push_cast
+      omega
+    have h2 : ((Q.slotLength * t' + Q.delta : Nat) : Int) ≤ ((x5[j].time : Int)) := by
+      have h : Q.slotLength * t' + Q.delta ≤ x5[j].time := by omega
+      exact_mod_cast h
+    rw [h1]
+    omega
+  have hhonj : p ∉ S.adv ((x5[j].time : Int)) := Finset.disjoint_left.mp (hah _) hawkj
+  -- activity in any slot whose vote window sits between `GAT` and the later round
+  have hactive_of : ∀ s : Nat, Q.gat + 3 * Q.delta ≤ Q.slotLength * s + Q.delta →
+      Q.slotLength * s + Q.delta ≤ x5[j].time → p ∈ Active Q S (((s : Nat)) : Int) := by
+    intro s hlo hhi
+    have hvots : Q.voting (((s : Nat)) : Int) = ((Q.slotLength * s + Q.delta : Nat) : Int) := by
+      unfold Params.voting
+      push_cast
+      omega
+    have hcastlo : ((Q.gat + 3 * Q.delta : Nat) : Int)
+        ≤ ((Q.slotLength * s + Q.delta : Nat) : Int) := by exact_mod_cast hlo
+    have hcasthi : ((Q.slotLength * s + Q.delta : Nat) : Int) ≤ ((x5[j].time : Int)) := by
+      exact_mod_cast hhi
+    refine mem_awakeThroughout.mpr ?_
+    intro ρ h1 h2
+    rw [hvots] at h1 h2
+    have hρ1 : (Q.gat : Int) ≤ ρ := by push_cast at hcastlo; omega
+    have hρ2 : ρ ≤ ((x5[j].time : Int)) := by omega
+    have hhonρ : p ∉ S.adv ρ := fun hadv => hhonj (hmc ρ _ hρ2 hadv)
+    exact hga ρ hρ1 (Finset.mem_sdiff.mpr ⟨Finset.mem_univ _, hhonρ⟩)
+  -- the slot arithmetic: the pair's vote window is past `GAT`, and slot `t+4`'s fast confirm
+  -- has passed by the later round
+  have hexpW : Q.slotLength * (W + 4) = Q.slotLength * W + Q.slotLength * 4 := Nat.mul_add ..
+  have hexp4 : Q.slotLength * (t + 1 + 1 + 1 + 1)
+      = Q.slotLength * t + Q.slotLength * 4 := by
+    have h : t + 1 + 1 + 1 + 1 = t + 4 := by omega
+    rw [h, Nat.mul_add]
+  have hexp3 : Q.slotLength * (t + 1 + 1 + 1) = Q.slotLength * t + Q.slotLength * 3 := by
+    have h : t + 1 + 1 + 1 = t + 3 := by omega
+    rw [h, Nat.mul_add]
+  have hgatT : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int) := by
+    have hvotT : Q.voting (t : Int) = ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+      unfold Params.voting
+      push_cast
+      omega
+    have hnat : Q.gat + 2 * Q.delta ≤ Q.slotLength * t := by omega
+    have hcast : ((Q.gat + 2 * Q.delta : Nat) : Int) ≤ ((Q.slotLength * t : Nat) : Int) := by
+      exact_mod_cast hnat
+    have hsplit : ((Q.slotLength * t + Q.delta : Nat) : Int)
+        = ((Q.slotLength * t : Nat) : Int) + ((Q.delta : Nat) : Int) :=
+      Nat.cast_add (Q.slotLength * t) Q.delta
+    rw [hvotT, hsplit]
+    push_cast at hcast ⊢
+    omega
+  -- the two branches of the paper's proof
+  by_cases hgjc : gjp'.c = t
+  · exact theorem6_liveness_txpool_case1 memTx poolSet hmonoP hcover H hκ hwin hga ht1 hsent
+      hhon_i hhon_t hgatT hsent' hhon_i' hhon_t' hgjc
+      (hactive_of (t + 1 + 1 + 1) (by omega) (by omega)) (by omega) htlo tx htx
+  · exact theorem6_liveness_txpool_case2 memTx poolSet hmonoP hcover H hκ hwin hga ht1 hsent'
+      hhon_i' hhon_t' hgjc hgatT
+      (hactive_of (t + 1 + 1 + 1 + 1) (by omega) (by omega)) (by omega) htlo tx htx
+
 end Algorithm5Proved
 
 end Majorum
