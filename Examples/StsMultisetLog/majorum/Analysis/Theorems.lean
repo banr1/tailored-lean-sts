@@ -352,11 +352,16 @@ theorem chFin_le_chAva {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (i : Nat) (p : N
     H.wellformed.1 H.resilience.1 H.resilience.2 i p
 
 /-- **Theorem 6's liveness half, in the regime Lemma 18 covers**
-    (`Theorem 6, arXiv:2601.03862v1 p.24`). With honest proposers at slots `t` and `t+1` —
-    the paper's "let `t` and `t+1` be slots after `max(GST, GAT) + 4Δ`", whose honesty its
-    proof takes from Lemma 1 — and a slot-`t` proposal whose carried checkpoint is older than
-    the previous slot, the proposed chain prefixes the finalized chain of every validator
-    active in slot `t+3`, from `fconf(t+3)` on: `chp ⪯ chainfin^r_i`.
+    (`Theorem 6, arXiv:2601.03862v1 p.24`). With an honest proposer at slot `t` — the paper
+    assumes `t` and `t+1` both, "let `t` and `t+1` be slots after `max(GST, GAT) + 4Δ`", whose
+    honesty its proof takes from Lemma 1, and this branch needs only the first — and a slot-`t`
+    proposal whose carried checkpoint is older than the previous slot, the proposed chain
+    prefixes the finalized chain of every validator active in slot `t+3`, from `fconf(t+3)`
+    on: `chp ⪯ chainfin^r_i`.
+
+    Slot `t+1`'s proposer is not assumed honest because finalization counts fin-votes by
+    their **source** (`sourceVoters`), so the slot-`(t+2)` fin-vote targets are free to
+    differ — see the thirteenth finding in `CONTEXT.md`.
 
     Two things this is not. It is **not** the whole of Theorem 6: the paper splits on
     `GJ^{propose(t)}_p.c`, and the complementary case `= t − 1` (its Case 1 and Case 2) is
@@ -380,19 +385,12 @@ theorem theorem6_liveness_of_low {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ :
     (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
     (hlow : gjp.c < t - 1)
     (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
-    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
-    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
-    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
-      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip'].sent)
-    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
-    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int)))
     {vi : Node} {a : Nat} (hact3 : vi ∈ Active Q S (((t + 1 + 1 + 1 : Nat)) : Int))
     (hlate : Q.slotLength * (t + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time) :
     chp ⪯ x5[a][vi].st.chFin :=
-  Finality5.chp_le_chFin5 H hκ hwin hga hsent' hhon_i' hhon_t'
-    (Finality5.slotPinned_next5 H hκ hwin hga ht hsent hhon_i hhon_t
-      (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat
-      hsent' hhon_i' hhon_t')
+  Finality5.chp_le_chFin5 H hκ hwin hga
+    (Finality5.slotPinned_chp_next5 H hκ hwin hga ht hsent hhon_i hhon_t
+      (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat)
     (Finality5.gat_le_voting_succ5 hgat) hact3 hlate
 
 /-- **Theorem 6's liveness half with the transaction pool**, in the same regime: every
@@ -416,21 +414,13 @@ theorem theorem6_liveness_txpool_of_low {x5 : Exec Pr5 S} {τ : Type}
     (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
     (hlow : gjp.c < t - 1)
     (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
-    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
-    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
-    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
-      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip'].sent)
-    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
-    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int)))
     {vi : Node} {a : Nat} (hact3 : vi ∈ Active Q S (((t + 1 + 1 + 1 : Nat)) : Int))
     (hlate : Q.slotLength * (t + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time)
     {r : Time} (hr : r ≤ Q.slotLength * t) :
     ∀ tx ∈ poolSet r, ∃ b ∈ x5[a][vi].st.chFin, memTx tx b.txs :=
-  Finality5.chFin_txpool5 memTx poolSet hmonoP hcover H hκ hwin hga ht hsent hhon_i hsent'
-    hhon_i' hhon_t'
-    (Finality5.slotPinned_next5 H hκ hwin hga ht hsent hhon_i hhon_t
-      (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat
-      hsent' hhon_i' hhon_t')
+  Finality5.chFin_txpool5 memTx poolSet hmonoP hcover H hκ hwin hga ht hsent hhon_i
+    (Finality5.slotPinned_chp_next5 H hκ hwin hga ht hsent hhon_i hhon_t
+      (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat)
     (Finality5.gat_le_voting_succ5 hgat) hact3 hlate hr
 
 /-- **Theorem 6's liveness half, in the paper's Case 1**
@@ -441,9 +431,10 @@ theorem theorem6_liveness_txpool_of_low {x5 : Exec Pr5 S} {τ : Type}
 
     Nothing is assumed about slot `t`'s own carried checkpoint here, so between this and
     `theorem6_liveness_of_low` the only case of Theorem 6 left open is the paper's Case 2:
-    `GJ^{propose(t)}_p.c = t − 1` *and* no slot-`t` justification at `propose(t+1)`. That
-    case does not follow from Theorem 6's hypotheses at all — see the fourteenth
-    authors'-note finding in `CONTEXT.md`; it needs an honest proposer at `t+2`. -/
+    `GJ^{propose(t)}_p.c = t − 1` *and* no slot-`t` justification at `propose(t+1)`. That case
+    does follow from Theorem 6's hypotheses — apply the relaxed `lemma18` at slot `t+1`, whose
+    honest proposer Theorem 6 assumes — and is simply not written yet; see the fourteenth
+    finding in `CONTEXT.md` for what it finalizes and when. -/
 theorem theorem6_liveness_case1 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
     (hga : S.GlobalAwakeTime Q.gat Finset.univ)
@@ -465,9 +456,9 @@ theorem theorem6_liveness_case1 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 
     {vi : Node} {a : Nat} (hact3 : vi ∈ Active Q S (((t + 1 + 1 + 1 : Nat)) : Int))
     (hlate : Q.slotLength * (t + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time) :
     chp ⪯ x5[a][vi].st.chFin :=
-  Finality5.chp_le_chFin5 H hκ hwin hga hsent' hhon_i' hhon_t'
+  Finality5.chp_le_chFin5 H hκ hwin hga
     (Finality5.slotPinned_case1_5 H hκ hwin hga ht hsent hhon_i hhon_t hgat hsent' hhon_i'
-      hhon_t' hgjc)
+      hhon_t' hgjc).self
     (Finality5.gat_le_voting_succ5 hgat) hact3 hlate
 
 /-- **Theorem 6's transaction-pool clause, in Case 1** — the companion of
@@ -498,10 +489,9 @@ theorem theorem6_liveness_txpool_case1 {x5 : Exec Pr5 S} {τ : Type}
     (hlate : Q.slotLength * (t + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time)
     {r : Time} (hr : r ≤ Q.slotLength * t) :
     ∀ tx ∈ poolSet r, ∃ b ∈ x5[a][vi].st.chFin, memTx tx b.txs :=
-  Finality5.chFin_txpool5 memTx poolSet hmonoP hcover H hκ hwin hga ht hsent hhon_i hsent'
-    hhon_i' hhon_t'
+  Finality5.chFin_txpool5 memTx poolSet hmonoP hcover H hκ hwin hga ht hsent hhon_i
     (Finality5.slotPinned_case1_5 H hκ hwin hga ht hsent hhon_i hhon_t hgat hsent' hhon_i'
-      hhon_t' hgjc)
+      hhon_t' hgjc).self
     (Finality5.gat_le_voting_succ5 hgat) hact3 hlate hr
 
 end Algorithm5Proved

@@ -456,16 +456,14 @@ theorem lemma17 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     the previous slot. Then `(chp, t+1)` is **justified** in every awake view from
     `voting(t+1) + Δ` on, and **finalized** in every awake view from `voting(t+2) + Δ` on.
 
-    **The finalization half carries a hypothesis the paper's Lemma 18 does not: an honest
-    proposer at slot `t+1`** (the thirteenth authors'-note finding, in `CONTEXT.md`).
-    Finalization needs a supermajority link out of `(chp, t+1)`, so the slot-`(t+2)` fin-votes
-    must agree on their **target** as well as their source, and the paper's proof argues only
-    the source ("all honest validators vote with source `(chp, t+1)`"). The target is each
-    voter's own available chain, and a *corrupt* slot-`(t+1)` proposer can split the honest
-    slot-`(t+1)` votes so that different views fast-confirm different chains — `n/2` honest
-    plus `f < n/3` corrupt clears `2n/3` either way — leaving the available chains, and so the
-    targets, different. Theorem 6, the only consumer, has honest proposers at both `t` and
-    `t+1`, so nothing downstream is weakened. -/
+    One honest proposer, at slot `t`, for both halves — as the paper states it. The
+    finalization half rests on finalization counting fin-votes by their **source**
+    (`sourceVoters`, the thirteenth authors'-note finding in `CONTEXT.md`): the slot-`(t+2)`
+    fin-votes all name `(chp, t+1)` as their source, which slot `t`'s data alone pins, while
+    their targets are each voter's own available chain and need not agree. Under the paper's
+    literal reading — a supermajority *link*, one shared target — the same statement would
+    need an honest proposer at `t+1` as well, since a corrupt one can split the honest
+    slot-`(t+1)` votes and leave different views fast-confirming different chains. -/
 theorem lemma18 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
     (hga : S.GlobalAwakeTime Q.gat Finset.univ)
@@ -477,13 +475,7 @@ theorem lemma18 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
     (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
     (hlow : gjp.c < t - 1)
-    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
-    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
-    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
-    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
-      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip'].sent)
-    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
-    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int))) :
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int)) :
     (∀ (i : Nat) (w : Node), x5.Awake i w →
       Q.slotLength * (t + 1) + 2 * Q.delta ≤ x5[i].time →
       JustifiedIn (Fintype.card Node) x5[i][w].view ⟨chp, t + 1⟩) ∧
@@ -495,10 +487,9 @@ theorem lemma18 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
         (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat hAw
         htime,
     fun i w hAw htime =>
-      Finality5.finalized_chp_next5 H hκ hwin hga hsent' hhon_i' hhon_t'
-        (Finality5.slotPinned_next5 H hκ hwin hga ht hsent hhon_i hhon_t
-          (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat
-          hsent' hhon_i' hhon_t')
+      Finality5.finalized_chp_next5 H hκ hwin hga
+        (Finality5.slotPinned_chp_next5 H hκ hwin hga ht hsent hhon_i hhon_t
+          (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat)
         (by
           have hvot1 : Q.voting (((t + 1 : Nat)) : Int)
               = ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int) := by
