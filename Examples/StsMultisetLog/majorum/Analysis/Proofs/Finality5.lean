@@ -3673,6 +3673,130 @@ theorem chFin_txpool5 {x5 : Exec Pr5 S} {τ : Type}
   · -- and its body covers the pool at `propose(t)`, hence at `r`
     exact hcover t tx (hmonoP r (Q.slotLength * t) hr htx)
 
+set_option maxHeartbeats 4000000 in
+/-- **Theorem 6's Case 1, per validator**: with honest proposers at `t` and `t+1`, and the
+    slot-`(t+1)` proposal carrying a checkpoint of slot `t`, every slot-`(t+1)` active's
+    fin-vote reads `GJ_{p'} → (chp, t+1)`.
+
+    No induction here, unlike Lemma 18's regime: Lemma 17 pins the frozen checkpoint to the
+    proposal's own `GJ_{p'}` outright, its slot is `t = (t+1) − 1`, so the extension branch
+    fires and the target is the tick's available chain — which is `chp`, above by
+    monotonicity from slot `t`'s fast confirm and below by `chAva_and_justified_le_chp5`. -/
+theorem finvote_case1_of_active5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
+    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
+    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
+      SignedMsg Node M) ∈ x5[ip'].sent)
+    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
+    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int)))
+    (hgjc : gjp'.c = t)
+    {vi : Node} (hact1 : vi ∈ Active Q S ((t : Int) + 1)) :
+    ∃ (m : Nat) (ch : Chain Tx),
+      x5[m].time = Q.slotLength * (t + 1) + Q.delta ∧
+      x5[m + 1].time = Q.slotLength * (t + 1) + Q.delta ∧
+      (⟨vi, Msg.vote ch gjp' ⟨chp, t + 1⟩ (t + 1)⟩ : SignedMsg Node M) ∈ x5[m + 1].sent := by
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  obtain ⟨⟨hmc, hah, hsync, hmono, -, hdiv, hdil⟩, hstepw, hwpt, hone, ⟨hsyn, -⟩, -,
+    ⟨hcb, hfn⟩, -⟩ := id H5
+  have hexp : Q.slotLength * (t + 1) = Q.slotLength * t + Q.slotLength := Nat.mul_succ ..
+  have ht1 : 1 ≤ t + 1 := by omega
+  have hvot1 : Q.voting (((t + 1 : Nat)) : Int)
+      = ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int) := by
+    unfold Params.voting
+    push_cast
+    omega
+  have hact1n : vi ∈ Active Q S (((t + 1 : Nat)) : Int) := by
+    have hcast : (((t + 1 : Nat)) : Int) = (t : Int) + 1 := by push_cast; try omega
+    rw [hcast]
+    exact hact1
+  -- the tick at slot `t+1`'s vote reading, with the joining check open
+  obtain ⟨i₁, hi₁⟩ := hdiv (Q.slotLength * (t + 1) + Q.delta)
+  obtain ⟨i₀, hi₀, hti₀⟩ := exists_time_eq hstepw hi₁
+  have hAw₀ : x5.Awake i₀ vi := by
+    show vi ∈ S.awake ((x5[i₀].time : Int))
+    rw [hti₀]
+    refine mem_awakeThroughout.mp hact1n _ ?_ ?_ <;> rw [hvot1] <;> omega
+  obtain ⟨m, htm, hlblm⟩ := hdil (Q.slotLength * (t + 1) + Q.delta) vi ⟨i₀, hti₀, hAw₀⟩
+  have hgate : x5[m][vi].st.activeAt ≤ Q.slotLength * (t + 1) + Q.delta := by
+    refine MfcEquiv.activeAt_le_voting5 hsync hmono (t1 := t + 1) ?_ (le_of_eq htm)
+    intro ρ h1 h2
+    refine mem_awakeThroughout.mp hact1n ρ ?_ ?_ <;> rw [hvot1] <;> omega
+  -- Lemma 17 at slot `t+1`: the frozen checkpoint is the proposal's own
+  have hgjF : (processProposals (components (Fintype.card Node) kappa pool proposer)
+      x5[m][vi].view (t + 1) x5[m][vi].st).gjFrozen = gjp' :=
+    lemma17_gjFrozen H5 ht1 hsent' hhon_i' hhon_t' hact1n hlblm
+  -- so the extension branch fires, and the target is this tick's available chain
+  have hgate' : (setClock vi (Q.slotLength * (t + 1) + Q.delta) (x5.cfg m))[vi].st.activeAt
+      ≤ Q.slotLength * (t + 1) + Q.delta := by
+    simp only [setClock_getElem, if_true]
+    exact hgate
+  have hview' : (setClock vi (Q.slotLength * (t + 1) + Q.delta) (x5.cfg m))[vi].view
+      = x5[m][vi].view := by
+    simp only [setClock_getElem, if_true]
+    rfl
+  have hst' : (setClock vi (Q.slotLength * (t + 1) + Q.delta) (x5.cfg m))[vi].st
+      = x5[m][vi].st := by
+    simp only [setClock_getElem, if_true]
+    rfl
+  have hsend := handler_vote_sends5_extend (kappa := kappa) (pool := pool)
+      (proposer := proposer)
+      (pick := pick5 x5 m vi (Q.slotLength * (t + 1) + Q.delta)) (p := vi)
+      (V := (setClock vi (Q.slotLength * (t + 1) + Q.delta) (x5.cfg m))[vi].view)
+      (s := (setClock vi (Q.slotLength * (t + 1) + Q.delta) (x5.cfg m))[vi].st)
+    (voting_reading_mod Q (t + 1)) hgate' (by
+      rw [voting_reading_div Q (t + 1), hview', hst', hgjF, hgjc]
+      try omega)
+  rw [voting_reading_div Q (t + 1)] at hsend
+  have hlog := MfcEquiv.tick_send_mem5 hlblm hsend
+  rw [hview', hst'] at hlog
+  -- the available chain there is `chp`
+  have hchAva : x5[m + 1][vi].st.chAva = chp := by
+    refine chainLe_antisymm ?_ ?_
+    · exact (chAva_and_justified_le_chp5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t hgat
+        (m + 1) (by rw [MfcEquiv.tick_time5 hlblm, htm])).1 vi
+    · obtain ⟨jf, htjf, hlbljf⟩ := hdil (Q.slotLength * t + 2 * Q.delta) vi
+        (by
+          obtain ⟨i₃, hi₃⟩ := hdiv (Q.slotLength * t + 2 * Q.delta)
+          obtain ⟨i₂, hi₂, hti₂⟩ := exists_time_eq hstepw hi₃
+          refine ⟨i₂, hti₂, ?_⟩
+          show vi ∈ S.awake ((x5[i₂].time : Int))
+          rw [hti₂]
+          refine mem_awakeThroughout.mp hact1n _ ?_ ?_ <;> rw [hvot1] <;> omega)
+      have hfceq : x5[jf + 1][vi].st.chAva = chp :=
+        chAva_eq_chp_at_fconf5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t hgat hlbljf
+      have hjfm : jf + 1 ≤ m + 1 := by
+        by_contra hcon
+        have hml : m ≤ jf := by omega
+        have h1 : x5[m].time ≤ x5[jf].time := time_le_of_le hmono hml
+        omega
+      rw [← hfceq]
+      exact Availability5.chAva_mono H5 hκ hwin5 vi hjfm
+  refine ⟨m, pick5 x5 m vi (Q.slotLength * (t + 1) + Q.delta), htm,
+    by rw [MfcEquiv.tick_time5 hlblm]; exact htm, ?_⟩
+  have hst : (handlerCore (components (Fintype.card Node) kappa pool proposer) Q
+      (pick5 x5 m vi (Q.slotLength * (t + 1) + Q.delta)) vi
+      (Q.slotLength * (t + 1) + Q.delta) x5[m][vi].view x5[m][vi].st).state.chAva = chp := by
+    have hget : x5[m + 1][vi].st
+        = (handlerCore (components (Fintype.card Node) kappa pool proposer) Q
+          (pick5 x5 m vi (Q.slotLength * (t + 1) + Q.delta)) vi
+          (Q.slotLength * (t + 1) + Q.delta) x5[m][vi].view x5[m][vi].st).state := by
+      rw [show x5[m + 1] = _ from exec5_succ (x5 := x5) m, hlblm]
+      simp only [applyNodeStepResult_getElem, setClock_getElem, if_pos rfl, if_true]
+      rfl
+    rw [← hchAva, hget]
+  rw [hgjF, hst] at hlog
+  exact hlog
+
 set_option maxHeartbeats 1000000 in
 /-- **Any two justified chains are comparable.** Each justified checkpoint's chain sits below
     some validator's available chain (`justified_to_voteChAva`, descending through fin-vote
