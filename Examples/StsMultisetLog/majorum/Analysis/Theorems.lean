@@ -389,9 +389,11 @@ theorem theorem6_liveness_of_low {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ :
     {vi : Node} {a : Nat} (hact3 : vi ∈ Active Q S (((t + 1 + 1 + 1 : Nat)) : Int))
     (hlate : Q.slotLength * (t + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time) :
     chp ⪯ x5[a][vi].st.chFin :=
-  Finality5.chp_le_chFin5 H hκ hwin hga ht hsent hhon_i hhon_t
-    (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat hsent'
-    hhon_i' hhon_t' hact3 hlate
+  Finality5.chp_le_chFin5 H hκ hwin hga hsent' hhon_i' hhon_t'
+    (Finality5.slotPinned_next5 H hκ hwin hga ht hsent hhon_i hhon_t
+      (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat
+      hsent' hhon_i' hhon_t')
+    (Finality5.gat_le_voting_succ5 hgat) hact3 hlate
 
 /-- **Theorem 6's liveness half with the transaction pool**, in the same regime: every
     transaction pooled by a round of slot `t` sits in a block of the finalized chain from
@@ -424,9 +426,12 @@ theorem theorem6_liveness_txpool_of_low {x5 : Exec Pr5 S} {τ : Type}
     (hlate : Q.slotLength * (t + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time)
     {r : Time} (hr : r ≤ Q.slotLength * t) :
     ∀ tx ∈ poolSet r, ∃ b ∈ x5[a][vi].st.chFin, memTx tx b.txs :=
-  Finality5.chFin_txpool5 memTx poolSet hmonoP hcover H hκ hwin hga ht hsent hhon_i hhon_t
-    (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat hsent'
-    hhon_i' hhon_t' hact3 hlate hr
+  Finality5.chFin_txpool5 memTx poolSet hmonoP hcover H hκ hwin hga ht hsent hhon_i hsent'
+    hhon_i' hhon_t'
+    (Finality5.slotPinned_next5 H hκ hwin hga ht hsent hhon_i hhon_t
+      (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat
+      hsent' hhon_i' hhon_t')
+    (Finality5.gat_le_voting_succ5 hgat) hact3 hlate hr
 
 end Algorithm5Proved
 
