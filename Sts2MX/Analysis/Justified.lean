@@ -26,6 +26,7 @@ namespace Framework.Sts2MX
 variable {Node Msg NodeState Ev : Type} [DecidableEq Node] [DecidableEq Msg]
   {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
   {H : Set Node} {Just : Node → NodeState → Msg → Prop}
+variable (q : Node) (t : Time) (m : SignedMsg Node Msg) (d : Config Node Msg NodeState)
 
 /-- Every message in the log signed by a validator in `H` is justified by that validator's
     current state. -/
@@ -47,8 +48,7 @@ structure Justifies (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node) (H
 
 omit [DecidableEq Msg] in
 /-- Moving a clock justifies nothing new and invalidates nothing. -/
-theorem justified_setClock (q : Node) (t : Time) (d : Config Node Msg NodeState)
-    (hJ : Justified H Just d) : Justified H Just (setClock q t d) := by
+theorem justified_setClock (hJ : Justified H Just d) : Justified H Just (setClock q t d) := by
   intro sm hm hH
   have : (setClock q t d)[sm.sender].st = d[sm.sender].st := by
     by_cases hs : q = sm.sender <;> simp [setClock_getElem, hs]
@@ -56,8 +56,7 @@ theorem justified_setClock (q : Node) (t : Time) (d : Config Node Msg NodeState)
   exact hJ sm hm hH
 
 /-- Filing a delivery likewise. -/
-theorem justified_receive (q : Node) (m : SignedMsg Node Msg)
-    (d : Config Node Msg NodeState) (hJ : Justified H Just d) :
+theorem justified_receive (hJ : Justified H Just d) :
     Justified H Just (receive q m d) := by
   intro sm hm hH
   have : (receive q m d)[sm.sender].st = d[sm.sender].st := by

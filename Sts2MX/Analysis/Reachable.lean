@@ -40,7 +40,8 @@ def ViewsSound (c : Config Node Msg NodeState) : Prop :=
     Note how the induction hypothesis reaches the cases: the motive is an *implication*,
     `ViewsSound d → ViewsSound d'`, and the eliminator's result is applied to `ih`. That
     is the one idiom `Step.elim` needs that `cases` on an inductive would not. -/
-theorem viewsSound {c : Config Node Msg NodeState} (h : Reachable Pr S c) : ViewsSound c := by
+theorem viewsSound {c : Config Node Msg NodeState} (h : Reachable Pr S c) :
+    ViewsSound c := by
   induction h with
   | init hi =>
       obtain ⟨-, hnodes, -⟩ := hi

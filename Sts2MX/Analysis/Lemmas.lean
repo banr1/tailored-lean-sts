@@ -26,6 +26,14 @@ namespace Framework.Sts2MX
 
 variable {Node Msg NodeState Ev : Type} [DecidableEq Node] [DecidableEq Msg]
 
+/-! Every repeated binder below comes from here. Declared in the order that reproduces each
+signature as it was written out, so no call site moves; the `Frame` section further down
+redeclares `p`, `pre` and `c'` implicitly, which simply replaces them from there on. -/
+
+variable {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
+    (q : Node) (res : NodeStepResult NodeState Msg) (m : SignedMsg Node Msg) (t : Time)
+    (d : Config Node Msg NodeState) (p : Node) (pre c' : Config Node Msg NodeState)
+
 /-! ### What the helpers do to each field
 
 Two layers. First a read-back lemma per definition, saying what `c[p]` is after it — these
@@ -43,67 +51,58 @@ lemmas no longer match — the same shadowing that once made `applyNodeStepResul
 opposite direction. -/
 
 omit [DecidableEq Msg] in
-theorem applyNodeStepResult_getElem (q : Node) (res : NodeStepResult NodeState Msg)
-    (d : Config Node Msg NodeState) (p : Node) :
+theorem applyNodeStepResult_getElem :
     (applyNodeStepResult q res d)[p] = if q = p then { d[q] with st := res.state } else d[p] :=
   rfl
 
-theorem receive_getElem (q : Node) (m : SignedMsg Node Msg)
-    (d : Config Node Msg NodeState) (p : Node) :
+theorem receive_getElem :
     (receive q m d)[p] = if q = p then { d[q] with view := insert m d[q].view } else d[p] :=
   rfl
 
 omit [DecidableEq Msg] in
-theorem setClock_getElem (q : Node) (t : Time) (d : Config Node Msg NodeState)
-    (p : Node) : (setClock q t d)[p] = if q = p then { d[q] with clock := t } else d[p] := rfl
+theorem setClock_getElem :
+    (setClock q t d)[p] = if q = p then { d[q] with clock := t } else d[p] := rfl
 
 omit [DecidableEq Msg] in
-@[simp] theorem applyNodeStepResult_clock (q : Node) (res : NodeStepResult NodeState Msg)
-    (d : Config Node Msg NodeState) (p : Node) :
+@[simp] theorem applyNodeStepResult_clock :
     (applyNodeStepResult q res d)[p].clock = d[p].clock := by
   by_cases hpq : q = p <;> simp [applyNodeStepResult_getElem, hpq]
 
 omit [DecidableEq Msg] in
-@[simp] theorem applyNodeStepResult_view (q : Node) (res : NodeStepResult NodeState Msg)
-    (d : Config Node Msg NodeState) (p : Node) :
+@[simp] theorem applyNodeStepResult_view :
     (applyNodeStepResult q res d)[p].view = d[p].view := by
   by_cases hpq : q = p <;> simp [applyNodeStepResult_getElem, hpq]
 
 omit [DecidableEq Msg] in
-@[simp] theorem applyNodeStepResult_sent (q : Node) (res : NodeStepResult NodeState Msg)
-    (d : Config Node Msg NodeState) :
+@[simp] theorem applyNodeStepResult_sent :
     (applyNodeStepResult q res d).sent = d.sent + res.send.map (SignedMsg.mk q) := rfl
 
-@[simp] theorem receive_clock (q : Node) (m : SignedMsg Node Msg)
-    (d : Config Node Msg NodeState) (p : Node) :
+@[simp] theorem receive_clock :
     (receive q m d)[p].clock = d[p].clock := by
   by_cases hpq : q = p <;> simp [receive_getElem, hpq]
 
-@[simp] theorem receive_view_self (q : Node) (m : SignedMsg Node Msg)
-    (d : Config Node Msg NodeState) :
+@[simp] theorem receive_view_self :
     (receive q m d)[q].view = insert m d[q].view := by simp [receive_getElem]
 
-@[simp] theorem receive_view_other (q : Node) (m : SignedMsg Node Msg)
-    (d : Config Node Msg NodeState) (p : Node) (h : p ≠ q) :
+@[simp] theorem receive_view_other (h : p ≠ q) :
     (receive q m d)[p].view = d[p].view := by simp [receive_getElem, Ne.symm h]
 
 /-- What a reaction added to the log, as a multiset difference. Not `simp`: it is the
     inverse direction of `applyNodeStepResult_sent` and would loop with it. -/
-theorem applyNodeStepResult_sent_sub (q : Node) (res : NodeStepResult NodeState Msg)
-    (d : Config Node Msg NodeState) :
+theorem applyNodeStepResult_sent_sub :
     (applyNodeStepResult q res d).sent - d.sent = res.send.map (SignedMsg.mk q) := by
   ext a; simp [applyNodeStepResult]
 
-@[simp] theorem receive_sent (q : Node) (m : SignedMsg Node Msg)
-    (d : Config Node Msg NodeState) : (receive q m d).sent = d.sent := rfl
+@[simp] theorem receive_sent :
+    (receive q m d).sent = d.sent := rfl
 
 omit [DecidableEq Msg] in
-@[simp] theorem setClock_view (q : Node) (t : Time) (d : Config Node Msg NodeState)
-    (p : Node) : (setClock q t d)[p].view = d[p].view := by
+@[simp] theorem setClock_view :
+    (setClock q t d)[p].view = d[p].view := by
   by_cases hpq : q = p <;> simp [setClock_getElem, hpq]
 
 omit [DecidableEq Msg] in
-@[simp] theorem setClock_sent (q : Node) (t : Time) (d : Config Node Msg NodeState) :
+@[simp] theorem setClock_sent :
     (setClock q t d).sent = d.sent := rfl
 
 /-! `clock_mono` used to live here, proved from `tick` incrementing by one. It is gone:
@@ -117,7 +116,7 @@ of weakening the spec — the old version made a scheduling decision look like a
 
     This is what fails when `send` is a `Finset`: a delta holding one message twice is then
     unreachable, and any characterisation of the successors has to say so. -/
-theorem applyNodeStepResult_surjective (p : Node) (pre c' : Config Node Msg NodeState)
+theorem applyNodeStepResult_surjective
     (hle : pre.sent ≤ c'.sent) (hp : ∀ m ∈ c'.sent - pre.sent, m.sender = p) :
     c'.sent = (applyNodeStepResult p (extract p pre c') pre).sent := by
   have hid : (c'.sent - pre.sent).map (fun m => SignedMsg.mk p m.msg) = c'.sent - pre.sent := by
@@ -140,7 +139,7 @@ theorem applyNodeStepResult_surjective (p : Node) (pre c' : Config Node Msg Node
 
     It is the non-inductive equivalent of `cases` on an inductive step relation, and it
     is derived from `spec`, so it cannot drift from the step relation. -/
-theorem Step.elim {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
+theorem Step.elim
     {motive : Action Node Msg Ev → Config Node Msg NodeState → Config Node Msg NodeState → Prop}
     {a : Action Node Msg Ev} {c c' : Config Node Msg NodeState} (h : Step Pr S a c c')
     (advance : ∀ (d : Config Node Msg NodeState) (t : Time),
@@ -206,7 +205,7 @@ theorem Step.elim {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
     Four of the six cases are one `exact` with no destructuring, because `Step` already *is*
     `Enabled ∧ NodeStep`. Going through the wrong eliminator costs a `nodeStep_iff_exists`
     conversion in every reacting case; that is the whole of the difference. -/
-theorem Step.elimR {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
+theorem Step.elimR
     {motive : Action Node Msg Ev → Config Node Msg NodeState →
       Config Node Msg NodeState → Prop}
     {a : Action Node Msg Ev} {c c' : Config Node Msg NodeState} (h : Step Pr S a c c')
@@ -242,8 +241,8 @@ successor already concrete, so the proof is one line per action with no destruct
 (`clock_mono` used to sit beside it — see the note above for why it is gone.) -/
 
 /-- The network never forgets. -/
-theorem sent_mono {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node} {a : Action Node Msg Ev}
-    {c c' : Config Node Msg NodeState} (h : Step Pr S a c c') : c.sent ≤ c'.sent := by
+theorem sent_mono {a : Action Node Msg Ev} {c c' : Config Node Msg NodeState}
+    (h : Step Pr S a c c') : c.sent ≤ c'.sent := by
   refine h.elim (motive := fun _ d d' => d.sent ≤ d'.sent) ?_ ?_ ?_ ?_ ?_ ?_ <;> intros <;>
     first
       | exact le_rfl
@@ -265,8 +264,7 @@ condition (`Nodup` on the delta) would be needed. -/
 
 section Frame
 
-variable {Pr : Protocol Node Msg NodeState Ev} {p : Node} {e : Event Node Msg Ev}
-    {pre c' : Config Node Msg NodeState}
+variable {p : Node} {e : Event Node Msg Ev} {pre c' : Config Node Msg NodeState}
 
 /-- Two configurations agreeing on every field are equal. -/
 theorem Config.ext' {c d : Config Node Msg NodeState} (ht : c.time = d.time)

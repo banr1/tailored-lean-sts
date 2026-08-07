@@ -136,6 +136,8 @@ eventually taken* — which is what the step labels are for.
 Enabledness is not a parameter: it comes from the action's own `ActionSpec`, so a
 fairness assumption cannot describe the wrong condition. -/
 
+variable (x : Exec Pr S) (i : Nat) (a : Action Node Msg Ev)
+
 /-- Action `a` may be taken at step `i`.
 
     Read off the action's own `ActionSpec`, so it cannot disagree with the step
@@ -144,16 +146,16 @@ fairness assumption cannot describe the wrong condition. -/
     as a separate argument, with nothing tying the two together: a wrong one made the
     assumption either vacuous or unsatisfiable, and an unsatisfiable assumption makes
     every theorem under it vacuously true. -/
-def Execution.Enabled (x : Exec Pr S) (i : Nat) (a : Action Node Msg Ev) : Prop :=
+def Execution.Enabled : Prop :=
   (spec Pr S a).Enabled x[i]
 
 /-- Weak fairness for one action: continuously enabled implies eventually taken. -/
-def WeakFair (x : Exec Pr S) (a : Action Node Msg Ev) : Prop :=
+def WeakFair : Prop :=
   ∀ i : Nat, (∀ j, i ≤ j → x.Enabled j a) → ∃ j, i ≤ j ∧ x.lbl j = a
 
 /-- Strong fairness: enabled infinitely often implies eventually taken. Needed for a
     validator that only flickers awake, rather than staying awake. -/
-def StrongFair (x : Exec Pr S) (a : Action Node Msg Ev) : Prop :=
+def StrongFair : Prop :=
   (∀ i : Nat, ∃ j, i ≤ j ∧ x.Enabled j a) → ∀ i : Nat, ∃ j, i ≤ j ∧ x.lbl j = a
 
 /-- Every awake node is ticked at every value of time, at that value.
@@ -228,12 +230,11 @@ Abstract over the protocol's output and its prefix order, so that blocks, chains
 and the transaction pool stay out of the framework. `out p c` is what validator
 `p` outputs in configuration `c`; `Pre` is "is a prefix of". -/
 
-variable {Out : Type}
+variable {Out : Type} (out : Node → Config Node Msg NodeState → Out)
 
 /-- Majorum Def. 1 (Safe protocol), after `tafter`: the outputs of validators
     that are honest at the time are always prefix-comparable. -/
-def Safe (out : Node → Config Node Msg NodeState → Out) (Pre : Out → Out → Prop)
-    (tafter : Time) (x : Exec Pr S) : Prop :=
+def Safe (Pre : Out → Out → Prop) (tafter : Time) (x : Exec Pr S) : Prop :=
   ∀ (i j : Nat) p q, tafter ≤ x[i].time → tafter ≤ x[j].time →
     x.Honest i p → x.Honest j q →
     Pre (out p x[i]) (out q x[j]) ∨ Pre (out q x[j]) (out p x[i])
@@ -246,14 +247,13 @@ def Safe (out : Node → Config Node Msg NodeState → Out) (Pre : Out → Out �
     protocol-specific notion; stating it over the awake ones is stronger, so a
     protocol whose joining delay matters will want to weaken this with its own
     participation predicate. -/
-def Live {Tx : Type} (out : Node → Config Node Msg NodeState → Out) (mem : Tx → Out → Prop)
+def Live {Tx : Type} (mem : Tx → Out → Prop)
     (pool : Time → Set Tx) (tafter tconf : Time) (x : Exec Pr S) : Prop :=
   ∀ (i j : Nat) p tx, tafter ≤ x[i].time → tx ∈ pool x[i].time →
     x[i].time + tconf ≤ x[j].time → x.Awake j p → mem tx (out p x[j])
 
 /-- Majorum Def. 3 (Secure protocol). -/
-def Secure {Tx : Type} (out : Node → Config Node Msg NodeState → Out)
-    (Pre : Out → Out → Prop) (mem : Tx → Out → Prop) (pool : Time → Set Tx)
+def Secure {Tx : Type} (Pre : Out → Out → Prop) (mem : Tx → Out → Prop) (pool : Time → Set Tx)
     (tafter tconf : Time) (x : Exec Pr S) : Prop :=
   Safe out Pre tafter x ∧ Live out mem pool tafter tconf x
 
