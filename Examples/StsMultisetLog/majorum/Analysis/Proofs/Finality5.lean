@@ -4319,4 +4319,80 @@ theorem justified_chains_comparable {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5)
   · exact comparable_of_common_extension (chainLe_trans hle₁ h) hle₂
   · exact comparable_of_common_extension hle₁ (chainLe_trans hle₂ h)
 
+set_option maxHeartbeats 400000 in
+/-- **Theorem 6's Case 2, assembled.** With honest proposers at `t` and `t+1` and a
+    slot-`(t+1)` proposal whose carried checkpoint is *not* of slot `t`, Lemma 18 applies at
+    slot `t+1`: `propose_gj_c_lt5` caps that checkpoint below `t+1`, so `≠ t` puts it below
+    `t`, which is exactly `slotPinned_of_low`'s hypothesis one slot up. That finalizes the
+    slot-`(t+1)` proposal's own checkpoint, and `chp` prefixes its chain by Lemma 12
+    (`chp_le_chp_next5`).
+
+    The conclusion therefore lands a slot later than the other two branches — validators
+    active in slot `t+4`, from `fconf(t+4)` on. -/
+theorem chp_le_chFin_case2_5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
+    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
+    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
+      SignedMsg Node M) ∈ x5[ip'].sent)
+    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
+    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int)))
+    (hgjc : gjp'.c ≠ t)
+    {vi : Node} {a : Nat} (hact4 : vi ∈ Active Q S (((t + 1 + 1 + 1 + 1 : Nat)) : Int))
+    (hlate : Q.slotLength * (t + 1 + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time) :
+    chainLe chp x5[a][vi].st.chFin := by
+  have hgat1 := gat_le_voting_succ5 hgat
+  have hlow' : gjp'.c < t + 1 - 1 := by
+    have h := propose_gj_c_lt5 H5 (t := t + 1) (by omega) hsent' hhon_i'
+    omega
+  have hp1 := slotPinned_chp_next5 H5 hκ hwin5 hga (t := t + 1) (by omega) hsent' hhon_i'
+    hhon_t' (slotPinned_of_low H5 hκ hwin5 hga (t := t + 1) (by omega) hsent' hhon_i' hhon_t'
+      hlow' hgat1) hgat1
+  exact chainLe_trans
+    (chp_le_chp_next5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t hgat hsent' hhon_i' hhon_t')
+    (chp_le_chFin5 H5 hκ hwin5 hga hp1 (gat_le_voting_succ5 hgat1) hact4 hlate)
+
+set_option maxHeartbeats 400000 in
+/-- **Case 2's transaction-pool clause**: slot `(t+1)`'s instance of `chFin_txpool5`. The
+    finalized chain contains the slot-`(t+1)` proposal's own block, whose body covers
+    everything pooled by `propose(t+1)` and so everything pooled by `propose(t)`. -/
+theorem chFin_txpool_case2_5 {x5 : Exec Pr5 S} {τ : Type}
+    (memTx : τ → Tx → Prop) (poolSet : Time → Set τ)
+    (hmonoP : ∀ r r' : Time, r ≤ r' → poolSet r ⊆ poolSet r')
+    (hcover : ∀ s : Nat, ∀ tx ∈ poolSet (Q.slotLength * s), memTx tx (pool s))
+    (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
+    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
+    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
+      SignedMsg Node M) ∈ x5[ip'].sent)
+    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
+    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int)))
+    (hgjc : gjp'.c ≠ t)
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {vi : Node} {a : Nat} (hact4 : vi ∈ Active Q S (((t + 1 + 1 + 1 + 1 : Nat)) : Int))
+    (hlate : Q.slotLength * (t + 1 + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time)
+    {r : Time} (hr : r ≤ Q.slotLength * t) :
+    ∀ tx ∈ poolSet r, ∃ b ∈ x5[a][vi].st.chFin, memTx tx b.txs := by
+  have hgat1 := gat_le_voting_succ5 hgat
+  have hlow' : gjp'.c < t + 1 - 1 := by
+    have h := propose_gj_c_lt5 H5 (t := t + 1) (by omega) hsent' hhon_i'
+    omega
+  have hp1 := slotPinned_chp_next5 H5 hκ hwin5 hga (t := t + 1) (by omega) hsent' hhon_i'
+    hhon_t' (slotPinned_of_low H5 hκ hwin5 hga (t := t + 1) (by omega) hsent' hhon_i' hhon_t'
+      hlow' hgat1) hgat1
+  refine chFin_txpool5 memTx poolSet hmonoP hcover H5 hκ hwin5 hga (t := t + 1) (by omega)
+    hsent' hhon_i' hp1 (gat_le_voting_succ5 hgat1) hact4 hlate ?_
+  exact le_trans hr (Nat.mul_le_mul_left _ (by omega))
+
 end Majorum.Finality5
