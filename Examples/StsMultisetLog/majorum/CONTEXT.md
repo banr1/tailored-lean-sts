@@ -738,6 +738,49 @@ proved.
     only its liveness half is open, and that is issue 2 below.
   Lean note: `ring` is not available in `Analysis/Theorems.lean` (Mathlib's tactic is not
   imported there) — `rw [Nat.mul_add, Nat.add_assoc]` does that job.
+- **Fifteenth authors'-note finding: Definition 5's honesty window is one round too early**
+  (2026-08-08). Read from v1 p.5, Definition 5 asks reorg resilience of "any chain proposed in
+  slot `t ≥ t_reorg` by a validator honest in `propose(t)`". That version is **false**, of this
+  model and of the paper's:
+  * the adversary is adaptive — §2.1, "An adaptive probabilistic poly-time adversary `A` may
+    corrupt up to `f` validators" — so a proposer honest at `propose(t)` may be corrupt by
+    `voting(t)`;
+  * once corrupt it can send a second, individually valid slot-`t` proposal. Synchrony puts
+    both in every active validator's view by `voting(t)`, and the vote phase picks *any*
+    qualifying proposal chain (the tenth finding, `votePicks`), so the honest votes split;
+  * with the votes split nothing pins later fork choices to `chp`, and a chain confirmed later
+    on the other branch conflicts with it. Constraint (1) does not close this: it bounds
+    corruption of *voters* after a voting phase — its stated purpose is to stop the adversary
+    "corrupt[ing] too many honest validators immediately after the voting phase and forc[ing]
+    them to equivocate" — not corruption of the proposer before one.
+  The paper's own proofs never use the propose-round reading: Lemma 4 says "let `t` be a slot
+  with an honest proposer `v_p`", unqualified, and its base case argues from *the* proposal,
+  singular. So this is a mismatch between Definition 5 and the development, and **the faithful
+  repair is to read Definition 5 at `voting(t)`** (or "honest throughout slot `t`").
+  * **Status**: argued, not mechanized. No Lean counterexample was built; what is checked is
+    that our Theorems 1 and 3 need honesty at `voting(t)` and that nothing in the model
+    prevents the equivocation.
+  * **Consequence for the formalization**: none, because every Algorithm-5 result already
+    assumes the proposer honest at its slot's vote round (as `HonestProposalWindow5` does).
+    `theorem3_reorgResilient` now closes `ThmReorgResilienceFFG` with `proposing := voting`
+    and its docstring says why the paper's round would not do.
+- **What is still not instantiated, and why** (2026-08-08). `ThmReorgResilienceGA` and
+  `ThmDynamicAvailabilityGA` — Theorems 1 and 2, for Algorithm 2 — plus `ThmLiveness`:
+  * GA's reorg resilience hard-codes `Q.proposing` where the FFG one takes `proposing` as a
+    parameter, so the fifteenth finding's repair is not expressible in it without changing the
+    statement.
+  * Both GA statements quantify over executions under a four-hypothesis row (`Wellformed`,
+    `Network`/`Synchronous`, `Sleepiness`, `Resilience`), where `theorem1`/`theorem2` need
+    `SettingGA` — which adds the atomic-round hygiene (`TimeStepwise`, `WakePrecedesTick`,
+    `OneTickPerReading`) and `gstZero`. Those are our rendering of the paper's round-based
+    execution model rather than extra assumptions of the paper, so aligning the row is
+    defensible, but it is a statement change and the docstrings' open question ("whether the
+    GA section fixes further standing assumptions") should be settled first.
+  * `ThmDynamicAvailabilityGA` has a second obstacle: the abstract block is message-type
+    agnostic, so it cannot name the honest-proposal window that Theorem 2's proof consumes.
+  * `ThmLiveness` is not provable as written — one honest proposal assumed, round fixed at
+    `4Δ(t+3) + 2Δ`, where Cases 1 and 2 need the slot-`(t+1)` proposer and Case 2 lands at
+    `fconf(t+4)`.
 - **The statement files are back to one-line faces** (2026-08-08). `Analysis/Lemmas.lean` and
   `Analysis/Theorems.lean` exist to be *scanned* against the paper, so every face is a
   delegation, never a proof. Two things had drifted and are now fixed: `theorem7` and
@@ -766,6 +809,10 @@ proved.
   `theorem4_dynamicallyAvailable` relaxed to the shared confirmation time
   (`LiveActive.mono_tconf`), `chFin_safe` at every pair of indices with the liveness half from
   Theorem 6, and `chFin_le_chAva`.
+  * **The paper's Lemma 1 is itself about consecutive pairs**, which is worth knowing: "there
+    exists at least one pair of consecutive slots in which honest proposers are elected"
+    (v1 §3.2). So `HonestProposerPairs` is that statement de-probabilized, not a strengthening
+    of it.
   * **Lemma 1 became a hypothesis with an explicit window** (user decision, 2026-08-08):
     `HonestProposerPairs W x5` — from any time `τ`, honest proposers at two consecutive slots
     `t`, `t+1` with `propose(t) ∈ [τ, τ + W·4Δ]`, each half carrying the proposal and the

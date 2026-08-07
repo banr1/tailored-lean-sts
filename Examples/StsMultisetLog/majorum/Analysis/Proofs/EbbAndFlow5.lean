@@ -53,6 +53,39 @@ def HonestProposerPairs (W : Nat) (x5 : Exec Pr5 S) : Prop :=
         vp' ∉ S.adv ((x5[ip'].time : Int)) ∧
         vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int))
 
+/-- "`q` proposed `o` in slot `t`", for Algorithm 5: an honest emission of a slot-`t` proposal
+    whose chain is `o`. Honesty *at the emission* is part of the predicate, as it is in
+    `MfcEquiv.HonestProposalWindow5`; honesty later in the slot is what `ReorgResilient` asks
+    for separately. -/
+def proposedBy5 (x5 : Exec Pr5 S) (t : Int) (q : Node) (o : Chain Tx) : Prop :=
+  ∃ tn : Nat, 1 ≤ tn ∧ (tn : Int) = t ∧
+    ∃ (chC : Chain Tx) (qc : Option (QCert Node Tx)) (ck : Checkpoint (Chain Tx)) (i : Nat),
+      (⟨q, Msg.propose o chC qc ck tn⟩ : SignedMsg Node M) ∈ x5[i].sent ∧
+      q ∉ S.adv ((x5[i].time : Int))
+
+/-- **Theorem 3 as Definition 5**, with `proposing := voting`: an honestly proposed chain
+    never conflicts with any validator's available chain, at any round.
+
+    **The round matters, and it is not the paper's.** Definition 5 asks this of a proposer
+    "honest in `propose(t)`"; here it is asked of one honest at `voting(t)`, which is a
+    stronger hypothesis and so a weaker theorem. The propose-round version is *false* of this
+    model, and of the paper's: the adversary is adaptive, so a proposer honest when it
+    proposes can be corrupted before the vote round and equivocate, and two valid slot-`t`
+    proposals split the honest votes — after which nothing pins the later fork choice to
+    either chain. Constraint (1) does not help; it bounds corruption of *voters* after a
+    voting phase, not of the proposer before one. See the fifteenth finding in
+    `Examples/StsMultisetLog/majorum/CONTEXT.md`. -/
+theorem reorgResilient5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5) :
+    ReorgResilient (fun p c => c[p].st.chAva) (fun a b => a ⪯ b) (proposedBy5 x5)
+      (fun t => Q.voting t) 0 0 x5 := by
+  intro i p q t o _ _ _ hprop hhon
+  obtain ⟨tn, htn1, htneq, chC, qc, ck, ip, hsent, hhon_i⟩ := hprop
+  have hhon_t : q ∉ S.adv (Q.voting ((tn : Nat) : Int)) := by rw [htneq]; exact hhon
+  rcases Availability5.theorem3 H5 hκ hwin5 htn1 hsent hhon_i hhon_t i p with h | h
+  · exact fun hc => hc.1 h
+  · exact fun hc => hc.2 h
+
 set_option maxHeartbeats 1000000 in
 /-- **Theorem 4 as Definition 4**: `chainava` is dynamically available — `SecureActive` from
     time 0, over the paper's `H_r`, with `Tconf = 8κΔ + Δ + 1` (spelled

@@ -295,6 +295,22 @@ theorem theorem3 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     chp ⪯ x5[a][vi].st.chAva ∨ x5[a][vi].st.chAva ⪯ chp :=
   Availability5.theorem3 H hκ hwin htp hsent hhon_i hhon_t a vi
 
+/-- **Theorem 3 as Definition 5** (`Theorem 3, arXiv:2601.03862v1 p.21`): Algorithm 5 is
+    reorg-resilient, which is `ThmReorgResilienceFFG` — after slot 0 and time 0, an honestly
+    proposed chain never conflicts with any validator's available chain.
+
+    **`proposing` is instantiated at `voting`, not `propose`.** Definition 5 asks this of a
+    proposer honest in `propose(t)`; that version is false, because an adaptive adversary can
+    corrupt the proposer between its proposal and the vote round and make it equivocate,
+    splitting the honest votes — the fifteenth finding, in `Examples/StsMultisetLog/majorum/CONTEXT.md`. So
+    the hypothesis here is honesty at `voting(t)`, which is what the proof needs and what
+    every other Algorithm-5 result assumes of a proposer. -/
+theorem theorem3_reorgResilient {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5) :
+    ThmReorgResilienceFFG (fun p c => c[p].st.chAva) (fun a b => a ⪯ b)
+      (EbbAndFlow5.proposedBy5 x5) (fun t => Q.voting t) x5 :=
+  EbbAndFlow5.reorgResilient5 H hκ hwin
+
 /-- **Theorem 4** (`Theorem 4, arXiv:2601.03862v1 p.22`, for Algorithm 5). "Algorithm
     `3sf-tob-noga` is dynamically-available w.o.p." — Definition 4 for `chainava`, with
     `Tconf = 8κΔ + Δ` as in Theorem 2.
