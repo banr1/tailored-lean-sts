@@ -324,11 +324,52 @@ theorem link_mono {n : Nat} {V V' : View Node M} (hVV' : V ⊆ V')
   have := Finset.card_le_card hsub
   omega
 
+/-- The source voters survive view growth, as the link voters do. -/
+theorem sourceVoters_mono {V V' : View Node M} (hVV' : V ⊆ V')
+    {C : Checkpoint (Chain Tx)} {c : Nat} :
+    sourceVoters V C c ⊆ sourceVoters V' C c := by
+  unfold sourceVoters
+  exact Finset.image_subset_image (Finset.filter_subset_filter _ (by
+    unfold votes
+    exact Finset.filter_subset_filter _ hVV'))
+
+/-- A link's voters all voted out of its source into its target's slot, so they count for
+    finalization — the direction that matters, since agreeing on a target is more than
+    finalization asks. -/
+theorem linkVoters_subset_sourceVoters {V : View Node M} {C C' : Checkpoint (Chain Tx)}
+    (hch : chainLe C.ch C'.ch) : linkVoters V C C' ⊆ sourceVoters V C C'.c := by
+  intro w hw
+  obtain ⟨sm, hsmV, hsender, e, τ, hmsg⟩ := mem_linkVoters hw
+  simp only [sourceVoters, Finset.mem_image]
+  refine ⟨sm, ?_, hsender⟩
+  rw [Finset.mem_filter]
+  refine ⟨?_, ?_⟩
+  · simp only [votes, Finset.mem_filter]
+    refine ⟨hsmV, ?_⟩
+    rw [hmsg]
+    trivial
+  · rw [hmsg]
+    exact ⟨rfl, rfl, hch⟩
+
+/-- A validator that fin-voted out of `C` into `tgt` counts among `C`'s source voters. -/
+theorem mem_sourceVoters_of_vote {V : View Node M} {C tgt : Checkpoint (Chain Tx)}
+    {q : Node} {e : Chain Tx} {τ : Nat}
+    (hmem : (⟨q, Msg.vote e C tgt τ⟩ : SignedMsg Node M) ∈ V)
+    (hch : chainLe C.ch tgt.ch) : q ∈ sourceVoters V C tgt.c := by
+  simp only [sourceVoters, Finset.mem_image]
+  refine ⟨⟨q, Msg.vote e C tgt τ⟩, ?_, rfl⟩
+  rw [Finset.mem_filter]
+  refine ⟨?_, rfl, rfl, hch⟩
+  simp only [votes, Finset.mem_filter]
+  exact ⟨hmem, trivial⟩
+
 /-- Finalization survives a growing view. -/
 theorem finalizedIn_mono {n : Nat} {V V' : View Node M} (hVV' : V ⊆ V')
-    {C : Checkpoint (Chain Tx)} (h : FinalizedIn n V C) : FinalizedIn n V' C :=
-  ⟨justifiedIn_mono hVV' h.1, h.2.choose, h.2.choose_spec.1,
-    link_mono hVV' h.2.choose_spec.2⟩
+    {C : Checkpoint (Chain Tx)} (h : FinalizedIn n V C) : FinalizedIn n V' C := by
+  refine ⟨justifiedIn_mono hVV' h.1, ?_⟩
+  have := Finset.card_le_card (sourceVoters_mono (C := C) (c := C.c + 1) hVV')
+  have h2 := h.2
+  omega
 
 /-- **`GF` is finalized, or is still genesis**: the slot-maximising fold starts at
     `(B_genesis, 0)` and otherwise only adopts finalized checkpoints. -/
@@ -3343,81 +3384,93 @@ theorem finalized_chp_next5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 �
           ≤ Q.slotLength * (t + 1 + 1) + Q.delta := by omega
       exact_mod_cast h
     omega
-  refine ⟨hp'.justified i w hAw (by omega), ⟨⟨chp', t + 1 + 1⟩, rfl, ?_⟩⟩
-  by_cases hcase : ∃ q ∈ (Finset.univ \ S.adv (Q.voting (((t + 1 + 1 : Nat)) : Int))),
-      ∃ m : Nat, x5[m].time = Q.slotLength * (t + 1 + 1) + Q.delta ∧
-        JustifiedIn (Fintype.card Node) x5[m][q].view ⟨chp', t + 1 + 1⟩
-  · -- already justified in some honest view: its own link's source is `(chp, t+1)`
-    obtain ⟨q, hq, m, htm, hJ⟩ := hcase
-    refine link_mono (view_subset_of_time5 (a := m) (u := q) hsyn hAw (by omega)) ?_
-    cases hJ with
-    | link hjust hlk =>
-        -- an honest voter of that link, and its own slot-`(t+2)` vote
-        obtain ⟨q', hq'mem, hq'hon⟩ :=
-          exists_honest_sender (r := ((x5[m].time : Int))) hcb hfn hlk.2.2
-        obtain ⟨smq, hsmqV, hsmqs, e', τ, hsmqmsg⟩ := mem_linkVoters hq'mem
-        have hsmqlog : smq ∈ x5[m].sent := views_sound x5 m q _ hsmqV
-        have hhonq : smq.sender ∉ S.adv ((x5[m].time : Int)) := by
-          rw [hsmqs]
-          exact hq'hon
-        have hτ : τ = t + 1 + 1 := by
-          obtain ⟨htgtc, -⟩ := vote_fields5 hsync hmc hmono hsmqlog hhonq hsmqmsg
-          have h : t + 1 + 1 = τ := htgtc
-          omega
-        subst hτ
-        have hactq' : smq.sender ∈ Active Q S ((t : Int) + 1 + 1) := by
-          refine hact_of _ (Finset.mem_sdiff.mpr ⟨Finset.mem_univ _, ?_⟩)
-          rw [hvot2, hsmqs] at *
-          intro hadv
-          refine hq'hon (hmc _ _ ?_ hadv)
-          have : ((Q.slotLength * (t + 1 + 1) + Q.delta : Nat) : Int)
-              ≤ ((x5[m].time : Int)) := by
-            have h : Q.slotLength * (t + 1 + 1) + Q.delta ≤ x5[m].time := by omega
-            exact_mod_cast h
-          omega
-        obtain ⟨m2, ch2, src2, htm2, htm21, hlog2, hsrc2⟩ :=
-          finvote_of_active5_next H5 hκ hwin5 hga ht1 hsent' hhon_i' hhon_t' hp' hgat1 hactq'
-        -- the two votes are the same message, so the link's source is that one
-        have hhon2 : smq.sender ∉ S.adv ((x5[m2 + 1].time : Int)) := by
-          rw [htm21]
-          intro hadv
-          refine hhonq (hmc _ _ ?_ hadv)
-          have h : Q.slotLength * (t + 1 + 1) + Q.delta ≤ x5[m].time := by omega
-          exact_mod_cast h
-        have heq2 := honest_vote_unique hsync hone hmc hmono hsmqlog hlog2 hhonq
-          (by rw [hsmqs] at *; exact hhon2) (by rw [hsmqs]) hsmqmsg rfl
-        rw [← heq2] at hsmqmsg
-        simp only at hsmqmsg
-        rw [Msg.vote.injEq] at hsmqmsg
-        obtain ⟨-, hsrceq, -, -⟩ := hsmqmsg
-        rcases hsrc2 with hs | ⟨hs, -⟩
-        · -- the link's source is `(chp, t+1)`
-          first
-            | (rw [hsrceq, hs] at hlk; exact hlk)
-            | (rw [← hsrceq, hs] at hlk; exact hlk)
-        · -- a slot-`(t+2)` source cannot be a link's, its target being at that slot too
-          exfalso
-          have hlt : ((⟨chp', t + 1 + 1⟩ : Checkpoint (Chain Tx))).c
-              < ((⟨chp', t + 1 + 1⟩ : Checkpoint (Chain Tx))).c := by
-            first
-              | (rw [hsrceq, hs] at hlk; exact hlk.1)
-              | (rw [← hsrceq, hs] at hlk; exact hlk.1)
-          exact absurd hlt (lt_irrefl _)
-  · -- otherwise every honest slot-`(t+2)` source is `(chp, t+1)`, and the quorum is the link
-    refine link_of_quorum_votes (by show t + 1 < t + 1 + 1; omega) hp'.chain
-      (W := Finset.univ \ S.adv (Q.voting (((t + 1 + 1 : Nat)) : Int)))
-      (honest_quorum hcb hfn _) ?_
-    intro q hq
-    obtain ⟨m, ch, src, htm, htm1, hlog, hsrc⟩ :=
-      finvote_of_active5_next H5 hκ hwin5 hga ht1 hsent' hhon_i' hhon_t' hp' hgat1
-        (hact_of q hq)
-    rcases hsrc with hs | ⟨-, hJ⟩
-    · subst hs
-      refine ⟨ch, t + 1 + 1, ?_⟩
-      refine hsyn (m + 1) i w _ hlog ?_ hAw
-      rw [htm1]
+  refine ⟨hp'.justified i w hAw (by omega), ?_⟩
+  -- a supermajority fin-voted *out of* `(chp, t+1)` into slot `t+2`; their targets may differ
+  have hmain : 2 * Fintype.card Node
+      ≤ 3 * (sourceVoters x5[i][w].view ⟨chp, t + 1⟩ (t + 1 + 1)).card := by
+    by_cases hcase : ∃ q ∈ (Finset.univ \ S.adv (Q.voting (((t + 1 + 1 : Nat)) : Int))),
+        ∃ m : Nat, x5[m].time = Q.slotLength * (t + 1 + 1) + Q.delta ∧
+          JustifiedIn (Fintype.card Node) x5[m][q].view ⟨chp', t + 1 + 1⟩
+    · -- already justified in some honest view: that justification's own link runs out of
+      -- `(chp, t+1)`, so its voters are source voters
+      obtain ⟨q, hq, m, htm, hJ⟩ := hcase
+      have hlink : link (Fintype.card Node) x5[m][q].view ⟨chp, t + 1⟩ ⟨chp', t + 1 + 1⟩ := by
+        cases hJ with
+        | link hjust hlk =>
+            obtain ⟨q', hq'mem, hq'hon⟩ :=
+              exists_honest_sender (r := ((x5[m].time : Int))) hcb hfn hlk.2.2
+            obtain ⟨smq, hsmqV, hsmqs, e', τ, hsmqmsg⟩ := mem_linkVoters hq'mem
+            have hsmqlog : smq ∈ x5[m].sent := views_sound x5 m q _ hsmqV
+            have hhonq : smq.sender ∉ S.adv ((x5[m].time : Int)) := by
+              rw [hsmqs]
+              exact hq'hon
+            have hτ : τ = t + 1 + 1 := by
+              obtain ⟨htgtc, -⟩ := vote_fields5 hsync hmc hmono hsmqlog hhonq hsmqmsg
+              have h : t + 1 + 1 = τ := htgtc
+              omega
+            subst hτ
+            have hactq' : smq.sender ∈ Active Q S ((t : Int) + 1 + 1) := by
+              refine hact_of _ (Finset.mem_sdiff.mpr ⟨Finset.mem_univ _, ?_⟩)
+              rw [hvot2, hsmqs] at *
+              intro hadv
+              refine hq'hon (hmc _ _ ?_ hadv)
+              have : ((Q.slotLength * (t + 1 + 1) + Q.delta : Nat) : Int)
+                  ≤ ((x5[m].time : Int)) := by
+                have h : Q.slotLength * (t + 1 + 1) + Q.delta ≤ x5[m].time := by omega
+                exact_mod_cast h
+              omega
+            obtain ⟨m2, ch2, src2, htm2, htm21, hlog2, hsrc2⟩ :=
+              finvote_of_active5_next H5 hκ hwin5 hga ht1 hsent' hhon_i' hhon_t' hp' hgat1
+                hactq'
+            have hhon2 : smq.sender ∉ S.adv ((x5[m2 + 1].time : Int)) := by
+              rw [htm21]
+              intro hadv
+              refine hhonq (hmc _ _ ?_ hadv)
+              have h : Q.slotLength * (t + 1 + 1) + Q.delta ≤ x5[m].time := by omega
+              exact_mod_cast h
+            have heq2 := honest_vote_unique hsync hone hmc hmono hsmqlog hlog2 hhonq
+              (by rw [hsmqs] at *; exact hhon2) (by rw [hsmqs]) hsmqmsg rfl
+            rw [← heq2] at hsmqmsg
+            simp only at hsmqmsg
+            rw [Msg.vote.injEq] at hsmqmsg
+            obtain ⟨-, hsrceq, -, -⟩ := hsmqmsg
+            rcases hsrc2 with hs | ⟨hs, -⟩
+            · first
+                | (rw [hsrceq, hs] at hlk; exact hlk)
+                | (rw [← hsrceq, hs] at hlk; exact hlk)
+            · exfalso
+              have hlt : ((⟨chp', t + 1 + 1⟩ : Checkpoint (Chain Tx))).c
+                  < ((⟨chp', t + 1 + 1⟩ : Checkpoint (Chain Tx))).c := by
+                first
+                  | (rw [hsrceq, hs] at hlk; exact hlk.1)
+                  | (rw [← hsrceq, hs] at hlk; exact hlk.1)
+              exact absurd hlt (lt_irrefl _)
+      have h1 : (linkVoters x5[m][q].view ⟨chp, t + 1⟩ ⟨chp', t + 1 + 1⟩).card
+          ≤ (sourceVoters x5[m][q].view ⟨chp, t + 1⟩ (t + 1 + 1)).card :=
+        Finset.card_le_card
+          (linkVoters_subset_sourceVoters (V := x5[m][q].view) (C := ⟨chp, t + 1⟩)
+            (C' := ⟨chp', t + 1 + 1⟩) hp'.chain)
+      have h2 := Finset.card_le_card (sourceVoters_mono (C := ⟨chp, t + 1⟩) (c := t + 1 + 1)
+        (view_subset_of_time5 (a := m) (u := q) hsyn hAw (by omega)))
+      have h3 := hlink.2.2
       omega
-    · exact absurd ⟨q, hq, m, htm, hJ⟩ hcase
+    · -- otherwise every honest slot-`(t+2)` fin-vote runs out of `(chp, t+1)` itself
+      refine le_trans (honest_quorum hcb hfn (Q.voting (((t + 1 + 1 : Nat)) : Int))) ?_
+      refine Nat.mul_le_mul_left 3 (Finset.card_le_card ?_)
+      intro q hq
+      obtain ⟨m, ch, src, htm, htm1, hlog, hsrc⟩ :=
+        finvote_of_active5_next H5 hκ hwin5 hga ht1 hsent' hhon_i' hhon_t' hp' hgat1
+          (hact_of q hq)
+      rcases hsrc with hs | ⟨-, hJ⟩
+      · subst hs
+        have hview : (⟨q, Msg.vote ch ⟨chp, t + 1⟩ ⟨chp', t + 1 + 1⟩ (t + 1 + 1)⟩ :
+            SignedMsg Node M) ∈ x5[i][w].view := by
+          refine hsyn (m + 1) i w _ hlog ?_ hAw
+          rw [htm1]
+          omega
+        exact mem_sourceVoters_of_vote (e := ch) (τ := t + 1 + 1) hview hp'.chain
+      · exact absurd ⟨q, hq, m, htm, hJ⟩ hcase
+  exact hmain
 
 set_option maxHeartbeats 1000000 in
 /-- The vote round's `chainfin` write, read off the handler: the common prefix of this tick's

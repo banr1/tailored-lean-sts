@@ -98,6 +98,50 @@ theorem mem_linkVoters {V : View Node (Msg (Chain Tx) QC)}
       rw [hmsg] at hcond
       exact absurd hcond not_false
 
+/-- A source voter's fin-vote, extracted: a vote message in the view, signed by it, out of
+    `C` into some target of slot `c` — the target being the voter's own choice. -/
+theorem mem_sourceVoters {V : View Node (Msg (Chain Tx) QC)}
+    {C : Checkpoint (Chain Tx)} {c : Nat} {w : Node} (h : w ∈ sourceVoters V C c) :
+    ∃ sm ∈ V, sm.sender = w ∧ ∃ (e : Chain Tx) (tgt : Checkpoint (Chain Tx)) (τ : Nat),
+      sm.msg = .vote e C tgt τ ∧ tgt.c = c ∧ C.ch ⪯ tgt.ch := by
+  simp only [sourceVoters, Finset.mem_image] at h
+  obtain ⟨sm, hsm, rfl⟩ := h
+  rw [Finset.mem_filter] at hsm
+  obtain ⟨hv, hcond⟩ := hsm
+  have hmemV : sm ∈ V := by
+    simp only [votes, Finset.mem_filter] at hv
+    exact hv.1
+  refine ⟨sm, hmemV, rfl, ?_⟩
+  cases hmsg : sm.msg with
+  | vote e src tgt τ =>
+      rw [hmsg] at hcond
+      obtain ⟨rfl, hc, hch⟩ := hcond
+      exact ⟨e, tgt, τ, rfl, hc, hch⟩
+  | propose a b c' d e =>
+      rw [hmsg] at hcond
+      exact absurd hcond not_false
+
+/-- **The evidence endgame, with the finalization side counted by source**: a supermajority
+    voting out of `C1` into slot `c` and a supermajority link `C3 → C4` put `n/3` validators
+    on record, provided *every* admissible target of the first side violates a slashing
+    condition against the second. The violation is therefore hypothesised parametrically in
+    that target, which is what per-voter targets cost — and all it costs, since E1 and E2 read
+    only the target's slot and the source pair. -/
+theorem slash_of_source_link [Fintype Node] {n : Nat} (hcard : Fintype.card Node ≤ n)
+    {V1 V2 : View Node (Msg (Chain Tx) QC)} {C1 C3 C4 : Checkpoint (Chain Tx)} {c : Nat}
+    (hl1 : 2 * n ≤ 3 * (sourceVoters V1 C1 c).card)
+    (hl2 : 2 * n ≤ 3 * (linkVoters V2 C3 C4).card)
+    (hviol : ∀ C2 : Checkpoint (Chain Tx), C2.c = c → C1.ch ⪯ C2.ch →
+      E1 C1 C2 C3 C4 ∨ E2 C1 C2 C3 C4) :
+    ∃ W : Finset Node, n ≤ 3 * W.card ∧ ∀ w ∈ W, SlashableIn (V1 ∪ V2) w := by
+  refine ⟨sourceVoters V1 C1 c ∩ linkVoters V2 C3 C4, third_inter hcard hl1 hl2, ?_⟩
+  intro w hw
+  obtain ⟨sm1, hsm1V, hs1, e1, tgt, τ1, hm1, htgtc, htgtch⟩ :=
+    mem_sourceVoters (Finset.mem_inter.mp hw).1
+  obtain ⟨sm2, hsm2V, hs2, e2, τ2, hm2⟩ := mem_linkVoters (Finset.mem_inter.mp hw).2
+  exact ⟨sm1, Finset.mem_union_left _ hsm1V, sm2, Finset.mem_union_right _ hsm2V,
+    hs1, hs2, e1, e2, C1, tgt, C3, C4, τ1, τ2, hm1, hm2, hviol tgt htgtc htgtch⟩
+
 /-- **The evidence endgame**: two supermajority links whose fin-votes jointly violate a
     slashing condition put `n/3` validators on record — the intersection of the two
     quorums, each member holding both fin-votes. -/
@@ -204,19 +248,28 @@ theorem lemma8 {n : Nat} (hcard : Fintype.card Node ≤ n)
         subst h
         exact hle (chainLe_refl chf)
       · rcases Nat.lt_or_ge ca cf with hlt | hge
-        · -- the link reaches below the finalized slot
-          obtain ⟨C', hC'c, hlf⟩ := hfin.2
-          have hC'cf : C'.c = cf + 1 := hC'c
+        · -- the link reaches below the finalized slot; the finalization side is counted by
+          -- source, so the witness is parametric in each voter's own target
           rcases Nat.eq_or_lt_of_le (Nat.succ_le_of_lt hcflt) with heq1 | hlt1
-          · -- `c_j = c_f + 1`: both links target slot `c_f + 1` — E1
-            refine slash_of_links hcard hlf.2.2 hl.2.2
-              (Or.inl ⟨?_, show C'.c = cj by omega⟩)
-            intro hpair
-            have : cf = ca := congrArg (fun p => (Prod.fst p).c) hpair
-            omega
+          · -- `c_j = c_f + 1`: both sides target slot `c_f + 1` — E1
+            refine slash_of_source_link hcard hfin.2 hl.2.2 ?_
+            intro C2 hC2c _
+            have hC2 : C2.c = cf + 1 := hC2c
+            refine Or.inl ⟨?_, ?_⟩
+            · intro hpair
+              have : cf = ca := congrArg (fun p => (Prod.fst p).c) hpair
+              omega
+            · show C2.c = cj
+              omega
           · -- `c_f + 1 < c_j`: the finalization fin-vote is surrounded — E2
-            exact slash_of_links hcard hlf.2.2 hl.2.2
-              (Or.inr ⟨hlt, show cf < C'.c by omega, show C'.c < cj by omega⟩)
+            refine slash_of_source_link hcard hfin.2 hl.2.2 ?_
+            intro C2 hC2c _
+            have hC2 : C2.c = cf + 1 := hC2c
+            refine Or.inr ⟨hlt, ?_, ?_⟩
+            · show cf < C2.c
+              omega
+            · show C2.c < cj
+              omega
         · -- `c_f ≤ c_a < c_j`: the induction hypothesis bounds the source
           rcases IH ca hca A hge hjA with hfA | hslash
           · exfalso

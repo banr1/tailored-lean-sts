@@ -284,10 +284,32 @@ inductive JustifiedIn (n : Nat) (V : View Node (Msg (Chain Tx) QC)) :
   | link {C C' : Checkpoint (Chain Tx)} :
       JustifiedIn n V C → link n V C C' → JustifiedIn n V C'
 
-/-- **Finalized**: justified, with a supermajority link to the next checkpoint slot. -/
+/-- The validators fin-voting **out of `C` into checkpoint slot `c`** in `V` — each with
+    whatever target it chose, so long as that target sits at slot `c` and the fin-vote is
+    valid (`C.ch ⪯ tgt.ch`; the counter conjunct is `C.c < c`, which the caller fixes).
+
+    The point of counting this way rather than with `linkVoters` is that finalizing `C` does
+    not require the voters to agree on the target: a supermajority voting *from* `C` into the
+    next slot already commits them, since the slashing conditions then forbid any conflicting
+    justification. `linkVoters` — target-specific — remains what *justification* needs, since
+    there it is the target that gets justified. -/
+noncomputable def sourceVoters (V : View Node (Msg (Chain Tx) QC))
+    (C : Checkpoint (Chain Tx)) (c : Nat) : Finset Node :=
+  ((votes V).filter (fun sm => match sm.msg with
+    | .vote _ src tgt _ => src = C ∧ tgt.c = c ∧ C.ch ⪯ tgt.ch
+    | .propose .. => False)).image SignedMsg.sender
+
+/-- **Finalized**: justified, with a supermajority of fin-votes *out of* `C` into the next
+    checkpoint slot — the targets need not agree.
+
+    Decision of 2026-08-07 (user): the paper writes finalization as a supermajority *link*,
+    which forces one common target and thereby makes the finalized chain hostage to agreement
+    among the next slot's available chains — see the thirteenth and fourteenth authors'-note
+    findings in `CONTEXT.md`. Counting sources instead is what the slashing conditions
+    actually support. -/
 def FinalizedIn (n : Nat) (V : View Node (Msg (Chain Tx) QC))
     (C : Checkpoint (Chain Tx)) : Prop :=
-  JustifiedIn n V C ∧ ∃ C', C'.c = C.c + 1 ∧ link n V C C'
+  JustifiedIn n V C ∧ 2 * n ≤ 3 * (sourceVoters V C (C.c + 1)).card
 
 /-- The checkpoints a view mentions, plus genesis — the search space for `GJ` and `GF`. -/
 noncomputable def checkpoints (V : View Node (Msg (Chain Tx) QC)) :
