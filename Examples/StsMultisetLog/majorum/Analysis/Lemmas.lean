@@ -495,8 +495,31 @@ theorem lemma18 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
         (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat hAw
         htime,
     fun i w hAw htime =>
-      Finality5.finalized_chp_next5 H hκ hwin hga ht hsent hhon_i hhon_t
-        (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat
-        hsent' hhon_i' hhon_t' hAw htime⟩
+      Finality5.finalized_chp_next5 H hκ hwin hga hsent' hhon_i' hhon_t'
+        (Finality5.slotPinned_next5 H hκ hwin hga ht hsent hhon_i hhon_t
+          (Finality5.slotPinned_of_low H hκ hwin hga ht hsent hhon_i hhon_t hlow hgat) hgat
+          hsent' hhon_i' hhon_t')
+        (by
+          have hvot1 : Q.voting (((t + 1 : Nat)) : Int)
+              = ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int) := by
+            unfold Params.voting
+            push_cast
+            omega
+          have hvot : Q.voting (t : Int) = ((Q.slotLength * t + Q.delta : Nat) : Int) := by
+            unfold Params.voting
+            push_cast
+            omega
+          have hδ := Q.deltaPos
+          have hsl : Q.slotLength = 4 * Q.delta := rfl
+          have hexp : Q.slotLength * (t + 1) = Q.slotLength * t + Q.slotLength :=
+            Nat.mul_succ ..
+          rw [hvot1]
+          rw [hvot] at hgat
+          have hstep : ((Q.slotLength * t + Q.delta : Nat) : Int)
+              ≤ ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int) := by
+            have h : Q.slotLength * t + Q.delta
+                ≤ Q.slotLength * (t + 1) + Q.delta := by omega
+            exact_mod_cast h
+          omega) hAw htime⟩
 
 end Majorum

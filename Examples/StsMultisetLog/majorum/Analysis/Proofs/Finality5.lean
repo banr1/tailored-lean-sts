@@ -3271,20 +3271,15 @@ set_option maxHeartbeats 4000000 in
 theorem finalized_chp_next5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     (hwin5 : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
     (hga : S.GlobalAwakeTime Q.gat Finset.univ)
-    {t : Nat} (ht : 1 ≤ t)
-    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
-    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
-    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ : SignedMsg Node M) ∈ x5[ip].sent)
-    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
-    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
-    {T : Checkpoint (Chain Tx)} (hp : SlotPinned x5 t chp T)
-    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
-    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
+    {t : Nat}
+    {vp' : Node} {chp chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
     {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
     (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
       SignedMsg Node M) ∈ x5[ip'].sent)
     (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
     (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int)))
+    (hp' : SlotPinned x5 (t + 1) chp' ⟨chp, t + 1⟩)
+    (hgat1 : (Q.gat : Int) ≤ Q.voting (((t + 1 : Nat)) : Int) - 3 * (Q.delta : Int))
     {i : Nat} {w : Node} (hAw : x5.Awake i w)
     (htime : Q.slotLength * (t + 1 + 1) + 2 * Q.delta ≤ x5[i].time) :
     FinalizedIn (Fintype.card Node) x5[i][w].view ⟨chp, t + 1⟩ := by
@@ -3297,9 +3292,6 @@ theorem finalized_chp_next5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 �
   have hexp2 : Q.slotLength * (t + 1 + 1) = Q.slotLength * (t + 1) + Q.slotLength :=
     Nat.mul_succ ..
   have ht1 : 1 ≤ t + 1 := by omega
-  -- slot `t+1`'s pinning data, and its own voting/awakeness bookkeeping
-  have hp' := slotPinned_next5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t hp hgat hsent' hhon_i'
-    hhon_t'
   have hvot1 : Q.voting (((t + 1 : Nat)) : Int)
       = ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int) := by
     unfold Params.voting
@@ -3309,15 +3301,6 @@ theorem finalized_chp_next5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1 �
       = ((Q.slotLength * (t + 1 + 1) + Q.delta : Nat) : Int) := by
     unfold Params.voting
     push_cast
-    omega
-  have hgat1 : (Q.gat : Int) ≤ Q.voting (((t + 1 : Nat)) : Int) - 3 * (Q.delta : Int) := by
-    rw [hvot1]
-    rw [show Q.voting (t : Int) = ((Q.slotLength * t + Q.delta : Nat) : Int) from by
-      unfold Params.voting; push_cast; omega] at hgat
-    have hstep : ((Q.slotLength * t + Q.delta : Nat) : Int)
-        ≤ ((Q.slotLength * (t + 1) + Q.delta : Nat) : Int) := by
-      have h : Q.slotLength * t + Q.delta ≤ Q.slotLength * (t + 1) + Q.delta := by omega
-      exact_mod_cast h
     omega
   -- the honest validators of slot `t+2`, each active there
   have hact_of : ∀ q : Node, q ∈ (Finset.univ \ S.adv (Q.voting (((t + 1 + 1 : Nat)) : Int)))
@@ -3559,8 +3542,7 @@ theorem chp_le_chFin_at_vote5 {x5 : Exec Pr5 S} (H5 : SettingGA Q S x5) (hκ : 1
     exact Availability5.chAva_mono H5 hκ hwin5 vi hjfj
   -- the greatest finalized chain extends `chp`
   have hfin : FinalizedIn (Fintype.card Node) x5[j][vi].view ⟨chp, t + 1⟩ :=
-    finalized_chp_next5 H5 hκ hwin5 hga ht hsent hhon_i hhon_t hp hgat hsent' hhon_i'
-      hhon_t' hAwj (by omega)
+    finalized_chp_next5 H5 hκ hwin5 hga hsent' hhon_i' hhon_t' hp' hgat1 hAwj (by omega)
   have hgfc : t + 1 ≤ (gf (Fintype.card Node) x5[j][vi].view).c := by
     have hmem : (⟨chp, t + 1⟩ : Checkpoint (Chain Tx))
         ∈ (checkpoints x5[j][vi].view).filter
