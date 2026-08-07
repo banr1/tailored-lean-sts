@@ -433,6 +433,77 @@ theorem theorem6_liveness_txpool_of_low {x5 : Exec Pr5 S} {τ : Type}
       hsent' hhon_i' hhon_t')
     (Finality5.gat_le_voting_succ5 hgat) hact3 hlate hr
 
+/-- **Theorem 6's liveness half, in the paper's Case 1**
+    (`Theorem 6, arXiv:2601.03862v1 p.24`). The complementary regime to
+    `theorem6_liveness_of_low`: the slot-`(t+1)` proposal carries a checkpoint of slot `t` —
+    the paper's "`GJ^{propose(t+1)}_{p2} = C = (ch', t)`" — and then the slot-`t` proposal
+    prefixes the finalized chain of every validator active in slot `t+3`.
+
+    Nothing is assumed about slot `t`'s own carried checkpoint here, so between this and
+    `theorem6_liveness_of_low` the only case of Theorem 6 left open is the paper's Case 2:
+    `GJ^{propose(t)}_p.c = t − 1` *and* no slot-`t` justification at `propose(t+1)`. That
+    case does not follow from Theorem 6's hypotheses at all — see the fourteenth
+    authors'-note finding in `CONTEXT.md`; it needs an honest proposer at `t+2`. -/
+theorem theorem6_liveness_case1 {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
+    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
+    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip'].sent)
+    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
+    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int)))
+    (hgjc : gjp'.c = t)
+    {vi : Node} {a : Nat} (hact3 : vi ∈ Active Q S (((t + 1 + 1 + 1 : Nat)) : Int))
+    (hlate : Q.slotLength * (t + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time) :
+    chp ⪯ x5[a][vi].st.chFin :=
+  Finality5.chp_le_chFin5 H hκ hwin hga hsent' hhon_i' hhon_t'
+    (Finality5.slotPinned_case1_5 H hκ hwin hga ht hsent hhon_i hhon_t hgat hsent' hhon_i'
+      hhon_t' hgjc)
+    (Finality5.gat_le_voting_succ5 hgat) hact3 hlate
+
+/-- **Theorem 6's transaction-pool clause, in Case 1** — the companion of
+    `theorem6_liveness_txpool_of_low`. -/
+theorem theorem6_liveness_txpool_case1 {x5 : Exec Pr5 S} {τ : Type}
+    (memTx : τ → Tx → Prop) (poolSet : Time → Set τ)
+    (hmonoP : ∀ r r' : Time, r ≤ r' → poolSet r ⊆ poolSet r')
+    (hcover : ∀ s : Nat, ∀ tx ∈ poolSet (Q.slotLength * s), memTx tx (pool s))
+    (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
+    (hga : S.GlobalAwakeTime Q.gat Finset.univ)
+    {t : Nat} (ht : 1 ≤ t)
+    {vp : Node} {chp chC : Chain Tx} {qc : Option (QCert Node Tx)}
+    {gjp : Checkpoint (Chain Tx)} {ip : Nat}
+    (hsent : (⟨vp, Msg.propose chp chC qc gjp t⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip].sent)
+    (hhon_i : vp ∉ S.adv ((x5[ip].time : Int)))
+    (hhon_t : vp ∉ S.adv (Q.voting (t : Int)))
+    (hgat : (Q.gat : Int) ≤ Q.voting (t : Int) - 3 * (Q.delta : Int))
+    {vp' : Node} {chp' chC' : Chain Tx} {qc' : Option (QCert Node Tx)}
+    {gjp' : Checkpoint (Chain Tx)} {ip' : Nat}
+    (hsent' : (⟨vp', Msg.propose chp' chC' qc' gjp' (t + 1)⟩ :
+      SignedMsg Node (Msg (Chain Tx) (QCert Node Tx))) ∈ x5[ip'].sent)
+    (hhon_i' : vp' ∉ S.adv ((x5[ip'].time : Int)))
+    (hhon_t' : vp' ∉ S.adv (Q.voting (((t + 1 : Nat)) : Int)))
+    (hgjc : gjp'.c = t)
+    {vi : Node} {a : Nat} (hact3 : vi ∈ Active Q S (((t + 1 + 1 + 1 : Nat)) : Int))
+    (hlate : Q.slotLength * (t + 1 + 1 + 1) + 2 * Q.delta ≤ x5[a].time)
+    {r : Time} (hr : r ≤ Q.slotLength * t) :
+    ∀ tx ∈ poolSet r, ∃ b ∈ x5[a][vi].st.chFin, memTx tx b.txs :=
+  Finality5.chFin_txpool5 memTx poolSet hmonoP hcover H hκ hwin hga ht hsent hhon_i hsent'
+    hhon_i' hhon_t'
+    (Finality5.slotPinned_case1_5 H hκ hwin hga ht hsent hhon_i hhon_t hgat hsent' hhon_i'
+      hhon_t' hgjc)
+    (Finality5.gat_le_voting_succ5 hgat) hact3 hlate hr
+
 end Algorithm5Proved
 
 end Majorum
