@@ -92,10 +92,11 @@ def ThmReorgResilienceGA (Q : Params) (out : Node → Config Node Msg NodeState 
     swallowed it — and is restored here.) -/
 def ThmDynamicAvailabilityGA (Q : Params)
     (out : Node → Config Node Msg NodeState → Out) (Pre : Out → Out → Prop)
-    (mem : Tx → Out → Prop) (pool : Time → Set Tx) (tconf : Time) : Prop :=
+    (mem : Tx → Out → Prop) (pool : Time → Set Tx) (active : Node → Time → Prop)
+    (tconf : Time) : Prop :=
   ∀ x : Exec Pr S,
     Wellformed x → Synchronous Q x → Sleepiness Q S → Resilience Q S →
-    DynamicallyAvailable out Pre mem pool 0 tconf x
+    DynamicallyAvailable out Pre mem pool active 0 tconf x
 
 /-! ### Not yet reviewed
 
@@ -120,9 +121,9 @@ def ThmReorgResilienceFFG (out : Node → Config Node Msg NodeState → Out)
     `Theorem 2`). "Algorithm `3sf-tob-noga` is dynamically-available
     `\wop`." -/
 def ThmDynamicAvailabilityFFG (out : Node → Config Node Msg NodeState → Out)
-    (Pre : Out → Out → Prop) (mem : Tx → Out → Prop) (pool : Time → Set Tx) (tconf : Time)
-    (x : Exec Pr S) : Prop :=
-  DynamicallyAvailable out Pre mem pool 0 tconf x
+    (Pre : Out → Out → Prop) (mem : Tx → Out → Prop) (pool : Time → Set Tx)
+    (active : Node → Time → Prop) (tconf : Time) (x : Exec Pr S) : Prop :=
+  DynamicallyAvailable out Pre mem pool active 0 tconf x
 
 /-- **Theorem `Theorem 5`** (Accountable Safety). "Let `f ∈ [0, n]`. The
     finalized chain `chainfin` is `n/3`-accountable."
@@ -149,15 +150,20 @@ def ThmAccountableSafety (finalized : Node → Config Node Msg NodeState → Out
     output — that would need a per-slot finalization predicate the model does not have.
 
     `f < n/3` and the slot arithmetic `4Δ(t+3) + 2Δ` are hypotheses of the caller, not of
-    this proposition: the first is a `Schedule` constraint, the second is spelled out. -/
+    this proposition: the first is a `Schedule` constraint, the second is spelled out.
+
+    `active` renders the paper's `H_r`, which §2.1 defines as the set of *active* validators
+    at round `r` — so `v_i ∈ H_r` is activity, not mere honesty ("awake, asleep, and active
+    apply only to honest validators"). `ActiveAtRound Q S` is Algorithm 5's instance. -/
 def ThmLiveness (finalized : Node → Config Node Msg NodeState → Out) (Pre : Out → Out → Prop)
     (mem : Tx → Out → Prop) (pool : Time → Set Tx) (proposedBy : Time → Out → Prop)
-    (proposing : Time → Time) (delta gst gat : Time) (x : Exec Pr S) : Prop :=
+    (proposing : Time → Time) (active : Node → Time → Prop) (delta gst gat : Time)
+    (x : Exec Pr S) : Prop :=
   ∀ (t : Time) (chainP : Out),
     max gst gat + 4 * delta ≤ 4 * delta * t →
     proposedBy t chainP →
     ∀ (i : Nat) (p : Node),
-      4 * delta * (t + 3) + 2 * delta ≤ x[i].time → x.Honest i p →
+      4 * delta * (t + 3) + 2 * delta ≤ x[i].time → active p x[i].time →
       Pre chainP (finalized p x[i]) ∧
         ∀ tx ∈ pool (proposing t), mem tx (finalized p x[i])
 
@@ -165,8 +171,8 @@ def ThmLiveness (finalized : Node → Config Node Msg NodeState → Out) (Pre : 
     protocol `\wop`." -/
 def ThmEbbAndFlow (available finalized : Node → Config Node Msg NodeState → Out)
     (Pre : Out → Out → Prop) (mem : Tx → Out → Prop) (pool : Time → Set Tx)
-    (gst gat slack tconf : Time) (x : Exec Pr S) : Prop :=
-  SecureEbbAndFlow available finalized Pre mem pool gst gat slack tconf x
+    (active : Node → Time → Prop) (gst gat slack tconf : Time) (x : Exec Pr S) : Prop :=
+  SecureEbbAndFlow available finalized Pre mem pool active gst gat slack tconf x
 
 end Majorum
 
@@ -318,6 +324,55 @@ theorem theorem4 {x5 : Exec Pr5 S} {τ : Type}
       ∀ tx ∈ poolSet r, ∃ b ∈ x5[a][vi].st.chAva, memTx tx b.txs) :=
   Availability5.theorem4 memTx poolSet hmonoP hcover H hκ hwin
 
+/-- **Theorem 4 as Definition 4** (`Theorem 4, arXiv:2601.03862v1 p.22`): `chainava` is
+    dynamically available — `SecureActive` from time 0, over the paper's `H_r`, with
+    `Tconf = 8κΔ + Δ + 1` (spelled `slotLength * 2κ + Δ + 1`).
+
+    Both halves are `theorem4`'s, re-cut to Definitions 1–2: safety is unconditional, and for
+    liveness the slot the paper's proof works in is `⌊r / 4Δ⌋`, whose `+2κ` vote round has
+    passed by `r + Tconf`. The `+1` is the model's strict inequality at that round; the
+    paper's `Tconf = O(κ)` absorbs it.
+
+    Definition 4's second sentence — dynamically available *unqualified* — is this at
+    `tdyn = 0`, which is what `SettingGA` supplies by fixing `GST = 0`. -/
+theorem theorem4_dynamicallyAvailable {x5 : Exec Pr5 S} {τ : Type}
+    (memTx : τ → Tx → Prop) (poolSet : Time → Set τ)
+    (hmonoP : ∀ r r' : Time, r ≤ r' → poolSet r ⊆ poolSet r')
+    (hcover : ∀ s : Nat, ∀ tx ∈ poolSet (Q.slotLength * s), memTx tx (pool s))
+    (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
+    (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5) :
+    DynamicallyAvailable (fun p c => c[p].st.chAva) (fun a b => a ⪯ b)
+      (fun (tx : τ) (o : Chain Tx) => ∃ b ∈ o, memTx tx b.txs) poolSet
+      (ActiveAtRound Q S) 0 (Q.slotLength * (2 * kappa) + Q.delta + 1) x5 := by
+  obtain ⟨hsafe, hlive⟩ := theorem4 memTx poolSet hmonoP hcover H hκ hwin
+  have hδ := Q.deltaPos
+  have hsl : Q.slotLength = 4 * Q.delta := rfl
+  refine ⟨fun i j p q _ _ _ _ => hsafe i p j q, ?_⟩
+  intro i j p tx _ htx hlate hact
+  have hdm : Q.slotLength * (x5[i].time / Q.slotLength) + x5[i].time % Q.slotLength
+      = x5[i].time := Nat.div_add_mod _ _
+  have hmod : x5[i].time % Q.slotLength < Q.slotLength :=
+    Nat.mod_lt _ (by rw [hsl]; omega)
+  have hbase : Q.slotLength * (x5[i].time / Q.slotLength) ≤ x5[i].time := Nat.le.intro hdm
+  refine hlive (x5[i].time / Q.slotLength) j p hact ?_ x5[i].time ?_ tx htx
+  · -- the `+2κ` vote round has passed
+    have hstep : Q.slotLength * (x5[i].time / Q.slotLength + 2 * kappa) + Q.delta
+        = Q.slotLength * (x5[i].time / Q.slotLength)
+          + (Q.slotLength * (2 * kappa) + Q.delta) := by
+      rw [Nat.mul_add, Nat.add_assoc]
+    rw [hstep]
+    refine lt_of_lt_of_le (lt_of_le_of_lt (Nat.add_le_add_right hbase _) ?_) hlate
+    exact Nat.add_lt_add_left (Nat.lt_succ_self _) _
+  · -- and the pooling round is inside slot `⌊r / 4Δ⌋`
+    have h1 : Q.slotLength * (x5[i].time / Q.slotLength) + x5[i].time % Q.slotLength
+        ≤ Q.slotLength * (x5[i].time / Q.slotLength) + Q.slotLength :=
+      Nat.add_le_add_left (Nat.le_of_lt hmod) _
+    rw [hdm] at h1
+    have hexp : Q.slotLength * (x5[i].time / Q.slotLength + 1)
+        = Q.slotLength * (x5[i].time / Q.slotLength) + Q.slotLength := Nat.mul_succ ..
+    rw [hexp]
+    exact h1
+
 /-- **Theorem 5** (`Theorem 5, arXiv:2601.03862v1 p.23`, Accountable Safety). The finalized
     chain is `n/3`-accountable: on a safety violation between two honest validators, the
     messages sent name at least `n/3` validators, and no validator is ever named while
@@ -367,9 +422,10 @@ theorem chFin_le_chAva {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (i : Nat) (p : N
     `GJ^{propose(t)}_p.c`; `theorem6_liveness_case1` and `theorem6_liveness_case2` are the
     other two, and the transaction-pool clause of each is its `_txpool_` companion.
 
-    The activity hypothesis replaces the paper's `v_i ∈ H_r`, for the reason Theorem 4's
-    liveness half carries one: a validator that has just woken has written nothing, and this
-    model starts `chainfin` at genesis. -/
+    The activity hypothesis **is** the paper's `v_i ∈ H_r` — `H_r` is its set of active
+    validators — and it is needed for the reason the paper's joining protocol exists: a
+    validator that has just woken has written nothing, and this model starts `chainfin` at
+    genesis. -/
 theorem theorem6_liveness_of_low {x5 : Exec Pr5 S} (H : SettingGA Q S x5) (hκ : 1 ≤ kappa)
     (hwin : MfcEquiv.HonestProposalWindow5 (kappa := kappa) x5)
     (hga : S.GlobalAwakeTime Q.gat Finset.univ)
