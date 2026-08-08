@@ -11,6 +11,12 @@ applied to this file.
 
 Entries are in the order they were in the root log.
 
+Two curated files sit beside this one and are the better entry points for anything but the
+working history: [README.md](README.md) inventories what is proved, assumed, and diverging,
+and [FINDINGS.md](FINDINGS.md) collects the paper-level findings this log records in passing.
+When a finding or a divergence changes, update the curated file too — this log is where it is
+*worked out*, not where it is *found*.
+
 Majorum (3SF). **Statements only** as of 2026-08-02 — `Examples/StsMultisetLog/majorum/` holds the
 paper's Definitions 4-7 (`Security.lean`) and all seven of its theorems (`Theorems.lean`)
 as `Prop`-valued definitions over the framework's flat multiset-log flavour. No protocol is modelled, nothing is
