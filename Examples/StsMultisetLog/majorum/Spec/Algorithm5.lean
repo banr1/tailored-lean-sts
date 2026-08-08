@@ -4,7 +4,7 @@ import Mathlib.Data.Set.Functor
 /-!
 # Majorum, Algorithm 5
 
-The protocol itself, as a `the framework's flat multiset-log flavour.Protocol`. Source: arXiv:2601.03862v1,
+The protocol itself, as a `Framework.StsMultisetLog.Protocol`. Source: arXiv:2601.03862v1,
 Algorithm 5 (state and outputs in Algorithm 4), which is Algorithm 2 — the dynamically
 available component — with the finality component of Section 4 integrated.
 
@@ -53,7 +53,7 @@ attribute [local instance] Set.monad
 
 namespace Majorum
 
-open the framework's flat multiset-log flavour Classical
+open Framework.StsMultisetLog Classical
 
 variable {Node Chain QC : Type}
 
@@ -79,7 +79,7 @@ inductive Msg (Chain QC : Type) where
     signature. Purely sugar: elaborates to `⟨p, Msg.vote e src tgt t⟩` and prints back
     the same way. -/
 scoped notation "⟪vote, " e ", " src ", " tgt ", " t ", " p "⟫" =>
-  the framework's flat multiset-log flavour.SignedMsg.mk p (Msg.vote e src tgt t)
+  Framework.StsMultisetLog.SignedMsg.mk p (Msg.vote e src tgt t)
 
 /-- Everything a validator keeps: Algorithm 4's outputs and state.
 

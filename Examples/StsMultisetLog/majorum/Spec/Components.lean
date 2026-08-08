@@ -36,7 +36,7 @@ set_option autoImplicit false
 
 namespace Majorum
 
-open the framework's flat multiset-log flavour Classical
+open Framework.StsMultisetLog Classical
 
 variable {Node Tx QC : Type}
 

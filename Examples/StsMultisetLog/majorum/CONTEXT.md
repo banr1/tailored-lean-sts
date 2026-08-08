@@ -744,6 +744,22 @@ proved.
     only its liveness half is open, and that is issue 2 below.
   Lean note: `ring` is not available in `Analysis/Theorems.lean` (Mathlib's tactic is not
   imported there) — `rw [Nat.mul_add, Nat.add_assoc]` does that job.
+- **Ported to `Framework.StsMultisetLog`** (2026-08-09, user instruction), so the attempt is now
+  `Examples/StsMultisetLog/majorum/`, lib `MajorumExample`, modules `Majorum.*`, namespace
+  `Examples.StsMultisetLog.majorum`. **It cost nothing but the rename**: the two framework attempts declare the
+  *same 104 names*, so flipping the framework's flat multiset-log flavour → `Framework.StsMultisetLog` in the 22 files that
+  name it and renaming the module path was the whole port — the ~10k lines of proofs built on
+  the first attempt, 949 jobs, no signature fallout at all. StsMultisetLog differs from the framework's flat multiset-log flavour in
+  presentation (`Spec/` states, `Analysis/` proves, `Examples/` demonstrates; section
+  `variable`s for the long applied types), not in API.
+  * Probe first, rename second: a copy of `Spec/Assumptions.lean` with only its import and
+    `open` flipped compiled clean against StsMultisetLog, which is what made the port safe to do in
+    one pass rather than file by file.
+  * **Entries below are history and were left alone.** They say the framework's flat multiset-log flavour,
+    `MajorumExample` and `Examples/StsMultisetLog/majorum/` because that is what was true when they were
+    written; a blanket rename through the log would have made dated records false. Read
+    pre-2026-08-09 entries with that substitution in mind.
+  * the framework's flat multiset-log flavour is not orphaned — a second consumer still builds on it.
 - **Fifteenth authors'-note finding: Definition 5's honesty window is one round too early**
   (2026-08-08). Read from v1 p.5, Definition 5 asks reorg resilience of "any chain proposed in
   slot `t ≥ t_reorg` by a validator honest in `propose(t)`". That version is **false**, of this

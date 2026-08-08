@@ -1,4 +1,4 @@
-import the framework's flat multiset-log flavour
+import StsMultisetLog
 
 /-!
 # Majorum's assumptions, à la carte
@@ -12,15 +12,15 @@ assumption and a corruption bound would turn the paper's strongest claim into a 
 one.
 
 So the assumptions are named groups, and each theorem in `Theorems.lean` cites exactly the
-ones the paper gives it. This is what `the framework's flat multiset-log flavour.Execution` is arranged for — its
+ones the paper gives it. This is what `Framework.StsMultisetLog.Execution` is arranged for — its
 predicates are à la carte precisely so that a paper's model is whichever conjunction it
-assumes. `the framework's flat multiset-log flavour.Models.Majorum.Params.Model` is a *different* thing: the
+assumes. `Framework.StsMultisetLog.Models.Majorum.Params.Model` is a *different* thing: the
 convenience conjunction used to check that the framework can express Majorum's model at
 all.
 
 ## Self-contained
 
-Nothing here imports `the framework's flat multiset-log flavour.Models`. That module exists to show the framework can
+Nothing here imports `Framework.StsMultisetLog.Models`. That module exists to show the framework can
 *express* Majorum's model; this one states the parameters Majorum's *claims* are made over,
 and they should be free to diverge. It also fixes a concrete problem: the framework's
 `Params` carries `fBound : 3 * f < n` as a field, so merely taking one assumes `f < n/3` —
@@ -32,14 +32,14 @@ set_option autoImplicit false
 
 namespace Majorum
 
-open the framework's flat multiset-log flavour
+open Framework.StsMultisetLog
 
 variable {Node Msg NodeState Ev : Type} [Fintype Node] [DecidableEq Node] [DecidableEq Msg]
   {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
 
 /-- Majorum's parameters, from the model section.
 
-    Local to this directory rather than reused from `the framework's flat multiset-log flavour.Models.Majorum.Params`.
+    Local to this directory rather than reused from `Framework.StsMultisetLog.Models.Majorum.Params`.
     Two reasons. The framework's bundle exists to demonstrate that the framework *can*
     express Majorum's model; these are the parameters its *claims* are stated over, and the
     two should be free to diverge. And the framework's carries `fBound : 3 * f < n` as a
@@ -170,7 +170,7 @@ def ActiveAtRound (Q : Params) (S : Schedule Node) (p : Node) (r : Time) : Prop 
     validators the adversary may corrupt after
     slot `t-1`'s voting phase but before those votes are tallied.
 
-    Two differences from `the framework's flat multiset-log flavour.Models.Majorum.Params.Compliant`, which this
+    Two differences from `Framework.StsMultisetLog.Models.Majorum.Params.Compliant`, which this
     supersedes — nothing here calls it:
 
     1. **`Active` is named.** `Compliant` inlined the same window, so it read as though the

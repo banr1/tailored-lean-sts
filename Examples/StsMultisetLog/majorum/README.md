@@ -1,7 +1,8 @@
 # Majorum, in Lean — what is proved and what is not
 
-A formalization of *Majorum* (arXiv:2601.03862v1) over the framework's flat multiset-log flavour. Lib `MajorumExample`, checked by
-`make majorum` from the repository root.
+A formalization of *Majorum* (arXiv:2601.03862v1) over `Framework.StsMultisetLog` — ported there from the framework's flat multiset-log flavour on
+2026-08-09, which cost nothing but the rename. Lib `MajorumExample`, checked by `make majorum`
+from the repository root.
 
 This file is the honest inventory. [FINDINGS.md](FINDINGS.md) collects the places where the
 paper itself needed repair, in the paper's order. The working log — decisions, dead ends, Lean

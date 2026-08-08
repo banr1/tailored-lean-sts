@@ -12,7 +12,7 @@ import Examples.StsMultisetLog.majorum.Analysis.Lemmas
 import Examples.StsMultisetLog.majorum.Analysis.Theorems
 
 /-!
-# Majorum, as an the framework's flat multiset-log flavour-framework model
+# Majorum, as an `StsMultisetLog`-framework model
 
 Source: **arXiv:2601.03862v1** —
 *Majorum: Ebb-and-Flow Consensus with Dynamic Quorums*, D'Amato, Saltini, Tran, Vonlanthen
@@ -46,8 +46,8 @@ single call so the lists read without proof noise; the proof layer sits under
   there is deliberately no single model predicate.
 * `Spec/Security` — Definitions 4–7: dynamic availability, reorg resilience, accountable
   safety, secure ebb-and-flow. Definitions 1–3 (safe, live, secure) are
-  protocol-independent and live in `the framework's flat multiset-log flavour.Execution`.
-* `Spec/Algorithm5` — **Algorithm 5 itself**: Majorum as a `the framework's flat multiset-log flavour.Protocol`,
+  protocol-independent and live in `Framework.StsMultisetLog.Execution`.
+* `Spec/Algorithm5` — **Algorithm 5 itself**: Majorum as a `Framework.StsMultisetLog.Protocol`,
   with the fork-choice and finality machinery abstracted into `Components`.
 * `Spec/Components` — the functions the algorithms call, defined: chains as lists of
   blocks (with the `⪯`/`≺` prefix notation), the three vote filters, `MFC`

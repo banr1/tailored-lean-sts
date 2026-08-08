@@ -19,7 +19,7 @@ set_option synthInstance.maxSize 400
 
 namespace Majorum.Analysis2
 
-open the framework's flat multiset-log flavour
+open Framework.StsMultisetLog
 
 variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx] [Fintype Node]
   {Q : Params} {S : Schedule Node} {kappa : Nat} {pool : Nat → Tx} {proposer : Nat → Node}

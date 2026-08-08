@@ -1,4 +1,4 @@
-import the framework's flat multiset-log flavour
+import StsMultisetLog
 
 /-!
 # Majorum's security definitions
@@ -8,7 +8,7 @@ Definitions 1–7 — Safe, Live, Secure, Dynamic Availability, Reorg Resilience
 Safety, and Secure ebb-and-flow protocol.
 
 `Safe`, `Live` and `Secure` are Definitions 1–3 and already live in
-`the framework's flat multiset-log flavour.Execution`, since they are protocol-independent. What is here is the four
+`Framework.StsMultisetLog.Execution`, since they are protocol-independent. What is here is the four
 notions specific to this paper's claims.
 
 ## What cannot be said yet, and is therefore absent
@@ -33,7 +33,7 @@ set_option autoImplicit false
 
 namespace Majorum
 
-open the framework's flat multiset-log flavour
+open Framework.StsMultisetLog
 
 variable {Node Msg NodeState Ev Out Tx : Type} [DecidableEq Node] [DecidableEq Msg]
   {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}

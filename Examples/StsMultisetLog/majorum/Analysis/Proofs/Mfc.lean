@@ -39,7 +39,7 @@ set_option autoImplicit false
 
 namespace Majorum
 
-open the framework's flat multiset-log flavour
+open Framework.StsMultisetLog
 
 variable {Node Tx QC : Type} [DecidableEq Node] [DecidableEq Tx] [DecidableEq QC]
 

@@ -39,14 +39,14 @@ The paper's theorems are one line each because they cite the definitions; the co
 
 Slots: the paper's slot `t` spans `4Δ` rounds, `proposing t` and `voting t` are rounds
 within it. They are fields of this directory's own `Params`, in `Assumptions.lean`; nothing
-here depends on `the framework's flat multiset-log flavour.Models`.
+here depends on `Framework.StsMultisetLog.Models`.
 -/
 
 set_option autoImplicit false
 
 namespace Majorum
 
-open the framework's flat multiset-log flavour
+open Framework.StsMultisetLog
 
 variable {Node Msg NodeState Ev Out Tx : Type} [Fintype Node] [DecidableEq Node]
   [DecidableEq Msg] {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
@@ -185,7 +185,7 @@ range over any message type), which would shadow Algorithm 5's `Msg` inductive h
 
 namespace Majorum
 
-open the framework's flat multiset-log flavour
+open Framework.StsMultisetLog
 
 section Algorithm2Proved
 

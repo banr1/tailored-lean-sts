@@ -25,7 +25,7 @@ attribute [local instance] Set.monad
 
 namespace Majorum
 
-open the framework's flat multiset-log flavour
+open Framework.StsMultisetLog
 
 variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx]
   {Q : Params} {S : Schedule Node} {n kappa : Nat} {pool : Nat → Tx} {proposer : Nat → Node}

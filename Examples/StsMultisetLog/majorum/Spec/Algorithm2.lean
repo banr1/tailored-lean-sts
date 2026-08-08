@@ -47,7 +47,7 @@ attribute [local instance] Set.monad
 
 namespace Majorum
 
-open the framework's flat multiset-log flavour Classical
+open Framework.StsMultisetLog Classical
 
 variable {Node Tx : Type} [DecidableEq Node] [DecidableEq Tx]
 
