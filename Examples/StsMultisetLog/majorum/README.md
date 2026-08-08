@@ -3,8 +3,9 @@
 A formalization of *Majorum* (arXiv:2601.03862v1) over the framework's flat multiset-log flavour. Lib `MajorumExample`, checked by
 `make majorum` from the repository root.
 
-This file is the honest inventory. The working log — decisions, dead ends, Lean gotchas — is
-[CONTEXT.md](CONTEXT.md); the paper-facing statements are in
+This file is the honest inventory. [FINDINGS.md](FINDINGS.md) collects the places where the
+paper itself needed repair, in the paper's order. The working log — decisions, dead ends, Lean
+gotchas — is [CONTEXT.md](CONTEXT.md); the paper-facing statements are in
 [Analysis/Lemmas.lean](Analysis/Lemmas.lean) and
 [Analysis/Theorems.lean](Analysis/Theorems.lean), each a one-line delegation so
 they can be read against the paper without reading a proof.
