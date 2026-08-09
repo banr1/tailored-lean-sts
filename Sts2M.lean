@@ -1,13 +1,13 @@
-import Framework.Sts2M.Message
-import Framework.Sts2M.Schedule
-import Framework.Sts2M.Protocol
-import Framework.Sts2M.Lemmas
-import Framework.Sts2M.Reachable
-import Framework.Sts2M.Justified
-import Framework.Sts2M.Execution
-import Framework.Sts2M.Models
-import Framework.Sts2M.Example
-import Framework.Sts2M.CustomEvents
+import Sts2M.Message
+import Sts2M.Schedule
+import Sts2M.Protocol
+import Sts2M.Lemmas
+import Sts2M.Reachable
+import Sts2M.Justified
+import Sts2M.Execution
+import Sts2M.Models
+import Sts2M.Example
+import Sts2M.CustomEvents
 
 /-!
 # A framework for message-passing distributed protocols — multiset log

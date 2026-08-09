@@ -1,5 +1,5 @@
 import Mathlib.Data.Set.Image
-import Framework.Sts2M.Schedule
+import Sts2M.Schedule
 
 /-!
 # Protocols and the system they induce — the specification

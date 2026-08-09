@@ -1,4 +1,4 @@
-import Framework.Sts2.Message
+import Sts2Orig.Message
 
 /-!
 # The adversary's schedule

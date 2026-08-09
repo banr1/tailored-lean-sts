@@ -1,4 +1,4 @@
-import Framework.Sts2M.Protocol
+import Sts2M.Protocol
 
 /-!
 # Custom events: two timers

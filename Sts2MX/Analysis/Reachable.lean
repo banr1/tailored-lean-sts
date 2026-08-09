@@ -1,4 +1,4 @@
-import Framework.Sts2MX.Analysis.Lemmas
+import Sts2MX.Analysis.Lemmas
 
 /-!
 # Reachability, and one invariant proved through the eliminator

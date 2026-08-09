@@ -1,5 +1,5 @@
-import Framework.Sts2MX.Analysis.Reachable
-import Framework.Sts2MX.Spec.Execution
+import Sts2MX.Analysis.Reachable
+import Sts2MX.Spec.Execution
 
 /-!
 # What holds of every execution

@@ -1,14 +1,14 @@
-import Framework.Sts2MX.Spec.Message
-import Framework.Sts2MX.Spec.Schedule
-import Framework.Sts2MX.Spec.Protocol
-import Framework.Sts2MX.Spec.Execution
-import Framework.Sts2MX.Analysis.Lemmas
-import Framework.Sts2MX.Analysis.Reachable
-import Framework.Sts2MX.Analysis.Justified
-import Framework.Sts2MX.Analysis.Execution
-import Framework.Sts2MX.Examples.Models
-import Framework.Sts2MX.Examples.Example
-import Framework.Sts2MX.Examples.CustomEvents
+import Sts2MX.Spec.Message
+import Sts2MX.Spec.Schedule
+import Sts2MX.Spec.Protocol
+import Sts2MX.Spec.Execution
+import Sts2MX.Analysis.Lemmas
+import Sts2MX.Analysis.Reachable
+import Sts2MX.Analysis.Justified
+import Sts2MX.Analysis.Execution
+import Sts2MX.Examples.Models
+import Sts2MX.Examples.Example
+import Sts2MX.Examples.CustomEvents
 
 /-!
 # A framework for message-passing distributed protocols — multiset log, experiment fork

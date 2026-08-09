@@ -1,4 +1,4 @@
-import Framework.Sts2A.Protocol
+import Sts2A.Protocol
 
 /-!
 # Reachability, and one invariant by case analysis

@@ -1,5 +1,5 @@
 import Mathlib.Tactic.NormNum
-import Framework.Sts2C.Models
+import Sts2C.Models
 
 /-!
 # A worked example

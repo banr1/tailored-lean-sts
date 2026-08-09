@@ -1,4 +1,4 @@
-import Framework.Sts2.Protocol
+import Sts2Orig.Protocol
 
 /-!
 # Reachability, and one invariant proved through the eliminator

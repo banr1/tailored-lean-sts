@@ -1,12 +1,12 @@
-import Framework.Sts2.Message
-import Framework.Sts2.Schedule
-import Framework.Sts2.Protocol
-import Framework.Sts2.Reachable
-import Framework.Sts2.Justified
-import Framework.Sts2.Execution
-import Framework.Sts2.Models
-import Framework.Sts2.Example
-import Framework.Sts2.CustomEvents
+import Sts2Orig.Message
+import Sts2Orig.Schedule
+import Sts2Orig.Protocol
+import Sts2Orig.Reachable
+import Sts2Orig.Justified
+import Sts2Orig.Execution
+import Sts2Orig.Models
+import Sts2Orig.Example
+import Sts2Orig.CustomEvents
 
 /-!
 # A framework for message-passing distributed protocols

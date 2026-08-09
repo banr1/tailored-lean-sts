@@ -1,4 +1,4 @@
-import Framework.Sts2M.Reachable
+import Sts2M.Reachable
 
 /-!
 # Signed messages are justified by their signer's state

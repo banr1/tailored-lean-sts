@@ -1,0 +1,44 @@
+name = "sts-framework"
+version = "0.1.0"
+
+# Mathlib rev must match lean-toolchain (leanprover/lean4:v4.32.2) **and** the rev every
+# consumer requires: Lake resolves one rev per dependency name across the whole graph, so a
+# mismatch fails the consumer's build. Bump the two together, and tell consumers.
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.32.2"
+
+# One `lean_lib` per flavour. Nothing is shared between them by design, so a consumer builds
+# only the flavour it imports, and a flavour may diverge without touching the others. The
+# module root is the flavour name: `import Sts2MX.Spec.Protocol`.
+
+# active: M reorganized: `Spec/` states, `Analysis/` proves, `Examples/` demonstrates; the long applied types drawn from section variables
+[[lean_lib]]
+name = "Sts2MX"
+globs = ["Sts2MX", "Sts2MX.+"]
+
+# frozen: the message log is a multiset, so a step's reaction is recoverable from it
+[[lean_lib]]
+name = "Sts2M"
+globs = ["Sts2M", "Sts2M.+"]
+
+# frozen: `Step` is an `inductive` with a derived `Enabled`
+[[lean_lib]]
+name = "Sts2A"
+globs = ["Sts2A", "Sts2A.+"]
+
+# frozen: the reaction is carried in the label, as a payload over the action
+[[lean_lib]]
+name = "Sts2C"
+globs = ["Sts2C", "Sts2C.+"]
+
+# frozen: the fourth variant of the step relation
+[[lean_lib]]
+name = "Sts2D"
+globs = ["Sts2D", "Sts2D.+"]
+
+# frozen: the original attempt, before the one-choice-at-a-time forks (`Sts2` upstream; renamed here because a module named `Sts2` collides with a protocol model's lib)
+[[lean_lib]]
+name = "Sts2Orig"
+globs = ["Sts2Orig", "Sts2Orig.+"]

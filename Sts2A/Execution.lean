@@ -1,4 +1,4 @@
-import Framework.Sts2A.Reachable
+import Sts2A.Reachable
 
 /-!
 # Executions, network assumptions, security properties

@@ -1,5 +1,5 @@
 import Mathlib.Data.Rat.Defs
-import Framework.Sts2MX.Spec.Execution
+import Sts2MX.Spec.Execution
 
 /-!
 # Two models, expressed — example scaffolding

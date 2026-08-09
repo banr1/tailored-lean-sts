@@ -1,5 +1,5 @@
 import Mathlib.Data.Rat.Defs
-import Framework.Sts2M.Execution
+import Sts2M.Execution
 
 /-!
 # Two models, expressed

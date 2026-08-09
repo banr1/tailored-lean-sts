@@ -1,11 +1,11 @@
-import Framework.Sts2C.Message
-import Framework.Sts2C.Schedule
-import Framework.Sts2C.Protocol
-import Framework.Sts2C.Reachable
-import Framework.Sts2C.Execution
-import Framework.Sts2C.Models
-import Framework.Sts2C.Example
-import Framework.Sts2C.CustomEvents
+import Sts2C.Message
+import Sts2C.Schedule
+import Sts2C.Protocol
+import Sts2C.Reachable
+import Sts2C.Execution
+import Sts2C.Models
+import Sts2C.Example
+import Sts2C.CustomEvents
 
 /-!
 # A framework for message-passing distributed protocols — presentation C
