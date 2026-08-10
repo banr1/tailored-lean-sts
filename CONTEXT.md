@@ -1105,3 +1105,42 @@ Two things to know if this ever needs undoing or repeating:
 A scan for the things that usually matter found none of them: no absolute or home-directory
 paths in any commit, no credentials or keys, no binary blobs, no hostnames or private URLs, and
 nothing in the commit messages but `Co-Authored-By` trailers.
+
+## The Majorum model imported as a worked example, with its history (2026-08-10)
+
+`Examples/StsMultisetLog/majorum/` is the Majorum formalization, brought in from the repository
+it was written in, with its own **160 commits**. The layout is `Examples/<flavour>/<protocol>`, so
+the flavour it is built on is visible in the path and a second example can sit beside it.
+
+**How it was done, and why in that order.** A clone of the source repository (read-only; nothing
+there was modified) was reduced with `--subdirectory-filter`, then rewritten in **one**
+`--tree-filter` pass that did four things at once — moved the paths, dropped the PDF, renamed
+modules and namespaces, and stripped sibling-project references — because each extra pass over
+160 commits costs another full checkout. The author identity was rewritten **in the clone, before
+merging**: doing it afterwards would have rewritten this repository's already-published commits
+and forced a force-push.
+
+**What changed on the way in.** The protocol used to carry the flavour as a directory level
+(`majorum/Sts2MX/…`, and `majorum/Sts2M/…` in commits before its port); that level is collapsed,
+since the path above now names the flavour. Modules became `Examples.StsMultisetLog.majorum.*`,
+the namespace became `Majorum` — deliberately *not* the module path, so that a reference to
+`StsMultisetLog.foo` inside it cannot resolve against `Examples.StsMultisetLog` instead of the
+framework — and `import Framework.Sts2MX` became `import StsMultisetLog`.
+
+**The PDF does not travel.** 1 MB of binary, and the paper is arXiv:2601.03862. References to the
+filename now cite the arXiv id, and the "vendored here" phrasing is gone with it.
+
+**Two bugs in the rewrite script, both worth remembering.** They were caught by reading the
+result rather than by the script's own checks:
+
+- **Substitution order.** A bare `Sts2M` → *(description)* rule ran before the rule for the
+  qualified `Framework.Sts2M`, producing "`Framework.the framework's flat multiset-log flavour`"
+  in eight places. Order every rule longest-first *including* across the plain-string and regex
+  phases, not within each phase separately.
+- **A leftover detector only catches what it knows.** It flagged nothing about `FC/commands.tex`
+  or the word "vendored", because neither was in its pattern — so the first pass silently kept a
+  path to the paper's LaTeX source and a sentence claiming a PDF is vendored here that is not.
+  When the fix means "no reference to X survives", the detector has to be as wide as the claim.
+
+Both were fixed by discarding the merge (`git reset --hard` to the pre-import commit, nothing
+having been pushed), re-running the import from a fresh clone, and merging again.

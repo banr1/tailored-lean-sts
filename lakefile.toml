@@ -37,3 +37,11 @@ globs = ["StsConditionSplit", "StsConditionSplit.+"]
 [[lean_lib]]
 name = "StsRelationalSetLog"
 globs = ["StsRelationalSetLog", "StsRelationalSetLog.+"]
+
+# A worked example, not a flavour: the Majorum protocol model, over the suggested flavour.
+# `Examples/<flavour>/<protocol>` is the layout, so a second example over a different flavour
+# sits beside this one without either knowing about the other.
+[[lean_lib]]
+name = "MajorumExample"
+roots = ["Examples.StsMultisetLog.majorum"]
+globs = ["Examples.StsMultisetLog.majorum", "Examples.StsMultisetLog.majorum.+"]

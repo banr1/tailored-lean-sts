@@ -256,6 +256,40 @@ All five express the same two models — Majorum (3SF) and TOB-SVD — in their 
 all five carry the same two worked examples (`Example`, `CustomEvents`). That is what makes the
 comparison controlled: only what is shown above varies.
 
+## A worked example
+
+A flavour on its own only shows the shape of a model. `Examples/` holds a real one:
+
+    Examples/StsMultisetLog/majorum/
+
+The path is `Examples/<flavour>/<protocol>`, so an example over a different flavour sits beside
+this one and neither needs to know about the other. (Not to be confused with the `Examples/`
+directory *inside* a flavour, which holds that flavour's own toy protocols.)
+
+**What it is.** The Majorum protocol formalized over the suggested flavour — 20 files, ~20k lines
+of Lean — with the paper's seven theorems stated and proved:
+
+| | |
+| --- | --- |
+| `majorum.lean` | root module, imports the rest |
+| `Spec/` | `Components`, `Algorithm2`, `Algorithm5`, `Assumptions`, `Security` |
+| `Analysis/` | `Lemmas`, `Theorems`, and `Proofs/` — 12 files |
+| `README.md`, `CONTEXT.md`, `FINDINGS.md` | its own notes, including what is *not* proved |
+
+Start with its `README.md`: it says which theorems are real proofs, which are statements, and
+where the formalization departs from the paper. `FINDINGS.md` lists the places where the paper
+and the formalization disagree.
+
+**Building it.** `make majorum` runs the same `sorry`/`admit`/`native_decide` check as a flavour
+and then builds the library `MajorumExample`, whose module root is
+`Examples.StsMultisetLog.majorum`. The example imports the framework as `import StsMultisetLog`
+and works in namespace `Majorum`.
+
+**The paper** is *Majorum: Ebb-and-Flow Consensus with Dynamic Quorums*, arXiv:2601.03862v1. The
+PDF is not kept here; statements cite the paper's numbered theorems and definitions, which are
+stable, rather than page or line numbers.
+
+
 ## Names
 
 The flavours were renamed on 2026-08-10, from letters to what they do. The letters survive in
