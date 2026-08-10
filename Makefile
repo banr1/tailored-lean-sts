@@ -1,8 +1,8 @@
 # One target per flavour: sorry/admit/native_decide check, then build. There is deliberately
 # no target that checks all of them -- the flavours share nothing, so a sweep only proves that
-# five things you did not touch still compile.
+# four things you did not touch still compile.
 
-FLAVOURS := Sts2MX Sts2M Sts2A Sts2C Sts2D Sts2Orig
+FLAVOURS := StsMultisetLog StsStepInductive StsReactionInLabel StsConditionSplit StsRelationalSetLog
 
 # Textual, so it also covers files a build would not reach. Backtick-quoted mentions in
 # docstrings are exempt. `native_decide` is banned too: it would let a `decide`-style claim be
@@ -18,7 +18,7 @@ help:
 	@echo '                   flavours: $(FLAVOURS)'
 	@echo 'make <flavour>-sorry / -build  - either half on its own'
 	@echo
-	@echo 'Status and consumers of each flavour: see README.md.'
+	@echo 'What each flavour is, and its status: see README.md.'
 
 cache:
 	lake exe cache get

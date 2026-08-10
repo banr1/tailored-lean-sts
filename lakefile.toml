@@ -1,44 +1,39 @@
 name = "sts-framework"
 version = "0.1.0"
 
-# Mathlib rev must match lean-toolchain (leanprover/lean4:v4.32.2) **and** the rev every
-# consumer requires: Lake resolves one rev per dependency name across the whole graph, so a
-# mismatch fails the consumer's build. Bump the two together, and tell consumers.
+# Mathlib rev must match lean-toolchain (leanprover/lean4:v4.32.2). Lake resolves one rev per
+# dependency name across a whole build graph and builds it under one toolchain, so a package
+# that requires this one has to agree on both. Bump the two together.
 [[require]]
 name = "mathlib"
 scope = "leanprover-community"
 rev = "v4.32.2"
 
-# One `lean_lib` per flavour. Nothing is shared between them by design, so a consumer builds
-# only the flavour it imports, and a flavour may diverge without touching the others. The
-# module root is the flavour name: `import Sts2MX.Spec.Protocol`.
+# One `lean_lib` per flavour. Nothing is shared between them by design, so a build touches only
+# the flavour that is imported, and a flavour may diverge without touching the others. The
+# module root is the flavour name: `import StsMultisetLog.Spec.Protocol`.
 
-# active: M reorganized: `Spec/` states, `Analysis/` proves, `Examples/` demonstrates; the long applied types drawn from section variables
+# suggested, most general: multiset message log; `Spec/` states, `Analysis/` proves, `Examples/` demonstrates; the long applied types drawn from section variables
 [[lean_lib]]
-name = "Sts2MX"
-globs = ["Sts2MX", "Sts2MX.+"]
+name = "StsMultisetLog"
+globs = ["StsMultisetLog", "StsMultisetLog.+"]
 
-# frozen: the message log is a multiset, so a step's reaction is recoverable from it
+# alternative: `Step` is an `inductive` with a derived `Enabled`
 [[lean_lib]]
-name = "Sts2M"
-globs = ["Sts2M", "Sts2M.+"]
+name = "StsStepInductive"
+globs = ["StsStepInductive", "StsStepInductive.+"]
 
-# frozen: `Step` is an `inductive` with a derived `Enabled`
+# alternative: the reaction is carried in the label, as a payload over the action
 [[lean_lib]]
-name = "Sts2A"
-globs = ["Sts2A", "Sts2A.+"]
+name = "StsReactionInLabel"
+globs = ["StsReactionInLabel", "StsReactionInLabel.+"]
 
-# frozen: the reaction is carried in the label, as a payload over the action
+# alternative: conditions stated once and cited, in three spellings proved equal
 [[lean_lib]]
-name = "Sts2C"
-globs = ["Sts2C", "Sts2C.+"]
+name = "StsConditionSplit"
+globs = ["StsConditionSplit", "StsConditionSplit.+"]
 
-# frozen: the fourth variant of the step relation
+# the original attempt, before the one-choice-at-a-time forks (upstream `Sts2`, presentation B in CONTEXT.md's comparison; never named `Sts2` here, since that lib name is taken elsewhere in the build graph)
 [[lean_lib]]
-name = "Sts2D"
-globs = ["Sts2D", "Sts2D.+"]
-
-# frozen: the original attempt, before the one-choice-at-a-time forks (`Sts2` upstream; renamed here because a module named `Sts2` collides with a protocol model's lib)
-[[lean_lib]]
-name = "Sts2Orig"
-globs = ["Sts2Orig", "Sts2Orig.+"]
+name = "StsRelationalSetLog"
+globs = ["StsRelationalSetLog", "StsRelationalSetLog.+"]

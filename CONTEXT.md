@@ -3,21 +3,43 @@
 Durable notes for this repository: six flavours of a protocol-independent framework for
 message-passing distributed protocols, each isolating one design choice.
 
-Extracted on 2026-08-10 from the origin repository, whose root `CONTEXT.md` these entries came
-from — the framework's history travelled with them (51 commits, `git log` from
+Extracted on 2026-08-10 from the repository this framework grew up in, whose root `CONTEXT.md`
+these entries came from — the framework's history travelled with them (51 commits, `git log` from
 "Promote the framework to a top-level Framework/ directory" on). Entries below predate the
-extraction, so they say `Framework/Sts2M/` and `Framework.Sts2MX` where paths are now `Sts2M/`
-and module names `Sts2MX.*`; namespaces are unchanged, still `Framework.*`. Read them with that
-substitution in mind rather than trusting the paths.
+extraction, so they say `Framework/Sts2M/` where the path is now flat, and they use the
+flavours' **old names** throughout.
+
+## How to read the old names
+
+The flavours were renamed on 2026-08-10 (see the entry at the end). Every entry below was
+written before that and is left exactly as it was — rewriting the record would falsify it — so
+read it through this table:
+
+| Written as | Now | In the four-presentation comparison |
+| --- | --- | --- |
+| `Sts2`, `Sts2Orig` | `StsRelationalSetLog` | B, the baseline |
+| `Sts2A` | `StsStepInductive` | A |
+| `Sts2C` | `StsReactionInLabel` | C |
+| `Sts2D` | `StsConditionSplit` | D |
+| `Sts2M` | **removed** 2026-08-10 | the fourth option |
+| `Sts2MX` | `StsMultisetLog` | — (a fork of M) |
+
+Mind the reuse of the name: `StsMultisetLog` today is `Sts2MX`, the fork. The flavour these
+entries call `Sts2M` no longer exists — see the last entry in this file — so an entry describing
+`Sts2M`'s files or layout describes something that is gone, while an entry describing its *step
+layer* still describes what `StsMultisetLog` does, since the fork inherited it verbatim.
+
+Namespaces followed the directories, so `Framework.Sts2M` is now
+`Framework.StsMultisetLog`, and `Framework.Sts2` — `Sts2Orig`'s namespace, which never took
+the `Orig` suffix — is now `Framework.StsRelationalSetLog`. Identifiers that merely *end* in an
+old flavour name are consumer model names, not flavours, and are **not** part of this mapping.
 
 What to write here and when is in [CLAUDE.md](CLAUDE.md).
 
 ## Lean/Mathlib gotchas
 
-Copied with the extraction because they are about Lean rather than about any one repository;
-the origin repository keeps its own copy.
-
-
+Copied with the extraction because they are about Lean rather than about any one repository; the
+repository this was extracted from keeps its own copy.
 
 - **`abbrev View := Nat` hides arithmetic from `omega`.** Measured on Lean
   4.32.2: `example (v w : View) (h : v < w) : v + 1 ≤ w := by omega` fails with
@@ -877,3 +899,209 @@ two `rfl` read-backs `nodes_apply` and `Config.setNode_apply`. The alternative �
 `Analysis/NodeStep.lean` — was considered and rejected: one `Spec → Analysis` edge is a worse
 trade than one documented exception. `make framework` is 978 jobs, clean, with only the three
 linter warnings inherited from `Sts2M`'s `Lemmas.lean`.
+
+## The flavours renamed (2026-08-10)
+
+The letter names said nothing to a reader: `Sts2A` versus `Sts2C` versus `Sts2M` gives no clue
+which is which, and `Sts2Orig` did not say that it is the baseline the rest vary. Renamed, on
+the user's request, to what each flavour does — directories, root modules, namespaces,
+`lean_lib` names, `make` targets and docs, in one pass. The mapping is at the top of this file
+and in [README.md](README.md).
+
+**Prefix kept.** The names are `Sts`-prefixed (`StsMultisetLog`, not `MultisetLog`) because
+these are *top-level module roots*: a consumer resolves them in one build graph alongside
+Mathlib and its own libraries, where a root named `MultisetLog` is an invitation to collide.
+The same reasoning is why `Sts2Orig` was never called `Sts2` here — that collided with a lib
+name a consumer already uses.
+
+**The letters were kept discoverable rather than erased.** They are the axis of the measured
+comparison of step presentations (A/B/C/D, above), so the new names carry the letter in their
+docstring title — "inductive step (presentation A)" — and every root module opens with
+`Formerly Sts2A`. Historical entries in this file were **not** rewritten: the log is evidence,
+and a mapping table at the top costs one lookup where a rewrite would cost the record.
+
+**Consumer impact, not applied here.** The consuming repository still refers to the old names in
+~280 places — 134 `Framework.Sts2MX`, 84 `import Sts2MX`, 58 `Framework.Sts2M`, 5
+`import Sts2M`, plus its own `lakefile.toml` and its pre-extraction copies of the framework.
+Nothing outside this repository was touched, and no alias or deprecated re-export was left behind
+here: an alias would keep two names alive for exactly the flavours whose API is supposed to be
+stable, and a consumer discovering the rename at its next build is cheaper than a consumer
+discovering it years later. The port is a mechanical `Sts2MX` → `StsMultisetLogLayered`,
+`Sts2M` → `StsMultisetLog`, longest name first.
+
+**Mechanics worth reusing.** Order the substitutions longest-first (`Sts2Orig`, `Sts2MX`,
+`Sts2M`, `Sts2A`, `Sts2C`, `Sts2D`, then bare `Sts2`), or `Sts2M` eats the `Sts2MX` prefix and
+bare `Sts2` eats everything. Two tokens had to be protected from the sweep: identifiers that
+*end* in `Sts2M`, which name consumer models rather than flavours. And a blind sweep does rewrite
+*historical* sentences into nonsense — `lakefile.toml`'s note that "`Sts2` collides with a lib
+name a consumer already uses" became self-referential, and `CLAUDE.md`'s "read old entries as
+`Framework/Sts2M/`" lost the very name it was translating. Both were repaired by hand; check every
+sentence that *mentions* an old name rather than *using* it.
+
+## The flat multiset-log flavour removed; the fork took its name (2026-08-10)
+
+`Sts2M` — the flat multiset-log flavour, briefly `StsMultisetLog` after the renaming — was
+**deleted** on the user's instruction, and `Sts2MX`, the fork that had superseded it, was renamed
+into its place. So `StsMultisetLog` is now the layered flavour, and five flavours remain.
+
+This is a **departure from "freeze, do not delete"**, which [CLAUDE.md](CLAUDE.md) still states
+for the rest: the two flavours had drifted into duplicates that differed only in presentation,
+and keeping both meant reading the older one to find out it was the older one. The rule is
+unchanged for the four remaining frozen flavours, which each answer a *different* question.
+
+**What the two actually differed in, measured before the deletion**, since the code can no longer
+be diffed:
+
+- **Identical API.** Both declared the same **116** names — `def`/`theorem`/`abbrev`/`structure`/
+  `inductive`/`instance`, compared as sorted sets — with nothing only in one. (An earlier count of
+  104 in `CLAUDE.md`'s porting note was taken at the time of the port, before later additions.)
+- **Files split by role.** Flat `Message`/`Schedule`/`Protocol`/`Execution` →  `Spec/*`;
+  `Lemmas`/`Reachable`/`Justified` → `Analysis/*`; `Models`/`Example`/`CustomEvents` →
+  `Examples/*`. Not only a move: three theorems left the flat `Execution.lean` for a new
+  `Analysis/Execution.lean` — `TimeStepwise.timeMonotone`, `Execution.reachable`, `views_sound` —
+  which is why `Spec/Execution.lean` proves nothing (278 lines → 260 + 41).
+- **Binders from section `variable`s** rather than repeated per declaration. This made
+  `Spec/Protocol.lean` *longer* than the flat `Protocol.lean` (426 vs 409), because it carries the
+  docstring explaining the choice and its two traps: `Action` must be declared above the
+  `variable` block, or `Step` gets `(Pr) (S) (c) (c') (a)` and `system` loses `Step := Step Pr S`;
+  and `Config.setNode` takes `(p) (r) (c)` to keep the configuration-last order elsewhere.
+- **Everything else was small drift.** Per-file diff sizes, module name normalized: `Message` 0,
+  `Schedule`/`CustomEvents` 2, `Example` 6, `Justified` 13, `Reachable` 23, `Models` 36 (mostly
+  the expanded "this is not the authoritative model" caveat), `Lemmas` 64. Totals 1903 → 2025
+  lines.
+
+**Mechanics: `git mv A B` where `B` exists moves `A` *into* `B`.** The `git rm` of the flat
+flavour was refused first — staged rename content differs from both HEAD and the file, which wants
+`-f` — and the following `git mv` therefore nested the whole layered tree at
+`StsMultisetLog/StsMultisetLogLayered/` instead of failing. Unwound by hand. Order the two
+operations the other way, or check that the destination is gone before moving onto it.
+
+## Vocabulary aligned to the active flavour (2026-08-10)
+
+The four frozen flavours now use the active flavour's words for the same things, on the user's
+instruction. 228 lines changed across 20 files; all five flavours still build.
+
+**Renamed, because the two names denoted the same thing.** `Synchronized` →
+`SynchronizedClocks` in all four (definitions were character-identical to the active one's).
+`Reacts` → `NodeStep`, `reacts_total` → `nodeStep_total`, `justified_reacts` →
+`justified_nodeStep` where present. In `StsConditionSplit`, additionally `V` → `Node`, `State` →
+`NodeState`, the `Round` notation → `Time`, `Effect` → `NodeStepResult`, `install` →
+`applyNodeStepResult`, and the docstring phrase "Guard and effect" → "Condition and effect".
+
+**Deliberately not renamed — the name *is* the experiment.** `StsStepInductive`'s `Enabled` and
+its six `enabled_*` lemmas; `StsReactionInLabel`'s `Move`, `Move.action`, `Reaction`,
+`permits_total`, `enabled_iff`; `StsConditionSplit`'s `guard`, `StepGuard`, `StepInline`,
+`step_iff_guard`, `stepGuard_iff_inline`, `enabled_iff`, `ActionSpec.Choice`/`Permits`/`Apply`.
+Renaming any of these would erase what the flavour was built to demonstrate.
+
+**Deliberately not renamed — same role, different semantics.** Two near-misses caught by reading
+the definitions before trusting the names:
+
+- `StsConditionSplit.Config.update c p f` takes a *function* `Local → Local`; the active
+  flavour's `Config.setNode` takes a replacement record. Renaming would have made a signature
+  lie.
+- `StsConditionSplit.bumped p c` advances a clock **by one**; the active flavour's
+  `setClock p t c` *assigns* `t`. That difference is the design — D's `tick` carries no time
+  argument — and is exactly what the active flavour's `Diligent` assumption exists to replace.
+  For the same reason D's `TickFair`/`AdvanceFair` were left alone: `Diligent` is not a renaming
+  of `TickFair`, it is a different statement.
+
+**One mis-rename, caught afterwards.** `\bState\b` → `NodeState` also hit `structure System
+(State : Type u)` in `StsConditionSplit`, whose parameter is the transition system's *state
+space*, not a validator's protocol state — the other four flavours called it `Carrier` at the
+time. The result compiled (a type-parameter name binds nothing) and read as a lie. Corrected to
+match, and then all five were renamed to `SystemState`, see below.
+
+**Two more casualties of the same sweep, in prose rather than code.** `install` → `applyNode
+StepResult` rewrote the sentence "Apply a reaction: *install* `p`'s new state" into "Apply a
+reaction: *applyNodeStepResult* `p`'s new state"; and `State` → `NodeState` turned the field
+docstring "State afterwards" into "NodeState afterwards". Both fixed to the wording the other
+flavours use ("store", "The node's state afterwards").
+
+**The lesson, three times over:** a word-boundary rename is still wrong when the word names two
+different things, or is an ordinary English word as well as an identifier. Where to look:
+universe-polymorphic parameters (`grep 'Type u'` found the `System` case; `Execution`'s
+`{St Lbl}` was safe only because it is spelled differently), and every docstring containing the
+old token, since renaming a verb like `install` produces grammatical nonsense that compiles.
+
+**Result, measured.** `StsRelationalSetLog` now declares a strict *subset* of the active
+flavour's 116 names — zero names of its own. The extras that remain elsewhere are exactly the
+lists above, so a name diff between any two flavours is now a report on design, not on wording.
+Re-run it with the declaration-name diff in [CLAUDE.md](CLAUDE.md)'s "habit worth keeping".
+
+**Note the tension with "freeze, do not delete".** Editing a frozen flavour at all is a
+departure; the justification is that renaming an identifier changes no measurement, and the
+comparison the frozen flavours exist for is *easier* to read once only the design differs. What
+must not happen is a change to a frozen flavour's structure or proofs.
+
+## "active/frozen" dropped as flavour labels (2026-08-10)
+
+The README no longer labels flavours *active* and *frozen*. Both words were wrong for what they
+described, on the user's reading: "active" says only that work happens there, when the fact a
+reader needs is **which flavour to pick** — `StsMultisetLog`, as the most general and most
+developed; and "frozen" reads as abandoned code, when the other four are working alternatives,
+each isolating one design decision, any of which is a reasonable choice if that design is what
+you want.
+
+The table's third column is now **Role**: *suggested, and the most general* for one, *one design
+choice changed* for three, *the original, kept for comparison* for the baseline. `lakefile.toml`'s
+per-`lean_lib` comments and [CLAUDE.md](CLAUDE.md) follow the same wording.
+
+The *concept* of freezing survives where it belongs — [CLAUDE.md](CLAUDE.md) still says to record
+an experiment's result and not delete the flavour, and not to change a settled flavour's design.
+What changed is only the label a reader sees.
+
+## Section added on the underlying theory (2026-08-10)
+
+[README.md](README.md) now opens with "The theory it rests on": the framework is a labelled state
+transition system (`System` is literally `Init` plus a labelled `Step`), why the step is a
+*relation* — adversary nondeterminism plus the protocol's own — and hence why `feasible` exists
+and is Event-B's FIS obligation; that assumptions are predicates over executions rather than
+constraints baked into `Step`, so a theorem can name the ones it needs; `WeakFair`/`StrongFair`
+in their usual forms; `Safe`/`Live`/`Secure` as Majorum's Definitions 1–3 with the classical
+safety/liveness split; and invariants by induction over `Reachable`.
+
+It ends with background reading — Lamport's *Specifying Systems* and the TLA paper, Alpern and
+Schneider's *Defining Liveness*, Abrial's *Modeling in Event-B*, Baier and Katoen, and the
+Mathlib docs. Every link was checked to resolve (`curl -o /dev/null -w '%{http_code}'`, all 200);
+`http://www.event-b.org/` was the one candidate that 404s, replaced by the book's DOI and the
+Event-B wiki. Worth re-checking if they are ever cited from elsewhere.
+
+## `System`'s state parameter: `Carrier` → `SystemState` (2026-08-10)
+
+All five flavours now read `structure System (SystemState : Type u) (Label : Type v)`, on the
+user's instruction, after they asked where "carrier" is used in this sense — a fair challenge.
+
+**Where the word came from and why it was wrong.** `Carrier` was in the framework from the
+commits that created each flavour. It is standard vocabulary in *algebra* — the carrier set of an
+algebraic structure — and Mathlib uses it that way for substructures, which is the likely source.
+It is **not** used for a transition system's state space: Lamport, Baier and Katoen, and Keller's
+original labelled transition systems all say *states*. A reader coming from the transition-system
+side stops at it, which is exactly what happened.
+
+**Cost of the change: none outside the declaration.** `Carrier` was referenced only inside its own
+`structure System` in each flavour — nothing passes it as a named argument, `system` supplies it
+positionally as `System (Config …) (Action …)`, and `Execution` binds its own `{St Lbl}`. So the
+rename is five declarations plus one line of `README.md`, with no call site touched and nothing
+for a consumer to port. All five flavours rebuilt clean.
+
+## History rewritten to drop cross-project references (2026-08-10)
+
+All commits were rewritten so that no file in any of them names a neighbouring project or its
+directory layout. Papers are untouched, deliberately: `Majorum`, `3SF`, `TOB-SVD` and the BibTeX
+key `damato2026majorum` are citations the design target depends on, not project names.
+
+Two things to know if this ever needs undoing or repeating:
+
+- **The mapping, and the original wording, are in `CLAUDE_LOCAL.md`** — gitignored, so it never
+  leaves this machine, and it is the only place the pre-rewrite text survives once the recovery
+  refs are pruned.
+- **The scrub had to be whole-text, not line-based.** Two sentences broke across line
+  boundaries — a possessive whose noun was on the next line, and "The X / formalization hit the
+  same thing" — so a line-based `sed` produced a stray apostrophe in one and a doubled noun in
+  the other. A replacement landing at the start of a sentence also has to be capitalised, which
+  a line-based pass cannot see when the sentence began on the previous line.
+
+A scan for the things that usually matter found none of them: no absolute or home-directory
+paths in any commit, no credentials or keys, no binary blobs, no hostnames or private URLs, and
+nothing in the commit messages but `Co-Authored-By` trailers.
