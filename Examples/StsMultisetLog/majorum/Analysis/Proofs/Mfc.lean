@@ -1,0 +1,661 @@
+import Examples.StsMultisetLog.majorum.Spec.Components
+
+/-!
+# The view-local layer: vote filters, majorities, and `MFC`
+
+Helper theorems about views — no executions, no paper-numbered lemma. Per this directory's
+convention, theorems corresponding one-to-one to the paper's numbered lemmas live in
+`Lemmas.lean`; this file (and `Provenance.lean` for the execution layer) is where their
+supporting material goes.
+
+Most of what is here serves **Lemma 2**: if every validator in `H_{vote(t)}` votes in slot
+`t` for a chain extending `ch`, then `MFC ⪰ ch` at every honest validator a slot later, and
+the votes repeat. Its view-local content:
+
+**Where this stands** (2026-08-03). The model defects that had made Lemma 2 false are
+fixed — `candidates` is prefix-closed, `Majority` counts senders, the handler implements
+the joining protocol — and `OneTickPerReading` exists in `Assumptions.lean`; only
+`validProposal`'s certificate check stays deferred to the vote-round half. On top of the
+fixes, the view-local layer is now complete and hypothesis-light:
+
+* **Case 2** ("by definition `MFC ⪰ chfrozen`") — `base_le_mfc`.
+* **Case 1's conclusion** — `le_mfc_of_majority`: majority alone gives `MFC ⪰ ch`, since a
+  majority chain is automatically a candidate (`mem_candidates_of_majority`) and any two
+  majority chains are comparable through a common supporter (`majority_comparable`, whose
+  linchpin is `chain_eq_of_same_sender`: after `FIL_eq` and `FIL_lmd`, one sender has one
+  chain).
+* **Case 1's counting** — `voters_lt_two_mul_honest`, the paper's displayed inequality
+  chain.
+
+What remains for the propose-round half is the execution layer: provenance (an honest
+validator's votes in any view came from its vote-phase ticks — adversarial injection under
+that signature is excluded up to `voting(t+1)` by `MonotoneCorruption`), the containment of
+`S(V_i, t+1)` in `(H_{vote(t)} \ A_{vote(t+1)}) ∪ A_{vote(t+1)}`, and their assembly. The
+vote-round half additionally needs the `chfrozen` comparability invariant through `merge`
+and `processProposals`. See `CONTEXT.md`.
+-/
+
+set_option autoImplicit false
+
+namespace Majorum
+
+open Framework.StsMultisetLog
+
+variable {Node Tx QC : Type} [DecidableEq Node] [DecidableEq Tx] [DecidableEq QC]
+
+/-- **Quorum intersection.** Two subsets of a pool, each holding more than half of it, share
+    a member. The `2 * card` spelling avoids dividing, as in `mfc`. -/
+theorem quorum_inter {S A B : Finset Node} (hA : A ⊆ S) (hB : B ⊆ S)
+    (ha : S.card < 2 * A.card) (hb : S.card < 2 * B.card) : (A ∩ B).Nonempty := by
+  rw [← Finset.card_pos]
+  have hunion : (A ∪ B).card ≤ S.card := Finset.card_le_card (Finset.union_subset hA hB)
+  have hsum : (A ∪ B).card + (A ∩ B).card = A.card + B.card :=
+    Finset.card_union_add_card_inter A B
+  omega
+
+/-- Chains that a common chain extends are comparable — the prefix order is a tree order, so
+    two prefixes of one chain are nested. -/
+theorem comparable_of_common_extension {a b c : Chain Tx}
+    (ha : chainLe a c) (hb : chainLe b c) : chainLe a b ∨ chainLe b a := by
+  simp only [chainLe, List.isPrefixOf_iff_prefix] at ha hb ⊢
+  exact List.prefix_or_prefix_of_prefix ha hb
+
+/-- `chainLe` unfolded to Mathlib's prefix order. -/
+theorem chainLe_iff_prefix {a b : Chain Tx} : chainLe a b ↔ a <+: b := by
+  simp [chainLe, List.isPrefixOf_iff_prefix]
+
+/-- `chainLe` is transitive (prefix order). -/
+theorem chainLe_trans {a b c : Chain Tx} (h1 : chainLe a b) (h2 : chainLe b c) :
+    chainLe a c := by
+  rw [chainLe_iff_prefix] at h1 h2 ⊢
+  exact h1.trans h2
+
+/-! ### Reading the vote filters
+
+Small extraction lemmas, plus the one structural fact the comparability argument turns on:
+after `FIL_eq` and `FIL_lmd`, **one sender has one chain** — a sender's surviving votes all
+carry its maximal slot (`FIL_lmd`), and same-slot votes with different chains were both
+removed (`FIL_eq`). -/
+
+theorem votesFor_subset_filtered (V : View Node (Msg (Chain Tx) QC)) (ch : Chain Tx)
+    (t : Nat) : votesFor V ch t ⊆ filLmd (fil1Exp (filEq V) t) := by
+  intro sm h
+  simp only [votesFor, Finset.mem_filter] at h
+  exact h.1
+
+theorem votesFor_subset_votes (V : View Node (Msg (Chain Tx) QC)) (ch : Chain Tx)
+    (t : Nat) : votesFor V ch t ⊆ votes V := by
+  intro sm h
+  simp only [votesFor, filLmd, fil1Exp, filEq, Finset.mem_filter] at h
+  exact h.1.1.1.1
+
+theorem votesFor_extends {V : View Node (Msg (Chain Tx) QC)} {ch : Chain Tx} {t : Nat}
+    {sm : SignedMsg Node (Msg (Chain Tx) QC)} (h : sm ∈ votesFor V ch t) :
+    chainLe ch (msgChain sm.msg) := by
+  simp only [votesFor, Finset.mem_filter] at h
+  exact h.2
+
+/-- A supporter is a voter: its message is a vote in the view with a non-expired slot. -/
+theorem sender_mem_voters {V : View Node (Msg (Chain Tx) QC)} {ch : Chain Tx} {t : Nat}
+    {sm : SignedMsg Node (Msg (Chain Tx) QC)} (h : sm ∈ votesFor V ch t) :
+    sm.sender ∈ voters V t := by
+  simp only [votesFor, filLmd, fil1Exp, filEq, Finset.mem_filter] at h
+  obtain ⟨⟨⟨⟨hv, -⟩, hexp⟩, -⟩, -⟩ := h
+  simp only [voters, fil1Exp, Finset.mem_image]
+  exact ⟨sm, Finset.mem_filter.2 ⟨hv, hexp⟩, rfl⟩
+
+/-- One sender, one chain, after the filters. -/
+theorem chain_eq_of_same_sender {V : View Node (Msg (Chain Tx) QC)} {t : Nat}
+    {m m' : SignedMsg Node (Msg (Chain Tx) QC)}
+    (hm : m ∈ filLmd (fil1Exp (filEq V) t)) (hm' : m' ∈ filLmd (fil1Exp (filEq V) t))
+    (hs : m'.sender = m.sender) : msgChain m'.msg = msgChain m.msg := by
+  simp only [filLmd, Finset.mem_filter] at hm hm'
+  obtain ⟨hmS, hmlmd⟩ := hm
+  obtain ⟨hm'S, hm'lmd⟩ := hm'
+  -- equal slots: each forbids a strictly later same-sender vote in the filtered set
+  have h1 : ¬ msgSlot m.msg < msgSlot m'.msg := fun hlt => hmlmd ⟨m', hm'S, hs, hlt⟩
+  have h2 : ¬ msgSlot m'.msg < msgSlot m.msg := fun hlt => hm'lmd ⟨m, hmS, hs.symm, hlt⟩
+  have hslot : msgSlot m'.msg = msgSlot m.msg := by omega
+  -- equal chains: otherwise `m'` witnesses `m`'s equivocation clause in `FIL_eq`
+  simp only [fil1Exp, Finset.mem_filter] at hmS hm'S
+  simp only [filEq, Finset.mem_filter] at hmS hm'S
+  by_contra hne
+  exact hmS.1.2 ⟨m', hm'S.1.1, hs, hslot, hne⟩
+
+/-- **Any two majority-supported chains are comparable** — the intersection of two strict
+    sender-majorities of `S(V', t)` is inhabited, and the common supporter's single
+    post-filter chain extends both. This is what makes `mfc`'s "the longest chain such
+    that …" a definite description rather than a choice among incomparable options. -/
+theorem majority_comparable {V V' : View Node (Msg (Chain Tx) QC)} {t : Nat}
+    {a b : Chain Tx} (ha : Majority V V' t a) (hb : Majority V V' t b) :
+    chainLe a b ∨ chainLe b a := by
+  have hsub : ∀ c : Chain Tx,
+      ((votesFor V c t ∩ votesFor V' c t).image SignedMsg.sender) ⊆ voters V' t := by
+    intro c q hq
+    obtain ⟨sm, hsm, rfl⟩ := Finset.mem_image.1 hq
+    exact sender_mem_voters (Finset.mem_inter.1 hsm).2
+  obtain ⟨q, hq⟩ := quorum_inter (hsub a) (hsub b) ha hb
+  rw [Finset.mem_inter] at hq
+  obtain ⟨sma, hsma, hqa⟩ := Finset.mem_image.1 hq.1
+  obtain ⟨smb, hsmb, hqb⟩ := Finset.mem_image.1 hq.2
+  have hma : sma ∈ votesFor V' a t := (Finset.mem_inter.1 hsma).2
+  have hmb : smb ∈ votesFor V' b t := (Finset.mem_inter.1 hsmb).2
+  have hchain : msgChain smb.msg = msgChain sma.msg :=
+    chain_eq_of_same_sender (votesFor_subset_filtered V' a t hma)
+      (votesFor_subset_filtered V' b t hmb) (by rw [hqb, hqa])
+  exact comparable_of_common_extension (votesFor_extends hma)
+    (hchain ▸ votesFor_extends hmb)
+
+/-- **A chain some vote extends is a candidate** — the prefix closure of `candidates`,
+    on its own. -/
+theorem mem_candidates_of_extends {V : View Node (Msg (Chain Tx) QC)} {b ch : Chain Tx}
+    {sm : SignedMsg Node (Msg (Chain Tx) QC)} (hv : sm ∈ votes V)
+    (hle : chainLe ch (msgChain sm.msg)) : ch ∈ candidates V b := by
+  simp only [candidates, Finset.mem_insert, Finset.mem_biUnion]
+  exact Or.inr ⟨sm, hv, List.mem_toFinset.2 ((List.mem_inits _ _).2 (chainLe_iff_prefix.1 hle))⟩
+
+/-- **A majority chain is a candidate**: a strict majority forces at least one supporting
+    vote, and a chain some vote extends is among that vote's prefixes — which is where the
+    prefix closure of `candidates` earns its place. -/
+theorem mem_candidates_of_majority {V V' : View Node (Msg (Chain Tx) QC)} {chC : Chain Tx}
+    {t : Nat} {ch : Chain Tx} (h : Majority V V' t ch) : ch ∈ candidates V chC := by
+  have hne : ((votesFor V ch t ∩ votesFor V' ch t).image SignedMsg.sender).Nonempty := by
+    rw [← Finset.card_pos]
+    omega
+  obtain ⟨q, hq⟩ := hne
+  obtain ⟨sm, hsm, -⟩ := Finset.mem_image.1 hq
+  have hv : sm ∈ votes V := votesFor_subset_votes V ch t (Finset.mem_inter.1 hsm).1
+  have hle : chainLe ch (msgChain sm.msg) := votesFor_extends (Finset.mem_inter.1 hsm).1
+  simp only [candidates, Finset.mem_insert, Finset.mem_biUnion]
+  exact Or.inr ⟨sm, hv, List.mem_toFinset.2 ((List.mem_inits _ _).2 (chainLe_iff_prefix.1 hle))⟩
+
+/-! ### Case 2 of the paper's proof
+
+"Given that by definition `MFC^{propose(t+1)}_i ⪰ chfrozen`, we have `MFC ⪰ ch`." That is a
+property of `mfc` and nothing else, so it is provable here in full. -/
+
+/-- Fold invariant, in the form the two `mfc` lemmas need. -/
+private theorem foldl_invariant {α β : Type} (P : β → Prop) (f : β → α → β) :
+    ∀ (l : List α) (b : β), P b → (∀ b a, P b → P (f b a)) → P (l.foldl f b)
+  | [], _, hb, _ => hb
+  | x :: xs, b, hb, hf => foldl_invariant P f xs (f b x) (hf b x hb) hf
+
+/-- `chainLe` is reflexive. -/
+theorem chainLe_refl (a : Chain Tx) : chainLe a a := by
+  simp [chainLe]
+
+/-- **`MFC(V, V', chC, t) ⪰ chC`.** The fork-choice never returns something that fails to
+    extend its base, because the fold only ever moves to a candidate that does.
+
+    This is Case 2 of Lemma 2's proof for both `MFC^{propose(t+1)}` and `MFC^{vote(t+1)}`:
+    once `chfrozen ⪰ ch`, the conclusion is immediate. -/
+theorem base_le_mfc (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx) (t : Nat) :
+    chainLe chC (mfc V V' chC t) := by
+  unfold mfc
+  refine foldl_invariant (fun b => chainLe chC b) _ _ chC (chainLe_refl chC) ?_
+  intro b a hb
+  by_cases h : chainLe chC a ∧ Majority V V' t a ∧ b.length < a.length
+  · simp [h]
+  · simpa [h] using hb
+
+/-! ### `MFC` returns an extension of every majority-supported chain
+
+The other half of Case 1. Three fold invariants — the result never shortens, it is at least
+as long as any majority candidate, and it is either the base or itself majority-supported —
+combine with `majority_chains_comparable` to give the conclusion the paper draws from
+`|V^{ch,t+1}| > |S(V_i,t+1)|/2`. -/
+
+/-- The fold never shortens what it holds. -/
+private theorem foldl_length_mono (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx)
+    (t : Nat) : ∀ (l : List (Chain Tx)) (b : Chain Tx),
+      b.length ≤ (l.foldl (fun best ch =>
+        if chainLe chC ch ∧ Majority V V' t ch ∧ best.length < ch.length then ch else best)
+        b).length
+  | [], _ => le_refl _
+  | x :: xs, b => by
+      simp only [List.foldl_cons]
+      refine le_trans ?_ (foldl_length_mono V V' chC t xs _)
+      split
+      · rename_i h; exact le_of_lt h.2.2
+      · exact le_refl _
+
+/-- The fold ends at least as long as every candidate that extends the base and carries a
+    majority. -/
+private theorem foldl_length_ge (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx)
+    (t : Nat) : ∀ (l : List (Chain Tx)) (b x : Chain Tx), x ∈ l → chainLe chC x →
+      Majority V V' t x →
+      x.length ≤ (l.foldl (fun best ch =>
+        if chainLe chC ch ∧ Majority V V' t ch ∧ best.length < ch.length then ch else best)
+        b).length
+  | y :: ys, b, x, hx, hbase, hmaj => by
+      simp only [List.foldl_cons]
+      rcases List.mem_cons.1 hx with rfl | hx'
+      · by_cases h : chainLe chC x ∧ Majority V V' t x ∧ b.length < x.length
+        · rw [if_pos h]; exact foldl_length_mono V V' chC t ys x
+        · rw [if_neg h]
+          have : x.length ≤ b.length := by
+            by_contra hlt
+            exact h ⟨hbase, hmaj, by omega⟩
+          exact le_trans this (foldl_length_mono V V' chC t ys b)
+      · exact foldl_length_ge V V' chC t ys _ x hx' hbase hmaj
+
+/-- The fold's result is the base or carries a majority itself. -/
+private theorem foldl_base_or_majority (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx)
+    (t : Nat) : ∀ (l : List (Chain Tx)) (b : Chain Tx), (b = chC ∨ Majority V V' t b) →
+      (l.foldl (fun best ch =>
+        if chainLe chC ch ∧ Majority V V' t ch ∧ best.length < ch.length then ch else best)
+        b = chC ∨
+       Majority V V' t (l.foldl (fun best ch =>
+        if chainLe chC ch ∧ Majority V V' t ch ∧ best.length < ch.length then ch else best) b))
+  | [], _, hb => hb
+  | x :: xs, b, hb => by
+      simp only [List.foldl_cons]
+      refine foldl_base_or_majority V V' chC t xs _ ?_
+      split
+      · rename_i h; exact Or.inr h.2.1
+      · exact hb
+
+/-- A `votesFor` member's sender is a voter. -/
+theorem sender_mem_voters_of_votesFor {V : View Node (Msg (Chain Tx) QC)} {ch : Chain Tx}
+    {t : Nat} {sm : SignedMsg Node (Msg (Chain Tx) QC)} (h : sm ∈ votesFor V ch t) :
+    sm.sender ∈ voters V t := by
+  have h1 : sm ∈ fil1Exp (filEq V) t :=
+    Finset.filter_subset _ _ (Finset.filter_subset _ _ h)
+  have h2 := Finset.mem_filter.mp h1
+  simp only [voters, Finset.mem_image]
+  refine ⟨sm, ?_, rfl⟩
+  simp only [fil1Exp, Finset.mem_filter]
+  exact ⟨Finset.filter_subset _ _ h2.1, h2.2⟩
+
+/-! ### Structural chain validity
+
+`slotsIncreasing` renders the paper's chain model — blocks in slot order — as a check.
+The lemmas here are what Lemmas 5 and 6 consume: prefixes inherit it, `proposedAt` is
+monotone along prefixes, and block counts are bounded by slot spans. -/
+
+/-- Peeling `slotsIncreasing` off a two-or-more chain. -/
+theorem slotsIncreasing_tail {a b : Block Tx} {m : Chain Tx}
+    (h : slotsIncreasing (a :: b :: m)) :
+    a.slot < b.slot ∧ slotsIncreasing (b :: m) := by
+  have h' : (decide (a.slot < b.slot) && slotsIncreasing (b :: m)) = true := h
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at h'
+  exact h'
+
+/-- Peeling `proposedAt` off a two-or-more chain. -/
+theorem proposedAt_cons_cons (x y : Block Tx) (m : Chain Tx) :
+    proposedAt (x :: y :: m) = proposedAt (y :: m) := by
+  simp [proposedAt, List.getLast?_cons_cons]
+
+/-- The head's slot bounds `proposedAt` from below on a sorted chain. -/
+theorem head_slot_le_proposedAt {x : Block Tx} {l : Chain Tx}
+    (h : slotsIncreasing (x :: l)) : x.slot ≤ proposedAt (x :: l) := by
+  induction l generalizing x with
+  | nil => simp [proposedAt]
+  | cons y m ih =>
+      simp only [slotsIncreasing, Bool.and_eq_true, decide_eq_true_eq] at h
+      rw [proposedAt_cons_cons]
+      exact le_trans (le_of_lt h.1) (ih h.2)
+
+/-- A prefix of a slot-sorted chain is slot-sorted. -/
+theorem slotsIncreasing_of_prefix {a b : Chain Tx} (hle : chainLe a b)
+    (hb : slotsIncreasing b) : slotsIncreasing a := by
+  rw [chainLe_iff_prefix] at hle
+  obtain ⟨c, rfl⟩ := hle
+  induction a with
+  | nil => simp [slotsIncreasing]
+  | cons x l ih =>
+      cases l with
+      | nil => simp [slotsIncreasing]
+      | cons y m =>
+          simp only [List.cons_append, slotsIncreasing, Bool.and_eq_true,
+            decide_eq_true_eq] at hb ⊢
+          exact ⟨hb.1, ih hb.2⟩
+
+/-- Along a slot-sorted chain, `proposedAt` is monotone under prefixes. -/
+theorem proposedAt_le_of_prefix {a b : Chain Tx} (hle : chainLe a b)
+    (hb : slotsIncreasing b) : proposedAt a ≤ proposedAt b := by
+  rw [chainLe_iff_prefix] at hle
+  obtain ⟨c, rfl⟩ := hle
+  induction a generalizing c with
+  | nil => simp [proposedAt]
+  | cons x l ih =>
+      cases l with
+      | nil =>
+          cases c with
+          | nil => simp
+          | cons z w =>
+              show proposedAt [x] ≤ proposedAt (x :: z :: w)
+              have hb' : slotsIncreasing (x :: z :: w) := hb
+              rw [proposedAt_cons_cons]
+              simp only [slotsIncreasing, Bool.and_eq_true, decide_eq_true_eq] at hb'
+              have hx : proposedAt [x] = x.slot := by simp [proposedAt]
+              rw [hx]
+              exact le_trans (le_of_lt hb'.1) (head_slot_le_proposedAt hb'.2)
+      | cons y m =>
+          show proposedAt (x :: y :: m) ≤ proposedAt (x :: (y :: m ++ c))
+          rw [proposedAt_cons_cons,
+            show proposedAt (x :: (y :: m ++ c)) = proposedAt (y :: m ++ c) from
+              proposedAt_cons_cons x y (m ++ c)]
+          have hb' : slotsIncreasing (x :: y :: (m ++ c)) := hb
+          exact ih c (slotsIncreasing_tail hb').2
+
+/-- The last block of a nonempty prefix precedes the first appended block, on a sorted
+    chain. -/
+theorem proposedAt_lt_head_append {l : Chain Tx} {z : Block Tx} {w : Chain Tx}
+    (h : slotsIncreasing (l ++ z :: w)) (hl : l ≠ []) : proposedAt l < z.slot := by
+  induction l with
+  | nil => exact absurd rfl hl
+  | cons x l' ih =>
+      cases l' with
+      | nil =>
+          simp only [List.singleton_append, slotsIncreasing, Bool.and_eq_true,
+            decide_eq_true_eq] at h
+          simpa [proposedAt] using h.1
+      | cons y m =>
+          simp only [List.cons_append, slotsIncreasing, Bool.and_eq_true,
+            decide_eq_true_eq] at h
+          rw [proposedAt_cons_cons]
+          exact ih h.2 (by simp)
+
+/-- **One block per slot**: on a slot-sorted chain, the block count above a nonempty
+    prefix is bounded by the slot span. -/
+theorem length_sub_le_span {pre ch : Chain Tx} (hle : chainLe pre ch)
+    (hch : slotsIncreasing ch) (hpre : pre ≠ []) :
+    ch.length - pre.length ≤ proposedAt ch - proposedAt pre := by
+  rw [chainLe_iff_prefix] at hle
+  obtain ⟨c, rfl⟩ := hle
+  induction c generalizing pre with
+  | nil => simp
+  | cons z w ih =>
+      have hlt : proposedAt pre < z.slot := proposedAt_lt_head_append hch hpre
+      have hassoc : pre ++ z :: w = (pre ++ [z]) ++ w := by simp
+      rw [hassoc] at hch ⊢
+      have hz : proposedAt (pre ++ [z]) = z.slot := by
+        simp [proposedAt, List.getLast?_concat]
+      have hih := ih (pre := pre ++ [z]) (by simp) hch
+      have hmono : proposedAt (pre ++ [z]) ≤ proposedAt ((pre ++ [z]) ++ w) :=
+        proposedAt_le_of_prefix (by rw [chainLe_iff_prefix]; exact ⟨w, rfl⟩) hch
+      simp only [List.length_append, List.length_cons, List.length_nil] at hih ⊢
+      omega
+
+/-- **One block per slot, from genesis**: a slot-sorted chain's length is bounded by its
+    head slot's distance from `0` — at most `proposedAt + 1` blocks. -/
+theorem slotsIncreasing_length_le {ch : Chain Tx} (hch : slotsIncreasing ch) :
+    ch.length ≤ proposedAt ch + 1 := by
+  cases ch with
+  | nil => simp
+  | cons x l =>
+      have hle : chainLe [x] (x :: l) := by
+        rw [chainLe_iff_prefix]
+        exact ⟨l, rfl⟩
+      have hspan := length_sub_le_span hle hch (by simp)
+      have hx : proposedAt [x] = x.slot := rfl
+      simp only [List.length_cons, List.length_nil] at hspan ⊢
+      rw [hx] at hspan
+      omega
+
+/-- Below slot `κ`, no block is `κ` deep: the prefix is genesis. -/
+theorem kappaPrefix_nil_of_lt {t kappa : Nat} (h : t < kappa) (ch : Chain Tx) :
+    kappaPrefix kappa t ch = [] := by
+  cases ch with
+  | nil => rfl
+  | cons b l =>
+      have hb : ¬ (b.slot + kappa ≤ t) := by omega
+      simp [kappaPrefix, List.takeWhile_cons, hb]
+
+/-- The `κ`-deep prefix is a prefix. -/
+theorem kappaPrefix_le_self (kappa t : Nat) (ch : Chain Tx) :
+    chainLe (kappaPrefix kappa t ch) ch := by
+  rw [chainLe_iff_prefix]
+  exact List.takeWhile_prefix _
+
+/-- On a slot-sorted chain, every block's slot is bounded by the tip's. -/
+theorem slot_le_proposedAt_of_mem {ch : Chain Tx} (hch : slotsIncreasing ch)
+    {b : Block Tx} (hb : b ∈ ch) : b.slot ≤ proposedAt ch := by
+  induction ch with
+  | nil => cases hb
+  | cons x l ih =>
+      rcases List.mem_cons.mp hb with rfl | hbl
+      · exact head_slot_le_proposedAt hch
+      · cases l with
+        | nil => cases hbl
+        | cons y m =>
+            rw [proposedAt_cons_cons]
+            exact ih (slotsIncreasing_tail hch).2 hbl
+
+/-- `takeWhile` passes over a wholly-satisfying prefix. -/
+theorem takeWhile_append_of_all {α : Type*} {p : α → Bool} {l₁ l₂ : List α}
+    (h : ∀ a ∈ l₁, p a = true) :
+    (l₁ ++ l₂).takeWhile p = l₁ ++ l₂.takeWhile p := by
+  induction l₁ with
+  | nil => rfl
+  | cons b m ih =>
+      rw [List.cons_append, List.takeWhile_cons, if_pos (h b List.mem_cons_self),
+        ih (fun a ha => h a (List.mem_cons_of_mem b ha)), List.cons_append]
+
+/-- **The κ-deep retention step of Theorem 2's liveness**: a slot-sorted prefix at
+    least `κ` slots stale survives the `κ`-deep cut — every one of its blocks passes
+    the slot test, so `takeWhile` walks past all of it. -/
+theorem le_kappaPrefix_of_stale {pre ch : Chain Tx} {kappa t : Nat}
+    (hle : chainLe pre ch) (hpre : slotsIncreasing pre)
+    (hstale : proposedAt pre + kappa ≤ t) :
+    chainLe pre (kappaPrefix kappa t ch) := by
+  have hall : ∀ b ∈ pre, (fun b : Block Tx => decide (b.slot + kappa ≤ t)) b = true := by
+    intro b hb
+    have := slot_le_proposedAt_of_mem hpre hb
+    simp only [decide_eq_true_eq]
+    omega
+  rw [chainLe_iff_prefix] at hle ⊢
+  obtain ⟨rest, rfl⟩ := hle
+  unfold kappaPrefix
+  rw [takeWhile_append_of_all hall]
+  exact ⟨_, rfl⟩
+
+/-- Everything `takeWhile` keeps satisfies the predicate. -/
+theorem mem_takeWhile_pred {α : Type*} {p : α → Bool} {l : List α} {a : α}
+    (h : a ∈ l.takeWhile p) : p a = true := by
+  induction l with
+  | nil => simp [List.takeWhile] at h
+  | cons b m ih =>
+      rw [List.takeWhile_cons] at h
+      by_cases hb : p b
+      · rw [if_pos hb] at h
+        rcases List.mem_cons.mp h with rfl | h2
+        · exact hb
+        · exact ih h2
+      · rw [if_neg hb] at h
+        simp at h
+
+/-- **The `κ`-deep step of Lemma 5**: a nonempty prefix proposed at most `κ` slots
+    before `t` absorbs the `κ`-deep prefix of a slot-sorted chain — any block that
+    qualifies for the prefix sits at or below the proposal, because blocks above it
+    carry later slots. -/
+theorem kappaPrefix_le_of_close {pre ch : Chain Tx} {kappa t : Nat}
+    (hle : chainLe pre ch) (hch : slotsIncreasing ch) (hpre : pre ≠ [])
+    (hclose : t ≤ proposedAt pre + kappa) :
+    chainLe (kappaPrefix kappa t ch) pre := by
+  have hkp : chainLe (kappaPrefix kappa t ch) ch := kappaPrefix_le_self kappa t ch
+  have hkps : slotsIncreasing (kappaPrefix kappa t ch) :=
+    slotsIncreasing_of_prefix hkp hch
+  rcases Nat.lt_or_ge pre.length (kappaPrefix kappa t ch).length with hlen | hlen
+  case inr =>
+    rw [chainLe_iff_prefix] at hkp hle ⊢
+    exact List.prefix_of_prefix_length_le hkp hle hlen
+  case inl =>
+    exfalso
+    have hpp : pre <+: kappaPrefix kappa t ch := by
+      rw [chainLe_iff_prefix] at hkp hle
+      exact List.prefix_of_prefix_length_le hle hkp (le_of_lt hlen)
+    obtain ⟨w, hw⟩ := hpp
+    have hwne : w ≠ [] := by
+      intro h0
+      rw [h0, List.append_nil] at hw
+      rw [hw] at hlen
+      omega
+    obtain ⟨z, w', rfl⟩ := List.exists_cons_of_ne_nil hwne
+    -- the first block past `pre` still qualifies for the prefix …
+    have hzmem : z ∈ kappaPrefix kappa t ch := by
+      rw [← hw]
+      simp
+    have hz : z.slot + kappa ≤ t := by
+      unfold kappaPrefix at hzmem
+      have h := mem_takeWhile_pred hzmem
+      simpa using h
+    -- … yet carries a slot after the proposal's
+    have hsorted2 : slotsIncreasing (pre ++ z :: w') := by
+      rw [hw]
+      exact hkps
+    have hlt := proposedAt_lt_head_append hsorted2 hpre
+    omega
+
+/-- Appending a fresh block keeps a chain slot-sorted. -/
+theorem slotsIncreasing_extend (pool : Nat → Tx) {ch : Chain Tx} {t : Nat}
+    (hch : slotsIncreasing ch) (hlt : proposedAt ch < t) :
+    slotsIncreasing (extend pool ch t) := by
+  unfold extend
+  induction ch with
+  | nil => simp [slotsIncreasing]
+  | cons a l ih =>
+      cases l with
+      | nil =>
+          simp only [proposedAt, List.getLast?_singleton, Option.elim] at hlt
+          simp only [List.singleton_append, slotsIncreasing, Bool.and_eq_true,
+            decide_eq_true_eq]
+          refine ⟨hlt, ?_⟩
+          simp [slotsIncreasing]
+      | cons b m =>
+          simp only [slotsIncreasing, Bool.and_eq_true, decide_eq_true_eq,
+            List.cons_append] at hch ⊢
+          refine ⟨hch.1, ?_⟩
+          refine ih hch.2 ?_
+          rwa [proposedAt_cons_cons] at hlt
+
+/-- Genesis is slot-sorted. -/
+theorem slotsIncreasing_nil : slotsIncreasing ([] : Chain Tx) := by
+  simp [slotsIncreasing]
+
+/-- `Extend` stamps its slot: the appended block is the last. -/
+theorem proposedAt_extend (pool : Nat → Tx) (ch : Chain Tx) (t : Nat) :
+    proposedAt (extend pool ch t) = t := by
+  unfold proposedAt extend
+  rw [List.getLast?_concat]
+  rfl
+
+/-- `Extend` appends a block, so its input is a prefix of its output. -/
+theorem chainLe_extend (pool : Nat → Tx) (ch : Chain Tx) (t : Nat) :
+    chainLe ch (extend pool ch t) := by
+  rw [chainLe_iff_prefix]
+  exact List.prefix_append _ _
+
+/-- **`MFC` returns its base or a majority-supported chain** — the dichotomy Lemma 4's
+    base case analyzes. -/
+theorem mfc_base_or_majority (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx)
+    (t : Nat) : mfc V V' chC t = chC ∨ Majority V V' t (mfc V V' chC t) := by
+  unfold mfc
+  exact foldl_base_or_majority V V' chC t _ chC (Or.inl rfl)
+
+/-- A prefix that is at least as long is the whole thing, so comparable chains are ordered
+    by length. -/
+theorem chainLe_of_comparable (a b : Chain Tx) (hc : chainLe a b ∨ chainLe b a)
+    (hl : a.length ≤ b.length) : chainLe a b := by
+  rcases hc with h | h
+  · exact h
+  · simp only [chainLe, List.isPrefixOf_iff_prefix] at h ⊢
+    rw [h.eq_of_length_le hl]
+
+/-- **`MFC(V, V', chC, t) ⪰ ch` for every majority-supported `ch ⪰ chC`** — the step
+    Case 1 of Lemma 2 takes once the counting has produced the majority.
+
+    Majority alone suffices: it forces a supporting vote, which puts `ch` among the
+    prefix-closed candidates (`mem_candidates_of_majority`), and any two majority chains
+    are comparable through a common supporter (`majority_comparable`). Earlier versions
+    took both as extra hypotheses; the model fixes of 2026-08-03 made them derivable. -/
+theorem le_mfc_of_majority (V V' : View Node (Msg (Chain Tx) QC)) (chC : Chain Tx) (t : Nat)
+    (ch : Chain Tx) (hbase : chainLe chC ch) (hmaj : Majority V V' t ch) :
+    chainLe ch (mfc V V' chC t) := by
+  have hlen : ch.length ≤ (mfc V V' chC t).length :=
+    foldl_length_ge V V' chC t _ chC ch
+      (Finset.mem_toList.2 (mem_candidates_of_majority (chC := chC) hmaj)) hbase hmaj
+  rcases foldl_base_or_majority V V' chC t (candidates V chC).toList chC (Or.inl rfl)
+    with h | h
+  · -- the fold never left the base, so the base is at least as long as `ch`, hence equal
+    have : chC = mfc V V' chC t := h.symm
+    rw [← this] at hlen ⊢
+    exact chainLe_of_comparable ch chC (Or.inr hbase) hlen
+  · exact chainLe_of_comparable ch _ (majority_comparable hmaj h) hlen
+
+/-- The prefix order is antisymmetric. -/
+theorem chainLe_antisymm {a b : Chain Tx} (h1 : chainLe a b) (h2 : chainLe b a) :
+    a = b := by
+  rw [chainLe_iff_prefix] at h1 h2
+  exact h1.eq_of_length_le h2.length_le
+
+/-- **The base swap** — Lemma 10's conditions 2.1/2.2 engine: two `MFC` calls over the
+    same views agree whenever each base sits below the other call's output. The four
+    cases of `mfc_base_or_majority` close by `le_mfc_of_majority` and antisymmetry; the
+    quorum/justification arguments that *supply* the two bounds live with the callers. -/
+theorem mfc_base_swap {V V' : View Node (Msg (Chain Tx) QC)} {b b' : Chain Tx} {t : Nat}
+    (hb' : chainLe b' (mfc V V' b t)) (hb : chainLe b (mfc V V' b' t)) :
+    mfc V V' b t = mfc V V' b' t := by
+  rcases mfc_base_or_majority V V' b t with h1 | h1 <;>
+    rcases mfc_base_or_majority V V' b' t with h2 | h2
+  · -- both fell back to their bases: the bounds make them mutual prefixes
+    rw [h1, h2]
+    rw [h1] at hb'
+    rw [h2] at hb
+    exact chainLe_antisymm hb hb'
+  · -- `mfc-b` is its base: `mfc-b'` is a majority chain above `b`, so it folds below
+    have hle : chainLe (mfc V V' b' t) (mfc V V' b t) :=
+      le_mfc_of_majority V V' b t _ hb h2
+    have hge : chainLe (mfc V V' b t) (mfc V V' b' t) := by
+      rw [h1]
+      exact hb
+    exact chainLe_antisymm hge hle
+  · -- symmetric
+    have hle : chainLe (mfc V V' b t) (mfc V V' b' t) :=
+      le_mfc_of_majority V V' b' t _ hb' h1
+    have hge : chainLe (mfc V V' b' t) (mfc V V' b t) := by
+      rw [h2]
+      exact hb'
+    exact chainLe_antisymm hle hge
+  · -- both majority-supported: each is above the other's base, so each folds below
+    -- the other
+    exact chainLe_antisymm (le_mfc_of_majority V V' b' t _ hb' h1)
+      (le_mfc_of_majority V V' b t _ hb h2)
+
+/-! ### The counting in Case 1
+
+The paper's displayed chain of inequalities:
+
+    |S(V_i, t+1)| = |H_{vote(t)} \ A_{vote(t+1)}| + |S(V_i,t+1) \ (H_{vote(t)} \ A_{vote(t+1)})|
+                  ≤ |H_{vote(t)} \ A_{vote(t+1)}| + |A_{vote(t+1)} ∪ (H_{…} \ H_{vote(t)})|
+                  < 2 |H_{vote(t)} \ A_{vote(t+1)}|
+
+the last step "comes from Equation (1)". Both steps are pure `Finset` arithmetic, so both are
+proved; what is *not* proved is the containment they start from, which is where synchrony
+and the joining protocol enter. -/
+
+/-- The paper's inequality chain. `S` is `S(V_i, t+1)`, `honest` is
+    `H_{vote(t)} \ A_{vote(t+1)}`, and `other` is
+    `A_{vote(t+1)} ∪ (H_{vote(t-η+1),vote(t-1)} \ H_{vote(t)})` — the two sets Constraint (1)
+    compares.
+
+    The hypothesis `hsub` is the paper's "any vote in `S(V_i, t+1)` that is not from a
+    validator in `H_{vote(t)} \ A_{vote(t+1)}` must be either from a validator Byzantine at
+    `vote(t+1)` or from one active between `vote(t-η+1)` and `vote(t-1)` but not at
+    `vote(t)`". -/
+theorem voters_lt_two_mul_honest {S honest other : Finset Node}
+    (hsub : S ⊆ honest ∪ other) (hc1 : other.card < honest.card) :
+    S.card < 2 * honest.card := by
+  have h₁ : S.card ≤ (honest ∪ other).card := Finset.card_le_card hsub
+  have h₂ : (honest ∪ other).card ≤ honest.card + other.card := Finset.card_union_le _ _
+  omega
+
+/-- The same, in the shape Constraint (1) actually supplies it: `Sleepiness` gives
+    `|A_{vote(t)}| < |Active(t-1) \ A_{vote(t)}|`, so the "other" set is the adversary. -/
+theorem voters_lt_of_sleepiness {S honest : Finset Node} {adv : Finset Node}
+    (hsub : S ⊆ honest ∪ adv) (hc1 : adv.card < honest.card) :
+    S.card < 2 * honest.card :=
+  voters_lt_two_mul_honest hsub hc1
+
+end Majorum
