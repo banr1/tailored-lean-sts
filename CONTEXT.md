@@ -34,6 +34,12 @@ Namespaces followed the directories, so `Framework.Sts2M` is now
 the `Orig` suffix — is now `Framework.StsRelationalSetLog`. Identifiers that merely *end* in an
 old flavour name are consumer model names, not flavours, and are **not** part of this mapping.
 
+One more substitution, for the build: entries below report `make framework` and `make verify`,
+which built or checked everything at once. Neither exists. There is one target per flavour now
+(`make StsMultisetLog`), plus `make majorum` for the worked example, and deliberately nothing
+that sweeps them all — so a job count quoted against `make framework` is not comparable to
+anything you can run today.
+
 What to write here and when is in [CLAUDE.md](CLAUDE.md).
 
 ## Lean/Mathlib gotchas
@@ -266,6 +272,8 @@ Design consequences, each driven by a specific requirement:
 - **`State` renamed to `NodeState`** (2026-08-02) — it is one validator's protocol
   state, not the transition system's. `System`'s own parameter, which *is* the system's
   state space, is now `Carrier`, so the two no longer share a name in one file.
+  [Since 2026-08-10 that parameter is `SystemState`: "carrier" is algebra's word, not a
+  transition system's — see the entry below.]
 - **The reachability case, finally tested** (2026-08-02). `Framework/Sts2/Reachable.lean`
   adds `Reachable` and proves `viewsSound` — "everything in a validator's view was signed
   and sent" — through `Step.elim`: 31 lines, 27 tactic invocations, six action cases, no
@@ -496,6 +504,8 @@ Design consequences, each driven by a specific requirement:
   **The user chose `Sts2M` (2026-08-02) and it is now the development target.** The costs
   above are therefore accepted, not overlooked; the thing to watch is whether the frame lemmas
   start earning their place in proofs that reason about a successor they cannot name.
+  [`Sts2M` itself was removed on 2026-08-10; the choice stands, because the fork that replaced
+  it — now `StsMultisetLog` — inherited this step layer verbatim.]
   Conclusion of the whole exercise: **all four land within ~6% on size — the first three
   within ~1% — and they differ in which obligation is discharged where.** B puts it at the definition site
   (`feasible`, once per action) and pays `Step.elim` for case analysis. A derives `Enabled`
@@ -622,6 +632,10 @@ Known gaps, deliberate:
   schedule. Fixing the whole schedule in advance models a *non-adaptive*
   adversary, which is weaker than both papers assume — worth revisiting.
 #### Framework.Sts2MX — scratch fork of Sts2M (2026-08-06)
+
+[Read this entry as history. What it calls a scratch fork is, since 2026-08-10, the suggested
+flavour `StsMultisetLog`; the `Sts2M` it forked from was removed, and the sentences below about
+it being unimported, disposable, and free to drift were true when written and are not now.]
 
 `Framework/Sts2MX/` + `Framework/Sts2MX.lean`, namespace `Framework.Sts2MX`. Created
 2026-08-06 as a **verbatim copy of `Framework/Sts2M/`** with `Sts2M` → `Sts2MX` throughout
@@ -976,9 +990,9 @@ flavour was refused first — staged rename content differs from both HEAD and t
 `StsMultisetLog/StsMultisetLogLayered/` instead of failing. Unwound by hand. Order the two
 operations the other way, or check that the destination is gone before moving onto it.
 
-## Vocabulary aligned to the active flavour (2026-08-10)
+## Vocabulary aligned to the suggested flavour (2026-08-10)
 
-The four frozen flavours now use the active flavour's words for the same things, on the user's
+The four alternatives now use the suggested flavour's words for the same things, on the user's
 instruction. 228 lines changed across 20 files; all five flavours still build.
 
 **Renamed, because the two names denoted the same thing.** `Synchronized` →
@@ -1000,9 +1014,9 @@ the definitions before trusting the names:
 - `StsConditionSplit.Config.update c p f` takes a *function* `Local → Local`; the active
   flavour's `Config.setNode` takes a replacement record. Renaming would have made a signature
   lie.
-- `StsConditionSplit.bumped p c` advances a clock **by one**; the active flavour's
+- `StsConditionSplit.bumped p c` advances a clock **by one**; the suggested flavour's
   `setClock p t c` *assigns* `t`. That difference is the design — D's `tick` carries no time
-  argument — and is exactly what the active flavour's `Diligent` assumption exists to replace.
+  argument — and is exactly what the suggested flavour's `Diligent` assumption exists to replace.
   For the same reason D's `TickFair`/`AdvanceFair` were left alone: `Diligent` is not a renaming
   of `TickFair`, it is a different statement.
 
@@ -1018,11 +1032,7 @@ reaction: *applyNodeStepResult* `p`'s new state"; and `State` → `NodeState` tu
 docstring "State afterwards" into "NodeState afterwards". Both fixed to the wording the other
 flavours use ("store", "The node's state afterwards").
 
-**The lesson, three times over:** a word-boundary rename is still wrong when the word names two
-different things, or is an ordinary English word as well as an identifier. Where to look:
-universe-polymorphic parameters (`grep 'Type u'` found the `System` case; `Execution`'s
-`{St Lbl}` was safe only because it is spelled differently), and every docstring containing the
-old token, since renaming a verb like `install` produces grammatical nonsense that compiles.
+Both failures are generalised in *Mechanical rewrites*, at the end of this file.
 
 **Result, measured.** `StsRelationalSetLog` now declares a strict *subset* of the active
 flavour's 116 names — zero names of its own. The extras that remain elsewhere are exactly the
@@ -1036,36 +1046,22 @@ must not happen is a change to a frozen flavour's structure or proofs.
 
 ## "active/frozen" dropped as flavour labels (2026-08-10)
 
-The README no longer labels flavours *active* and *frozen*. Both words were wrong for what they
-described, on the user's reading: "active" says only that work happens there, when the fact a
-reader needs is **which flavour to pick** — `StsMultisetLog`, as the most general and most
-developed; and "frozen" reads as abandoned code, when the other four are working alternatives,
-each isolating one design decision, any of which is a reasonable choice if that design is what
-you want.
+Both words were wrong for what they described. "Active" says only that work happens there, when
+the fact a reader needs is **which flavour to pick**; "frozen" reads as abandoned, when the other
+four are working alternatives, any of which is a reasonable choice if you want the design it
+isolates. The README's third column is now **Role** — *suggested, and the most general* / *one
+design choice changed* / *the original, kept for comparison* — and `lakefile.toml` and
+[CLAUDE.md](CLAUDE.md) follow it. The *concept* of freezing survives in CLAUDE.md: record the
+result, do not delete the flavour, do not change a settled one's design.
 
-The table's third column is now **Role**: *suggested, and the most general* for one, *one design
-choice changed* for three, *the original, kept for comparison* for the baseline. `lakefile.toml`'s
-per-`lean_lib` comments and [CLAUDE.md](CLAUDE.md) follow the same wording.
+## README gained a section on the underlying theory (2026-08-10)
 
-The *concept* of freezing survives where it belongs — [CLAUDE.md](CLAUDE.md) still says to record
-an experiment's result and not delete the flavour, and not to change a settled flavour's design.
-What changed is only the label a reader sees.
-
-## Section added on the underlying theory (2026-08-10)
-
-[README.md](README.md) now opens with "The theory it rests on": the framework is a labelled state
-transition system (`System` is literally `Init` plus a labelled `Step`), why the step is a
-*relation* — adversary nondeterminism plus the protocol's own — and hence why `feasible` exists
-and is Event-B's FIS obligation; that assumptions are predicates over executions rather than
-constraints baked into `Step`, so a theorem can name the ones it needs; `WeakFair`/`StrongFair`
-in their usual forms; `Safe`/`Live`/`Secure` as Majorum's Definitions 1–3 with the classical
-safety/liveness split; and invariants by induction over `Reachable`.
-
-It ends with background reading — Lamport's *Specifying Systems* and the TLA paper, Alpern and
-Schneider's *Defining Liveness*, Abrial's *Modeling in Event-B*, Baier and Katoen, and the
-Mathlib docs. Every link was checked to resolve (`curl -o /dev/null -w '%{http_code}'`, all 200);
-`http://www.event-b.org/` was the one candidate that 404s, replaced by the book's DOI and the
-Event-B wiki. Worth re-checking if they are ever cited from elsewhere.
+The framework as a labelled state transition system, why `Step` is a relation, why `feasible` is
+Event-B's FIS obligation, assumptions as predicates over executions, `WeakFair`/`StrongFair`,
+`Safe`/`Live`/`Secure` as Majorum's Definitions 1–3, and invariants by induction over
+`Reachable` — with background reading. The one thing worth keeping here: every link was checked
+to resolve, and `http://www.event-b.org/` 404s, so it is cited by the book's DOI and the Event-B
+wiki instead.
 
 ## `System`'s state parameter: `Carrier` → `SystemState` (2026-08-10)
 
@@ -1096,11 +1092,8 @@ Two things to know if this ever needs undoing or repeating:
 - **The mapping, and the original wording, are in `CLAUDE_LOCAL.md`** — gitignored, so it never
   leaves this machine, and it is the only place the pre-rewrite text survives once the recovery
   refs are pruned.
-- **The scrub had to be whole-text, not line-based.** Two sentences broke across line
-  boundaries — a possessive whose noun was on the next line, and "The X / formalization hit the
-  same thing" — so a line-based `sed` produced a stray apostrophe in one and a doubled noun in
-  the other. A replacement landing at the start of a sentence also has to be capitalised, which
-  a line-based pass cannot see when the sentence began on the previous line.
+- **The scrub had to be whole-text, not line-based** — see *Mechanical rewrites* at the end of
+  this file, where that and the other rewrite failures are collected.
 
 A scan for the things that usually matter found none of them: no absolute or home-directory
 paths in any commit, no credentials or keys, no binary blobs, no hostnames or private URLs, and
@@ -1130,17 +1123,44 @@ framework — and `import Framework.Sts2MX` became `import StsMultisetLog`.
 **The PDF does not travel.** 1 MB of binary, and the paper is arXiv:2601.03862. References to the
 filename now cite the arXiv id, and the "vendored here" phrasing is gone with it.
 
-**Two bugs in the rewrite script, both worth remembering.** They were caught by reading the
-result rather than by the script's own checks:
-
-- **Substitution order.** A bare `Sts2M` → *(description)* rule ran before the rule for the
-  qualified `Framework.Sts2M`, producing "`Framework.the framework's flat multiset-log flavour`"
-  in eight places. Order every rule longest-first *including* across the plain-string and regex
-  phases, not within each phase separately.
-- **A leftover detector only catches what it knows.** It flagged nothing about `FC/commands.tex`
-  or the word "vendored", because neither was in its pattern — so the first pass silently kept a
-  path to the paper's LaTeX source and a sentence claiming a PDF is vendored here that is not.
-  When the fix means "no reference to X survives", the detector has to be as wide as the claim.
-
-Both were fixed by discarding the merge (`git reset --hard` to the pre-import commit, nothing
+**Two bugs in the rewrite script** — a substitution-order mistake and a leftover detector too
+narrow to catch what it was meant to; both are stated as rules in *Mechanical rewrites* at the end
+of this file. They were fixed by discarding the merge (`git reset --hard` to the pre-import commit, nothing
 having been pushed), re-running the import from a fresh clone, and merging again.
+
+## Mechanical rewrites: the ways they have gone wrong
+
+Five sweeps over this repository — renaming the flavours, aligning vocabulary, stripping
+cross-project references from files, then from commit messages, and rewriting the imported
+example — produced one class of bug each. They are collected here because each was found by
+*reading the result*, never by the script that made the change.
+
+- **Order every rule longest-first, across all phases.** `Sts2M` eats the `Sts2MX` prefix and
+  bare `Sts2` eats everything. Worse, "longest-first" has to hold between the plain-string phase
+  and the regex phase, not within each: a bare `Sts2M` rule running before the qualified
+  `Framework.Sts2M` one produced "`Framework.the framework's flat multiset-log flavour`" in eight
+  places.
+- **A word that is also an ordinary word, or names two things, defeats word boundaries.**
+  `\bState\b` → `NodeState` hit `structure System (State : Type u)`, whose parameter is the
+  transition system's state space, not a validator's protocol state — it compiled, because a
+  type-parameter name binds nothing, and read as a lie. `install` → `applyNodeStepResult` rewrote
+  the verb in "Apply a reaction: *install* `p`'s new state". Look at universe-polymorphic
+  parameters (`grep 'Type u'` found the `System` case) and at every docstring containing the old
+  token.
+- **Work on whole text, not line by line.** Sentences break across lines: a possessive whose noun
+  is on the next line, "The X / formalization hit the same thing". A line-based `sed` left a
+  stray apostrophe in one and a doubled noun in the other, and it cannot capitalise a replacement
+  that opens a sentence begun on the previous line.
+- **The leftover detector has to be as wide as the claim.** When the goal is "no reference to X
+  survives", a detector that knows only some spellings certifies success falsely: mine said clean
+  while `FC/commands.tex` and a sentence claiming a PDF is vendored here both survived.
+- **A sweep rewrites sentences that *mention* a name as well as those that *use* it.** The note
+  explaining why a lib is not called `Sts2` became self-referential; the instruction to read old
+  entries as `Framework/Sts2M/` lost the very name it was translating; the guide to reading old
+  flavour names had its own mapping table scrubbed. Check every sentence that talks *about* the
+  old token.
+
+Two habits that caught all of the above: protect the tokens that must survive (paper names, cite
+keys, the imported example's own name) by substituting placeholders first and restoring them last;
+and, for anything touching history, verify on a throwaway checkout before running the filter over
+every commit.
