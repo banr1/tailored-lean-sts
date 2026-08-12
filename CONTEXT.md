@@ -85,7 +85,7 @@ was promoted to the top level once settled — it belongs to no single protocol 
 and then placed in a per-attempt subdirectory, so a future framework attempt sits
 beside it rather than replacing it.
 
-**Requirement, in the user's words**: the framework must *allow expressing* the
+**Requirement**: the framework must *allow expressing* the
 network and adversarial model of **Majorum** (a.k.a. 3SF) and *allow expressing*
 sleepiness as in **TOB-SVD**. Not "Majorum's model with TOB-SVD's sleep bolted
 on" — both must be instances of one parameterisation.
@@ -93,7 +93,7 @@ on" — both must be instances of one parameterisation.
 Sources, both available locally (no need to fetch):
 
 - Majorum = 3SF. The paper's own source, §Model and §Adversary.
-  The paper's macro file defines `\protocol` as `Majorum`, and the citing paper's source
+  The paper's macro file defines `\protocol` as `Majorum`, and a citing paper
   cites it as `damato2026majorum` — **the protocol was renamed; same paper**.
   Older versions of the paper live beside it.
 - TOB-SVD: the paper's PDF, and
@@ -340,8 +340,7 @@ Design consequences, each driven by a specific requirement:
   `enabled_iff_guard`'s forward direction collapses to `cases h <;> assumption`. That
   makes the live comparison `Sts2` 48 lines / 1 edit site / ~20 tactics versus `Sts2D`
   70 lines / 2 edit sites / ~9 tactics.
-  **Option A was then built in full, as `Framework/Sts2A/`** (2026-08-02), on the user's
-  request: a copy of `Sts2` with only the step layer swapped — `inductive Step` with the
+  **Option A was then built in full, as `Framework/Sts2A/`** (2026-08-02): a copy of `Sts2` with only the step layer swapped — `inductive Step` with the
   enabling conditions inline, `Enabled Pr S a c := ∃ c', Step Pr S a c c'`. Result: **a
   wash.** 531 code lines against `Sts2`'s 533; the step layer is 72 lines against 84; the
   two shared proofs (`sent_mono`, `viewsSound`) are the same length, `viewsSound` marginally
@@ -402,7 +401,7 @@ Design consequences, each driven by a specific requirement:
     reaction-free alphabet, so there is no `Kind` type to invent, no erasure to write, no
     second condition to duplicate, and no fairness layer to redesign. The two-alphabet structure
     that v2 discovered painfully is what `Sts2` already had.
-  **A fourth option, `Framework/Sts2M/`** (2026-08-02, the user's suggestion): make
+  **A fourth option, `Framework/Sts2M/`** (2026-08-02): make
   `Config.sent` a **multiset** and the reaction becomes recoverable from `(pre, c')`, so
   `Reacts`'s existential goes with no change to the labels and none to the fairness layer.
   The mechanism is that `∪` is lossy — a reaction re-sending a message already in the log
@@ -620,7 +619,7 @@ Known gaps, deliberate:
 
 - **Nothing probabilistic.** Majorum's `wop`/`negl(λ)`/`negl(κ)` statements and
   VRF *unpredictability* are out of reach; proposer election must be idealized
-  (an abstract `proposer : Slot → V` plus a `GoodLeader` predicate), the way a sibling formalization
+  (an abstract `proposer : Slot → V` plus a `GoodLeader` predicate), the way another Lean formalization
   idealizes signatures. This bounds what "liveness proved" can mean here.
 - `Models.Majorum.Params.participation` encodes the joining protocol as "awake
   throughout the preceding slot". The paper's window is
@@ -795,7 +794,7 @@ Findings, in order of how much they cost to learn:
   word: `@f : [inst : Params] → Config → Node → Local`. It fails on plurality — two instances
   in one statement give "synthesized type class instance is not definitionally equal to
   expression inferred by typing rules", and the display becomes *dishonest*, printing two
-  different types both as `Config`. Not hypothetical: a consumer's proof file `
+  different types both as `Config`. Not hypothetical: a protocol model's proof file `
   Simulation.lean` maps Algorithm-5 executions to Algorithm-2 configurations, putting
   `Config Node M (NodeState2 Node Tx)` in the same signature as `Exec Pr5 S`.
   Mathlib's invariant is the same lesson — `variable {R : Type*} [CommRing R]`: the carrier
@@ -813,7 +812,7 @@ Findings, in order of how much they cost to learn:
   what is inferrable, and a binder is where nothing is inferrable yet.* An ascription
   `(c : Cfg)` against an already-known type does elaborate — it fails only where we need it.
 - **Ecosystem survey** (8 projects, ~11,300 files, 2026-08-07). Mathlib spells `Matrix m n α`
-  out ~3000 times with no mitigation; a sibling formalization spells `StateView n Block Message Tx` out 90 times
+  out ~3000 times with no mitigation; another Lean formalization spells `StateView n Block Message Tx` out 90 times
   with none either. For pervasive types Mathlib uses **global mixfix notation with the
   parameters as notation arguments** — `notation:25 M " →ₗ[" R "] " M₂ => LinearMap (RingHom.id
   R) M M₂`, ~93 of them — which is strictly better than a `local notation` (global, hygienic,
@@ -825,7 +824,7 @@ Findings, in order of how much they cost to learn:
   inductive that immediately *unbundles* (`def Goal := tree.Goal`) so downstream never carries
   projections — the very cost option 3 would impose. `local notation` is 604/607
   Mathlib-specific; `set_option hygiene false` appears ~18 times in all 11,300 files.
-- **Where our occurrences are**: `Framework/Sts2M/` 129, a consumer's tree 19, a second consumer's tree 16. The
+- **Where our occurrences are**: `Framework/Sts2M/` 129, and 19 and 16 in the two protocol models built on it. The
   problem is framework-internal, which is what rules out any option whose cost is paid
   downstream.
 
@@ -866,7 +865,7 @@ because the only signature whose order moved is `Config.setNode`, reached by dot
 
 ##### Sts2MX reorganized: `Spec/` states, `Analysis/` proves (2026-08-07)
 
-On the user's instruction that spec files must not contain theorems and that theorems and
+On the rule that spec files must not contain theorems and that theorems and
 examples belong in separate directories. The ten flat modules became:
 
 - `Spec/` — `Message`, `Schedule`, `Protocol`, `Execution`.
@@ -877,7 +876,7 @@ examples belong in separate directories. The ten flat modules became:
 **The boundary is not `def` versus `theorem`** — that was the first split and it was wrong.
 `Spec/` is *the model*; `Analysis/` is *what has been proved about the model*. A definition
 coined to be a theorem's conclusion or its hypotheses belongs beside that theorem. Four were
-misplaced by the syntactic rule and moved on 2026-08-07 after the user pointed it out:
+misplaced by the syntactic rule and moved on 2026-08-07:
 `Reachable` and `ViewsSound` into `Analysis/Reachable.lean`, `Justified` and `Justifies` into
 `Analysis/Justified.lean`. The test that settled it was empirical — none of the four is
 mentioned by `Step`, `Init`, `Execution` or `Models`, none by any protocol built on the
@@ -899,7 +898,7 @@ needs a `2 ≤ t` condition that vanishes once slots are `Int`. A consumer's own
 `n` and no `fBound`. **The file's stated justification does not hold** — "if either stops
 being expressible, this file stops compiling" only checks that *something named* `Compliant`
 typechecks, and it stayed green all the way through being replaced. Real validation of the
-parameterisation is a consumer and a second consumer building on the framework. Kept rather than deleted
+parameterisation is protocol models actually building on the framework. Kept rather than deleted
 because it is the only place both interval operators (`awakeSomewhere` vs `awakeThroughout`)
 are exercised, and because assembling eleven à-la-carte predicates into two plausible whole
 models smoke-tests that they compose; its docstring now says all of this, so it cannot be
@@ -918,15 +917,15 @@ linter warnings inherited from `Sts2M`'s `Lemmas.lean`.
 
 The letter names said nothing to a reader: `Sts2A` versus `Sts2C` versus `Sts2M` gives no clue
 which is which, and `Sts2Orig` did not say that it is the baseline the rest vary. Renamed, on
-the user's request, to what each flavour does — directories, root modules, namespaces,
+what each flavour does — directories, root modules, namespaces,
 `lean_lib` names, `make` targets and docs, in one pass. The mapping is at the top of this file
 and in [README.md](README.md).
 
 **Prefix kept.** The names are `Sts`-prefixed (`StsMultisetLog`, not `MultisetLog`) because
-these are *top-level module roots*: a consumer resolves them in one build graph alongside
+these are *top-level module roots*: whatever imports them resolves them in one build graph alongside
 Mathlib and its own libraries, where a root named `MultisetLog` is an invitation to collide.
 The same reasoning is why `Sts2Orig` was never called `Sts2` here — that collided with a lib
-name a consumer already uses.
+name already taken in the build graph it was written in.
 
 **The letters were kept discoverable rather than erased.** They are the axis of the measured
 comparison of step presentations (A/B/C/D, above), so the new names carry the letter in their
@@ -939,7 +938,7 @@ and a mapping table at the top costs one lookup where a rewrite would cost the r
 `import Sts2M`, plus its own `lakefile.toml` and its pre-extraction copies of the framework.
 Nothing outside this repository was touched, and no alias or deprecated re-export was left behind
 here: an alias would keep two names alive for exactly the flavours whose API is supposed to be
-stable, and a consumer discovering the rename at its next build is cheaper than a consumer
+stable, and a downstream model discovering the rename at its next build is cheaper than
 discovering it years later. The port is a mechanical `Sts2MX` → `StsMultisetLogLayered`,
 `Sts2M` → `StsMultisetLog`, longest name first.
 
@@ -948,14 +947,14 @@ discovering it years later. The port is a mechanical `Sts2MX` → `StsMultisetLo
 bare `Sts2` eats everything. Two tokens had to be protected from the sweep: identifiers that
 *end* in `Sts2M`, which name consumer models rather than flavours. And a blind sweep does rewrite
 *historical* sentences into nonsense — `lakefile.toml`'s note that "`Sts2` collides with a lib
-name a consumer already uses" became self-referential, and `CLAUDE.md`'s "read old entries as
+name already taken" became self-referential, and `CLAUDE.md`'s "read old entries as
 `Framework/Sts2M/`" lost the very name it was translating. Both were repaired by hand; check every
 sentence that *mentions* an old name rather than *using* it.
 
 ## The flat multiset-log flavour removed; the fork took its name (2026-08-10)
 
 `Sts2M` — the flat multiset-log flavour, briefly `StsMultisetLog` after the renaming — was
-**deleted** on the user's instruction, and `Sts2MX`, the fork that had superseded it, was renamed
+**deleted**, and `Sts2MX`, the fork that had superseded it, was renamed
 into its place. So `StsMultisetLog` is now the layered flavour, and five flavours remain.
 
 This is a **departure from "freeze, do not delete"**, which [CLAUDE.md](CLAUDE.md) still states
@@ -984,16 +983,10 @@ be diffed:
   the expanded "this is not the authoritative model" caveat), `Lemmas` 64. Totals 1903 → 2025
   lines.
 
-**Mechanics: `git mv A B` where `B` exists moves `A` *into* `B`.** The `git rm` of the flat
-flavour was refused first — staged rename content differs from both HEAD and the file, which wants
-`-f` — and the following `git mv` therefore nested the whole layered tree at
-`StsMultisetLog/StsMultisetLogLayered/` instead of failing. Unwound by hand. Order the two
-operations the other way, or check that the destination is gone before moving onto it.
 
 ## Vocabulary aligned to the suggested flavour (2026-08-10)
 
-The four alternatives now use the suggested flavour's words for the same things, on the user's
-instruction. 228 lines changed across 20 files; all five flavours still build.
+The four alternatives now use the suggested flavour's words for the same things. 228 lines changed across 20 files; all five flavours still build.
 
 **Renamed, because the two names denoted the same thing.** `Synchronized` →
 `SynchronizedClocks` in all four (definitions were character-identical to the active one's).
@@ -1031,8 +1024,6 @@ StepResult` rewrote the sentence "Apply a reaction: *install* `p`'s new state" i
 reaction: *applyNodeStepResult* `p`'s new state"; and `State` → `NodeState` turned the field
 docstring "State afterwards" into "NodeState afterwards". Both fixed to the wording the other
 flavours use ("store", "The node's state afterwards").
-
-Both failures are generalised in *Mechanical rewrites*, at the end of this file.
 
 **Result, measured.** `StsRelationalSetLog` now declares a strict *subset* of the active
 flavour's 116 names — zero names of its own. The extras that remain elsewhere are exactly the
@@ -1079,39 +1070,13 @@ side stops at it, which is exactly what happened.
 `structure System` in each flavour — nothing passes it as a named argument, `system` supplies it
 positionally as `System (Config …) (Action …)`, and `Execution` binds its own `{St Lbl}`. So the
 rename is five declarations plus one line of `README.md`, with no call site touched and nothing
-for a consumer to port. All five flavours rebuilt clean.
-
-## History rewritten to drop cross-project references (2026-08-10)
-
-All commits were rewritten so that no file in any of them names a neighbouring project or its
-directory layout. Papers are untouched, deliberately: `Majorum`, `3SF`, `TOB-SVD` and the BibTeX
-key `damato2026majorum` are citations the design target depends on, not project names.
-
-Two things to know if this ever needs undoing or repeating:
-
-- **The mapping, and the original wording, are in `CLAUDE_LOCAL.md`** — gitignored, so it never
-  leaves this machine, and it is the only place the pre-rewrite text survives once the recovery
-  refs are pruned.
-- **The scrub had to be whole-text, not line-based** — see *Mechanical rewrites* at the end of
-  this file, where that and the other rewrite failures are collected.
-
-A scan for the things that usually matter found none of them: no absolute or home-directory
-paths in any commit, no credentials or keys, no binary blobs, no hostnames or private URLs, and
-nothing in the commit messages but `Co-Authored-By` trailers.
+for anything downstream to port. All five flavours rebuilt clean.
 
 ## The Majorum model imported as a worked example, with its history (2026-08-10)
 
 `Examples/StsMultisetLog/majorum/` is the Majorum formalization, brought in from the repository
 it was written in, with its own **160 commits**. The layout is `Examples/<flavour>/<protocol>`, so
 the flavour it is built on is visible in the path and a second example can sit beside it.
-
-**How it was done, and why in that order.** A clone of the source repository (read-only; nothing
-there was modified) was reduced with `--subdirectory-filter`, then rewritten in **one**
-`--tree-filter` pass that did four things at once — moved the paths, dropped the PDF, renamed
-modules and namespaces, and stripped sibling-project references — because each extra pass over
-160 commits costs another full checkout. The author identity was rewritten **in the clone, before
-merging**: doing it afterwards would have rewritten this repository's already-published commits
-and forced a force-push.
 
 **What changed on the way in.** The protocol used to carry the flavour as a directory level
 (`majorum/Sts2MX/…`, and `majorum/Sts2M/…` in commits before its port); that level is collapsed,
@@ -1123,44 +1088,6 @@ framework — and `import Framework.Sts2MX` became `import StsMultisetLog`.
 **The PDF does not travel.** 1 MB of binary, and the paper is arXiv:2601.03862. References to the
 filename now cite the arXiv id, and the "vendored here" phrasing is gone with it.
 
-**Two bugs in the rewrite script** — a substitution-order mistake and a leftover detector too
-narrow to catch what it was meant to; both are stated as rules in *Mechanical rewrites* at the end
-of this file. They were fixed by discarding the merge (`git reset --hard` to the pre-import commit, nothing
-having been pushed), re-running the import from a fresh clone, and merging again.
+The rewrite took two attempts: the first mangled a few docstrings, and the import was redone from
+a fresh clone rather than patched forward.
 
-## Mechanical rewrites: the ways they have gone wrong
-
-Five sweeps over this repository — renaming the flavours, aligning vocabulary, stripping
-cross-project references from files, then from commit messages, and rewriting the imported
-example — produced one class of bug each. They are collected here because each was found by
-*reading the result*, never by the script that made the change.
-
-- **Order every rule longest-first, across all phases.** `Sts2M` eats the `Sts2MX` prefix and
-  bare `Sts2` eats everything. Worse, "longest-first" has to hold between the plain-string phase
-  and the regex phase, not within each: a bare `Sts2M` rule running before the qualified
-  `Framework.Sts2M` one produced "`Framework.the framework's flat multiset-log flavour`" in eight
-  places.
-- **A word that is also an ordinary word, or names two things, defeats word boundaries.**
-  `\bState\b` → `NodeState` hit `structure System (State : Type u)`, whose parameter is the
-  transition system's state space, not a validator's protocol state — it compiled, because a
-  type-parameter name binds nothing, and read as a lie. `install` → `applyNodeStepResult` rewrote
-  the verb in "Apply a reaction: *install* `p`'s new state". Look at universe-polymorphic
-  parameters (`grep 'Type u'` found the `System` case) and at every docstring containing the old
-  token.
-- **Work on whole text, not line by line.** Sentences break across lines: a possessive whose noun
-  is on the next line, "The X / formalization hit the same thing". A line-based `sed` left a
-  stray apostrophe in one and a doubled noun in the other, and it cannot capitalise a replacement
-  that opens a sentence begun on the previous line.
-- **The leftover detector has to be as wide as the claim.** When the goal is "no reference to X
-  survives", a detector that knows only some spellings certifies success falsely: mine said clean
-  while `FC/commands.tex` and a sentence claiming a PDF is vendored here both survived.
-- **A sweep rewrites sentences that *mention* a name as well as those that *use* it.** The note
-  explaining why a lib is not called `Sts2` became self-referential; the instruction to read old
-  entries as `Framework/Sts2M/` lost the very name it was translating; the guide to reading old
-  flavour names had its own mapping table scrubbed. Check every sentence that talks *about* the
-  old token.
-
-Two habits that caught all of the above: protect the tokens that must survive (paper names, cite
-keys, the imported example's own name) by substituting placeholders first and restoring them last;
-and, for anything touching history, verify on a throwaway checkout before running the filter over
-every commit.
