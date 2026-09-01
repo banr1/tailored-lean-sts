@@ -60,9 +60,11 @@ actually depends on:
   **assumption** (`Execution.SynchronizedClocks`) rather than a fact of the model, and
   monotonicity is free, since `Step.tick` only increments.
 
-The condition `c[p].clock < c.time` on `tick` stops a clock running ahead of real
-time and gives exactly one tick per validator per round, so a `tick` reaction still
-need not be idempotent.
+The condition `c[p].clock < t` on `tick` makes each validator's clock strictly
+increase through its ticks, so there is exactly one tick per validator per reading
+and a `tick` reaction need not be idempotent. (An earlier draft of this header
+described the condition as `c[p].clock < c.time`; what relates a reading to *real*
+time is `Execution.ClocksSound`, an assumption, not this model fact.)
 
 Two consequences worth knowing. A round is no longer simultaneous: tick reactions
 interleave, so one validator may see another's message from the same round — which
@@ -356,12 +358,13 @@ def spec : Action Node Msg Ev → ActionSpec Node Msg NodeState
       Enabled _ := True
       Effect c c' := c' = { c with time := t }
       feasible _ _ := ⟨_, rfl⟩ }
-  -- `p`'s clock comes to read `t`, and `p` reacts at that reading. Also unconstrained:
-  -- nothing here relates `t` to real time. `Execution.ClocksSound` forbids reading the
-  -- future, `SynchronizedClocks` pins the clock to real time, `ClocksMonotone` forbids going
-  -- backwards — each an assumption, none a fact of the model.
+  -- `p`'s clock comes to read `t`, strictly above its current reading, and `p` reacts
+  -- at that reading. The strictness makes the clock's trajectory through ticks strictly
+  -- increasing — one tick per validator per reading, a model fact (2026-09-02). What
+  -- relates `t` to real time stays assumed: `Execution.ClocksSound` forbids reading the
+  -- future, `SynchronizedClocks` pins the clock to real time.
   | .tick p t => {
-      Enabled c := p ∈ S.awake (c.time : Int)
+      Enabled c := p ∈ S.awake (c.time : Int) ∧ c[p].clock < t
       Effect c c' := NodeStep Pr p .tick (setClock p t c) c'
       feasible _ _ := nodeStep_total Pr p .tick _ }
   -- Any sent message may be delivered to any awake validator, at any time.
