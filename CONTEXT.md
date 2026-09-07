@@ -1091,3 +1091,46 @@ filename now cite the arXiv id, and the "vendored here" phrasing is gone with it
 The rewrite took two attempts: the first mangled a few docstrings, and the import was redone from
 a fresh clone rather than patched forward.
 
+
+## StsMultisetLog gains a second execution semantics: the atomic round (2026-09-08)
+
+Two new modules, additive only — nothing exported by the flavour was renamed or retyped:
+
+- `Spec/AtomicExecution.lean`: `AtomicAction` (`tickAllAwake t | deliver p m |
+  custom p ev | adversarial p m`), `entrants`, `RoundEffect`, `atomicSpec`, `AtomicStep`,
+  `atomicSystem`, `AtomicExec`, `AtomicAwake`, `AtomicHonest`. The `tickAllAwake t`
+  transition is enabled at `c.time + 1 = t` and, in one step, moves time to `t`, runs the
+  `.wake` reaction for validators entering `S.awake t`, then every awake validator's
+  `.tick` reaction at reading `t` against the pre-round snapshot, sends summed into the
+  log. Deliveries and adversarial sends stay interleaved between rounds. Everything
+  node-level (`Protocol`, `Config`, `NodeStep`, `receive`, `applyNodeStepResult`) is
+  shared with the fine model, so one `Protocol` value binds both semantics.
+- `Analysis/AtomicLemmas.lean`: `atomic_time_stepwise`, `atomic_awake_clock_eq_time`
+  (every awake clock reads real time, at every configuration — the fact the fine model
+  can only assume), `atomic_awake_clocks_agree`.
+
+Why: the consumer project (decoupled-consensus-lean) machine-checked that the fine
+model's `SynchronizedClocks`, read per-configuration, is unsatisfiable alongside a tick
+(its strict enabling `c[p].clock < t` contradicts the equality at the pre-configuration
+plus `ClocksSound` at the successor) and alongside any time increment past an awake
+validator (`advance` writes no clock) — so `LivenessClocks` admits no execution in which
+time moves past anyone awake, and everything assuming it plus a tick label was vacuous.
+Probes: that project's `scratch/conf_compat_probe3.lean`
+(`tick_absurd_under_livenessClocks`) and `scratch/clock_vacuity_probe.lean`
+(`advance_absurd_under_livenessClocks`).
+
+Designs rejected on the way (that project's `scratch-tracked/synchronized_clocks_repair.md`
+holds the full record): weakening `SynchronizedClocks` in place (no assumption over the
+fine model yields per-configuration equality — the mid-instant configurations exist
+regardless); adding the round action beside the old ones in one `Action` type (a
+model-selection hypothesis in every statement, a seventh arm in every `Step.elim` walk);
+replacing the old actions (forecloses unsynced-clock systems, which the fine model
+expresses — `tick p t` with an arbitrary reading above the clock is skew); a
+label-ordering discipline predicate (gives the atomic reasoning surface but not the
+equality). The action name `tickAllAwake` is Roberto's (2026-09-08), replacing the
+working name `round`.
+
+The fine model's own clock laws are left exactly as they were, vacuity included: their
+repair (candidates in the consumer project's decision record) is deferred until a project
+states something against the fine model again. A linearization bridge (atomic execution →
+fine execution satisfying the fairness bundle) is likewise deferred until first needed.

@@ -2,7 +2,9 @@ import StsMultisetLog.Spec.Message
 import StsMultisetLog.Spec.Schedule
 import StsMultisetLog.Spec.Protocol
 import StsMultisetLog.Spec.Execution
+import StsMultisetLog.Spec.AtomicExecution
 import StsMultisetLog.Analysis.Lemmas
+import StsMultisetLog.Analysis.AtomicLemmas
 import StsMultisetLog.Analysis.Reachable
 import StsMultisetLog.Analysis.Justified
 import StsMultisetLog.Analysis.Execution
