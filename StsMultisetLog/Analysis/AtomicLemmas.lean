@@ -2,7 +2,7 @@ import StsMultisetLog.Spec.AtomicExecution
 import StsMultisetLog.Analysis.Lemmas
 
 /-!
-# What the atomic-round model gives for free
+# What the atomic model gives for free
 
 The two facts the fine-grained model can only assume — and, per-configuration, cannot
 even satisfiably assume (see the header of `Spec/AtomicExecution.lean`) — are theorems
@@ -22,8 +22,8 @@ namespace Framework.StsMultisetLog
 variable {Node Msg NodeState Ev : Type} [DecidableEq Node] [DecidableEq Msg]
 variable {Pr : Protocol Node Msg NodeState Ev} {S : Schedule Node}
 
-/-- Time is stepwise by construction: the round is enabled exactly one instant ahead,
-    and no other action moves time. -/
+/-- Time is stepwise by construction: the `tickAllAwake` transition is enabled exactly
+    one instant ahead, and no other action moves time. -/
 theorem atomic_time_stepwise (x : AtomicExec Pr S) (i : Nat) :
     x[i + 1].time = x[i].time ∨ x[i + 1].time = x[i].time + 1 := by
   show (x.cfg (i + 1)).time = (x.cfg i).time ∨
@@ -32,7 +32,7 @@ theorem atomic_time_stepwise (x : AtomicExec Pr S) (i : Nat) :
   cases hl : x.lbl i with
   | tickAllAwake t =>
       rw [hl] at hs
-      obtain ⟨hen, w, tk, -, -, -, hc⟩ := hs
+      obtain ⟨hen, w, tk, -, -, hc⟩ := hs
       right
       rw [hc]
       exact hen.symm
@@ -52,7 +52,7 @@ theorem atomic_time_stepwise (x : AtomicExec Pr S) (i : Nat) :
     every awake validator's clock reads real time. The fine model must assume this
     (`SynchronizedClocks`) and, read per-configuration, cannot — the configurations
     between its `advance` and the catch-up ticks refute it. Here those configurations do
-    not exist: the round that moves time writes every awake clock in the same step. -/
+    not exist: the `tickAllAwake` transition that moves time writes every awake clock in the same step. -/
 theorem atomic_awake_clock_eq_time (x : AtomicExec Pr S) (i : Nat) (p : Node)
     (haw : p ∈ S.awake (x[i].time : Int)) : x[i][p].clock = x[i].time := by
   induction i with
@@ -67,10 +67,12 @@ theorem atomic_awake_clock_eq_time (x : AtomicExec Pr S) (i : Nat) (p : Node)
       cases hl : x.lbl i with
       | tickAllAwake t =>
           rw [hl] at hs
-          obtain ⟨-, w, tk, -, -, -, hc⟩ := hs
-          have ht : (x.cfg (i + 1)).time = t := by rw [hc]
+          obtain ⟨-, w, tk, -, -, hc⟩ := hs
+          have ht : (x.cfg (i + 1)).time = t := by rw [hc]; rfl
           rw [ht] at haw ⊢
           rw [hc]
+          show ((tickAllAwakeUpdate S t (x.cfg i) w tk)[p]).clock = t
+          unfold tickAllAwakeUpdate
           show (if p ∈ S.awake (t : Int) then
               ({ clock := t, st := (tk p).state, view := (x.cfg i)[p].view } :
                 Local Node Msg NodeState)
