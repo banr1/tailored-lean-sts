@@ -1097,8 +1097,12 @@ a fresh clone rather than patched forward.
 Two new modules, additive only — nothing exported by the flavour was renamed or retyped:
 
 - `Spec/AtomicExecution.lean`: `AtomicAction` (`tickAllAwake t | deliver p m |
-  custom p ev | adversarial p m`), `entrants`, `RoundEffect`, `atomicSpec`, `AtomicStep`,
-  `atomicSystem`, `AtomicExec`, `AtomicAwake`, `AtomicHonest`. The `tickAllAwake t`
+  custom p ev | adversarial p m`), `entrants`, `TickAllAwakeWake`, `tickAllAwakeUpdate`,
+  `TickAllAwakeEffect`, `atomicSpec`, `AtomicStep`, `atomicSystem`, `AtomicExec`,
+  `AtomicAwake`, `AtomicHonest`. (Same day, Roberto: everything about ticking all the
+  awake is named `tickAllAwake…` — the working names `RoundEffect`/`roundEffect_total`
+  went with the rename, and the effect was split into the named wake stage and the named
+  successor builder for readability.) The `tickAllAwake t`
   transition is enabled at `c.time + 1 = t` and, in one step, moves time to `t`, runs the
   `.wake` reaction for validators entering `S.awake t`, then every awake validator's
   `.tick` reaction at reading `t` against the pre-round snapshot, sends summed into the
