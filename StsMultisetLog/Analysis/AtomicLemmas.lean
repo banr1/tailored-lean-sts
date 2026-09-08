@@ -181,6 +181,55 @@ theorem AtomicStep.elim
       obtain ⟨he, rfl⟩ := h
       exact adversarial c p m he
 
+/-- **No clock runs ahead of real time**, at every node and every configuration. The
+    `tickAllAwake t` transition writes `t` into both real time and every awake clock, a
+    sleeper keeps a reading bounded by the instant before, and no other action moves
+    either. The companion of `atomic_awake_clock_eq_time` for the nodes that are asleep,
+    where equality is unavailable. -/
+theorem atomic_clock_le_time (x : AtomicExec Pr S) (i : Nat) (p : Node) :
+    x[i][p].clock ≤ x[i].time := by
+  induction i with
+  | zero =>
+      obtain ⟨ht0, hn, -⟩ := x.init
+      show ((x.cfg 0)[p]).clock ≤ (x.cfg 0).time
+      simp only [hn p, ht0]
+      exact le_rfl
+  | succ i ih =>
+      have hs : AtomicStep Pr S (x.lbl i) x[i] x[i + 1] := x.step i
+      refine AtomicStep.elim
+        (motive := fun _ c c' => c[p].clock ≤ c.time → c'[p].clock ≤ c'.time)
+        hs ?_ ?_ ?_ ?_ ih
+      · intro d t w tk hen _ _ hh
+        have hen' : d.time + 1 = t := hen
+        by_cases hp : p ∈ S.awake (t : Int)
+        · simp only [tickAllAwakeUpdate_getElem_awake hp, tickAllAwakeUpdate_time]
+          exact le_rfl
+        · simp only [tickAllAwakeUpdate_getElem_asleep hp, tickAllAwakeUpdate_time]
+          omega
+      · intro d q m res _ _ hh
+        have ht : (applyNodeStepResult q res (receive q m d)).time = d.time := rfl
+        rw [ht]
+        simpa only [applyNodeStepResult_clock, receive_clock] using hh
+      · intro d q ev res _ _ hh
+        have ht : (applyNodeStepResult q res d).time = d.time := rfl
+        rw [ht]
+        simpa only [applyNodeStepResult_clock] using hh
+      · intro d q m _ hh; exact hh
+
+/-- **The log only grows, one atomic step at a time.** The `tickAllAwake` transition adds
+    the instant's sends, a delivery or a protocol event adds its reaction's sends, an
+    adversarial step adds one message — none removes. The atomic counterpart of
+    `sent_mono`, which is stated for the fine `Step` only. -/
+theorem atomic_sent_mono {a : AtomicAction Node Msg Ev}
+    {c c' : Config Node Msg NodeState}
+    (h : AtomicStep Pr S a c c') : c.sent ≤ c'.sent := by
+  refine AtomicStep.elim (motive := fun _ d d' => d.sent ≤ d'.sent) h ?_ ?_ ?_ ?_ <;>
+    intros <;>
+    first
+      | exact le_rfl
+      | exact Multiset.le_iff_exists_add.mpr ⟨_, rfl⟩
+      | exact Multiset.le_cons_self _ _
+
 /-- Reaching an instant means its `tickAllAwake` transition happened: at the step where
     time became `t`, the label was `tickAllAwake t` — no other action moves time. The
     atomic counterpart of the fine model's `duty_fires` machinery, with no fairness
