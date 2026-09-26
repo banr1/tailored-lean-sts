@@ -47,6 +47,9 @@ theorem atomic_time_stepwise (x : AtomicExec Pr S) (i : Nat) :
   | adversarial q m =>
       rw [hl] at hs
       left; rw [hs.2]
+  | forward q m =>
+      rw [hl] at hs
+      left; rw [hs.2]
 
 /-- **Synchronized clocks are a theorem of the atomic model**: at every configuration,
     every awake validator's clock reads real time. The fine model must assume this
@@ -95,6 +98,12 @@ theorem atomic_awake_clock_eq_time (x : AtomicExec Pr S) (i : Nat) (p : Node)
           simp only [applyNodeStepResult_clock]
           exact ih haw
       | adversarial q m =>
+          rw [hl] at hs
+          have ht : (x.cfg (i + 1)).time = (x.cfg i).time := by rw [hs.2]
+          rw [ht] at haw ⊢
+          rw [hs.2]
+          exact ih haw
+      | forward q m =>
           rw [hl] at hs
           have ht : (x.cfg (i + 1)).time = (x.cfg i).time := by rw [hs.2]
           rw [ht] at haw ⊢
@@ -163,7 +172,10 @@ theorem AtomicStep.elim
       motive (.custom p ev) d (applyNodeStepResult p res d))
     (adversarial : ∀ (d : Config Node Msg NodeState) (p : Node) (m : Msg),
       (atomicSpec Pr S (.adversarial p m)).Enabled d →
-      motive (.adversarial p m) d { d with sent := ⟨p, m⟩ ::ₘ d.sent }) :
+      motive (.adversarial p m) d { d with sent := ⟨p, m⟩ ::ₘ d.sent })
+    (forward : ∀ (d : Config Node Msg NodeState) (p : Node) (m : SignedMsg Node Msg),
+      (atomicSpec Pr S (.forward p m)).Enabled d →
+      motive (.forward p m) d { d with sent := m ::ₘ d.sent }) :
     motive a c c' := by
   cases a with
   | tickAllAwake t =>
@@ -180,6 +192,9 @@ theorem AtomicStep.elim
   | adversarial p m =>
       obtain ⟨he, rfl⟩ := h
       exact adversarial c p m he
+  | forward p m =>
+      obtain ⟨he, rfl⟩ := h
+      exact forward c p m he
 
 /-- **No clock runs ahead of real time**, at every node and every configuration. The
     `tickAllAwake t` transition writes `t` into both real time and every awake clock, a
@@ -198,7 +213,7 @@ theorem atomic_clock_le_time (x : AtomicExec Pr S) (i : Nat) (p : Node) :
       have hs : AtomicStep Pr S (x.lbl i) x[i] x[i + 1] := x.step i
       refine AtomicStep.elim
         (motive := fun _ c c' => c[p].clock ≤ c.time → c'[p].clock ≤ c'.time)
-        hs ?_ ?_ ?_ ?_ ih
+        hs ?_ ?_ ?_ ?_ ?_ ih
       · intro d t w tk hen _ _ hh
         have hen' : d.time + 1 = t := hen
         by_cases hp : p ∈ S.awake (t : Int)
@@ -215,15 +230,17 @@ theorem atomic_clock_le_time (x : AtomicExec Pr S) (i : Nat) (p : Node) :
         rw [ht]
         simpa only [applyNodeStepResult_clock] using hh
       · intro d q m _ hh; exact hh
+      · intro d q m _ hh; exact hh
 
 /-- **The log only grows, one atomic step at a time.** The `tickAllAwake` transition adds
     the instant's sends, a delivery or a protocol event adds its reaction's sends, an
-    adversarial step adds one message — none removes. The atomic counterpart of
+    adversarial step adds one message, a `forward` step adds another copy of a message the
+    forwarding validator holds in its view — none removes. The atomic counterpart of
     `sent_mono`, which is stated for the fine `Step` only. -/
 theorem atomic_sent_mono {a : AtomicAction Node Msg Ev}
     {c c' : Config Node Msg NodeState}
     (h : AtomicStep Pr S a c c') : c.sent ≤ c'.sent := by
-  refine AtomicStep.elim (motive := fun _ d d' => d.sent ≤ d'.sent) h ?_ ?_ ?_ ?_ <;>
+  refine AtomicStep.elim (motive := fun _ d d' => d.sent ≤ d'.sent) h ?_ ?_ ?_ ?_ ?_ <;>
     intros <;>
     first
       | exact le_rfl
@@ -266,6 +283,10 @@ theorem tickAllAwake_of_time (x : AtomicExec Pr S) (k : Nat) {t : Time}
             obtain ⟨-, hns⟩ := hs
             exact absurd hns.time hsame
         | adversarial q m =>
+            rw [hl] at hs
+            exact absurd
+              (show (x.cfg (k + 1)).time = (x.cfg k).time by rw [hs.2]) hsame
+        | forward q m =>
             rw [hl] at hs
             exact absurd
               (show (x.cfg (k + 1)).time = (x.cfg k).time by rw [hs.2]) hsame

@@ -19,8 +19,9 @@ found them.
 This file is the other model: **one transition per instant**. `tickAllAwake t` moves time
 to `t` and runs every awake validator's tick duty — preceded, for validators entering the
 awake set at `t`, by their wake reaction — all against the snapshot at the instant's
-opening, with the sends summed into the log. Deliveries and adversarial sends remain
-ordinary interleaved steps between `tickAllAwake` transitions. Because no configuration
+opening, with the sends summed into the log. Deliveries, adversarial sends and forwards —
+an awake validator re-sending a message it holds, under the signature it arrived with —
+remain ordinary interleaved steps between `tickAllAwake` transitions. Because no configuration
 exists in which some awake clocks have moved and some have not, "every awake validator's
 clock reads real time" is a **theorem** of this model (`Analysis/AtomicLemmas.lean`), not
 an assumption; so are the wake-report and catch-up-order disciplines the fine model must
@@ -66,6 +67,10 @@ inductive AtomicAction (Node Msg Ev : Type) where
   | custom (p : Node) (ev : Ev)
   /-- An adversarial validator signs an arbitrary message. -/
   | adversarial (p : Node) (m : Msg)
+  /-- An awake validator puts a message it received back on the wire, unchanged: a
+      second copy of the same signed message in the log, the original signature kept,
+      nothing new signed. -/
+  | forward (p : Node) (m : SignedMsg Node Msg)
 
 variable [DecidableEq Node] [DecidableEq Msg]
 variable (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node)
@@ -134,9 +139,20 @@ theorem tickAllAwakeEffect_total : ∃ c', TickAllAwakeEffect Pr S t c c' := by
     simp [hwdef, if_neg hp]
 
 /-- Each atomic action's enabling condition and effect. Deliveries, protocol events and
-    adversarial sends are verbatim the fine model's; only `tickAllAwake` is new, and it
-    is enabled exactly one instant ahead of the current time, so time is stepwise by
-    construction. -/
+    adversarial sends are verbatim the fine model's; `tickAllAwake` and `forward` are the
+    two this model adds. `tickAllAwake` is enabled exactly one instant ahead of the
+    current time, so time is stepwise by construction.
+
+    A `forward` step puts a signed message back on the wire under the signature it arrived
+    with: the effect quotes `m` whole and never rebuilds it, so the step signs nothing.
+    That is what makes it a relay rather than a send — a relay able to sign could mint a
+    message on behalf of the validator named in it.
+
+    `::ₘ` leaves the log holding a second copy of `m`, so the configuration a `forward`
+    step produces differs from the one it started at. Multiplicity is observable state in
+    this flavour by design (`Config.sent` in `Spec/Protocol.lean`), yet no property of the
+    framework can tell the two configurations apart, because every property of the log is
+    membership-based. -/
 def atomicSpec : AtomicAction Node Msg Ev → ActionSpec Node Msg NodeState
   | .tickAllAwake t => {
       Enabled c := c.time + 1 = t
@@ -153,6 +169,10 @@ def atomicSpec : AtomicAction Node Msg Ev → ActionSpec Node Msg NodeState
   | .adversarial p m => {
       Enabled c := p ∈ S.adv (c.time : Int)
       Effect c c' := c' = { c with sent := ⟨p, m⟩ ::ₘ c.sent }
+      feasible _ _ := ⟨_, rfl⟩ }
+  | .forward p m => {
+      Enabled c := p ∈ S.awake (c.time : Int) ∧ m ∈ c[p].view
+      Effect c c' := c' = { c with sent := m ::ₘ c.sent }
       feasible _ _ := ⟨_, rfl⟩ }
 
 /-- The atomic step relation: enabled, and then the effect. -/
