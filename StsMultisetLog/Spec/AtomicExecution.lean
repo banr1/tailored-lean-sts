@@ -17,13 +17,23 @@ pre-configuration). Both refutations are machine-checked in the consumer project
 found them.
 
 This file is the other model: **one transition per instant**. `tickAllAwake t` moves time
-to `t` and runs every awake validator's tick duty — preceded, for validators entering the
-awake set at `t`, by their wake reaction — all against the snapshot at the instant's
-opening, with the sends summed into the log. Deliveries, adversarial sends and forwards —
-an awake validator re-sending a message it holds, under the signature it arrived with —
-remain ordinary interleaved steps between `tickAllAwake` transitions. Because no configuration
-exists in which some awake clocks have moved and some have not, "every awake validator's
-clock reads real time" is a **theorem** of this model (`Analysis/AtomicLemmas.lean`), not
+to `t` and runs the tick duty of every validator awake at `t` and outside `S.adv t` —
+preceded, for validators entering the awake set at `t`, by their wake reaction — all
+against the snapshot at the instant's opening, with the sends summed into the log.
+Deliveries, adversarial sends and forwards — an awake validator re-sending a message it
+holds, under the signature it arrived with — remain ordinary interleaved steps between
+`tickAllAwake` transitions.
+
+**Every action but `adversarial` is an honest node's.** A delivery, a protocol event and
+a forward are enabled only at a validator outside `S.adv` at the current time, and the
+`tickAllAwake` transition runs reactions only at validators outside `S.adv t`; a validator
+in `S.awake t ∩ S.adv t` has its clock advanced to `t` by it and nothing else: its
+state and view stay as they were and it sends nothing. So a corrupted validator's state
+and view never change, and everything it puts on the wire goes through
+`adversarial`. This holds whether or not the schedule satisfies `Schedule.AwakeHonest`.
+
+Because no configuration exists in which some awake clocks have moved and some have
+not, "every awake validator's clock reads real time" is a **theorem** of this model (`Analysis/AtomicLemmas.lean`), not
 an assumption; so are the wake-report and catch-up-order disciplines the fine model must
 assume (`Diligent`, `WakePrecedesTick`, and the reading currency of ticks).
 
@@ -58,67 +68,79 @@ variable {Node Msg NodeState Ev : Type}
 /-- Transition labels of the atomic semantics. The fine model's `advance`, `tick` and
     `wake` are all subsumed by `tickAllAwake`. -/
 inductive AtomicAction (Node Msg Ev : Type) where
-  /-- Real time becomes `t`, and every validator awake at `t` reacts at reading `t` —
-      entrants to the awake set react to `.wake` first. -/
+  /-- Real time becomes `t`, and every validator awake at `t` and outside `S.adv t` — an
+      honest validator — reacts at reading `t`; entrants to the awake set react to `.wake`
+      first. A validator awake at `t` and in `S.adv t` has its clock set to `t` and does
+      nothing else. -/
   | tickAllAwake (t : Time)
-  /-- `m` is delivered to `p`, which reacts to it. -/
+  /-- `m` is delivered to `p`, which reacts to it. `p` is an honest node: outside `S.adv`
+      at the current time. -/
   | deliver (p : Node) (m : SignedMsg Node Msg)
-  /-- A protocol-specific event fires at `p`. -/
+  /-- A protocol-specific event fires at `p`, an honest node: outside `S.adv` at the
+      current time. -/
   | custom (p : Node) (ev : Ev)
   /-- An adversarial validator signs an arbitrary message. -/
   | adversarial (p : Node) (m : Msg)
-  /-- An awake validator puts a message it received back on the wire, unchanged: a
-      second copy of the same signed message in the log, the original signature kept,
-      nothing new signed. -/
+  /-- An awake honest validator — outside `S.adv` at the current time — puts a message it
+      received back on the wire, unchanged: a second copy of the same signed message in
+      the log, the original signature kept, nothing new signed. -/
   | forward (p : Node) (m : SignedMsg Node Msg)
 
 variable [DecidableEq Node] [DecidableEq Msg]
 variable (Pr : Protocol Node Msg NodeState Ev) (S : Schedule Node)
     (a : AtomicAction Node Msg Ev) (t : Time)
 
-/-- The validators entering the awake set at `t`: awake at `t`, asleep the instant
-    before. These are the ones whose `.wake` reaction the `tickAllAwake` transition at
-    `t` runs first. -/
+/-- The validators entering the awake set at `t`: awake at `t`, outside `S.adv t`, and
+    asleep the instant before. These are the ones whose `.wake` reaction the
+    `tickAllAwake` transition at `t` runs first. A validator in `S.adv t` is never an
+    entrant: it does not react. -/
 def entrants : Finset Node :=
-  S.awake (t : Int) \ S.awake ((t : Int) - 1)
+  (S.awake (t : Int) \ S.adv (t : Int)) \ S.awake ((t : Int) - 1)
 
 variable (c c' : Config Node Msg NodeState)
 
 /-- The wake stage of the `tickAllAwake` transition at `t`, for one validator: `res` is
     a `.wake` reaction of `p`'s snapshot state if `p` is entering the awake set at `t`,
     and the inert result — same state, no sends — otherwise, so that the tick stage and
-    the send sum read uniformly over the awake set. -/
+    the send sum read uniformly over the set `S.awake t \ S.adv t` of validators that
+    react. -/
 def TickAllAwakeWake (p : Node) (res : NodeStepResult NodeState Msg) : Prop :=
   if p ∈ entrants S t then Pr.step p c[p].clock c[p].view c[p].st .wake res
   else res = { state := c[p].st, send := 0 }
 
 /-- The configuration the `tickAllAwake` transition at `t` produces from the snapshot
     `c`, given each validator's wake-stage result `w p` and tick reaction `tk p`: time at
-    `t`; every awake validator holding its tick result, its clock at `t`, its view
-    untouched (delivery is a separate action); sleepers untouched; the log grown by both
-    stages' sends, each signed by its sender. -/
+    `t`; every validator in `S.awake t \ S.adv t` holding its tick result, its clock at
+    `t`, its view untouched (delivery is a separate action); every awake validator in
+    `S.adv t` with its clock at `t` and nothing else changed; sleepers untouched; the log
+    grown by both stages' sends of the validators in `S.awake t \ S.adv t`, each signed by its
+    sender. -/
 def tickAllAwakeUpdate (w tk : Node → NodeStepResult NodeState Msg) :
     Config Node Msg NodeState :=
   { time := t
     nodes := fun q =>
-      if q ∈ S.awake (t : Int) then
+      if q ∈ S.awake (t : Int) \ S.adv (t : Int) then
         { clock := t, st := (tk q).state, view := c[q].view }
+      else if q ∈ S.awake (t : Int) then { c[q] with clock := t }
       else c[q]
     sent := c.sent
-      + (S.awake (t : Int)).sum
+      + (S.awake (t : Int) \ S.adv (t : Int)).sum
           (fun q => ((w q).send + (tk q).send).map (SignedMsg.mk q)) }
 
 /-- The effect of the `tickAllAwake` transition at `t`, read off the snapshot `c`: some
     choice of a wake-stage result and a tick reaction per validator — the tick reaction
     at reading `t`, from the wake stage's state — produces `c'`.
 
-    In plain words: at instant `t`, every awake validator — freshly woken ones first
-    informed of their waking — runs its tick duty against what it held when the instant
-    began, and everything sent lands on the network together. -/
+    In plain words: at instant `t`, every awake honest validator (awake at `t`, outside
+    `S.adv t`) — freshly woken ones first informed of their waking — runs its tick duty
+    against what it held when the instant began, and everything sent lands on the network
+    together. An awake validator in `S.adv t` has its clock advanced to `t` and does nothing
+    else: the clock is time, not an action. -/
 def TickAllAwakeEffect : Prop :=
   ∃ w tk : Node → NodeStepResult NodeState Msg,
     (∀ p, TickAllAwakeWake Pr S t c p (w p)) ∧
-    (∀ p ∈ S.awake (t : Int), Pr.step p t c[p].view (w p).state .tick (tk p)) ∧
+    (∀ p ∈ S.awake (t : Int) \ S.adv (t : Int),
+      Pr.step p t c[p].view (w p).state .tick (tk p)) ∧
     c' = tickAllAwakeUpdate S t c w tk
 
 omit [DecidableEq Msg] in
@@ -139,9 +161,14 @@ theorem tickAllAwakeEffect_total : ∃ c', TickAllAwakeEffect Pr S t c c' := by
     simp [hwdef, if_neg hp]
 
 /-- Each atomic action's enabling condition and effect. Deliveries, protocol events and
-    adversarial sends are verbatim the fine model's; `tickAllAwake` and `forward` are the
-    two this model adds. `tickAllAwake` is enabled exactly one instant ahead of the
+    adversarial sends have the fine model's effects; the enabling conditions of deliveries
+    and protocol events add `p ∉ S.adv (c.time : Int)` to the fine model's.
+    `tickAllAwake` and `forward` are the two actions this model adds. `tickAllAwake` is enabled exactly one instant ahead of the
     current time, so time is stepwise by construction.
+
+    `deliver`, `custom` and `forward` are honest nodes' actions: each enabling condition
+    ends with `p ∉ S.adv (c.time : Int)`. Only `adversarial` is enabled at a validator in
+    `S.adv`.
 
     A `forward` step puts a signed message back on the wire under the signature it arrived
     with: the effect quotes `m` whole and never rebuilds it, so the step signs nothing.
@@ -159,11 +186,12 @@ def atomicSpec : AtomicAction Node Msg Ev → ActionSpec Node Msg NodeState
       Effect c c' := TickAllAwakeEffect Pr S t c c'
       feasible c _ := tickAllAwakeEffect_total Pr S t c }
   | .deliver p m => {
-      Enabled c := m ∈ c.sent ∧ p ∈ S.awake (c.time : Int)
+      Enabled c := m ∈ c.sent ∧ p ∈ S.awake (c.time : Int) ∧ p ∉ S.adv (c.time : Int)
       Effect c c' := NodeStep Pr p (.recv m) (receive p m c) c'
       feasible _ _ := nodeStep_total Pr p (.recv m) _ }
   | .custom p ev => {
-      Enabled c := p ∈ S.awake (c.time : Int) ∧ Pr.enabled c[p].clock c[p].st ev
+      Enabled c := p ∈ S.awake (c.time : Int) ∧ Pr.enabled c[p].clock c[p].st ev ∧
+        p ∉ S.adv (c.time : Int)
       Effect c c' := NodeStep Pr p (.custom ev) c c'
       feasible _ _ := nodeStep_total Pr p (.custom ev) _ }
   | .adversarial p m => {
@@ -171,7 +199,7 @@ def atomicSpec : AtomicAction Node Msg Ev → ActionSpec Node Msg NodeState
       Effect c c' := c' = { c with sent := ⟨p, m⟩ ::ₘ c.sent }
       feasible _ _ := ⟨_, rfl⟩ }
   | .forward p m => {
-      Enabled c := p ∈ S.awake (c.time : Int) ∧ m ∈ c[p].view
+      Enabled c := p ∈ S.awake (c.time : Int) ∧ m ∈ c[p].view ∧ p ∉ S.adv (c.time : Int)
       Effect c c' := c' = { c with sent := m ::ₘ c.sent }
       feasible _ _ := ⟨_, rfl⟩ }
 

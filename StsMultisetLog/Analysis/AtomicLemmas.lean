@@ -51,6 +51,85 @@ theorem atomic_time_stepwise (x : AtomicExec Pr S) (i : Nat) :
       rw [hl] at hs
       left; rw [hs.2]
 
+/-! ### Reading the `tickAllAwake` successor -/
+
+omit [DecidableEq Msg] in
+/-- An awake honest validator's record after the `tickAllAwake` transition: its tick
+    result, its clock at `t`, its view untouched. Before the atomic actions were made
+    honest nodes' only (2026-09-28) this took `q ∈ S.awake t` alone; it now also takes
+    `q ∉ S.adv t`, since an awake validator in `S.adv t` does not react
+    (`tickAllAwakeUpdate_getElem_awake_adv`). -/
+theorem tickAllAwakeUpdate_getElem_awake {t : Time} {c : Config Node Msg NodeState}
+    {w tk : Node → NodeStepResult NodeState Msg} {q : Node}
+    (hq : q ∈ S.awake (t : Int)) (hadv : q ∉ S.adv (t : Int)) :
+    (tickAllAwakeUpdate S t c w tk)[q]
+      = { clock := t, st := (tk q).state, view := c[q].view } := by
+  show (if q ∈ S.awake (t : Int) \ S.adv (t : Int) then _ else _) = _
+  rw [if_pos (Finset.mem_sdiff.2 ⟨hq, hadv⟩)]
+
+omit [DecidableEq Msg] in
+/-- An awake validator in `S.adv t` after the `tickAllAwake` transition: its clock at
+    `t`, and nothing else changed — its state and view are the snapshot's. -/
+theorem tickAllAwakeUpdate_getElem_awake_adv {t : Time} {c : Config Node Msg NodeState}
+    {w tk : Node → NodeStepResult NodeState Msg} {q : Node}
+    (hq : q ∈ S.awake (t : Int)) (hadv : q ∈ S.adv (t : Int)) :
+    (tickAllAwakeUpdate S t c w tk)[q] = { c[q] with clock := t } := by
+  have hn : q ∉ S.awake (t : Int) \ S.adv (t : Int) := fun h =>
+    (Finset.mem_sdiff.1 h).2 hadv
+  show (if q ∈ S.awake (t : Int) \ S.adv (t : Int) then _
+    else if q ∈ S.awake (t : Int) then _ else _) = _
+  rw [if_neg hn, if_pos hq]
+
+omit [DecidableEq Msg] in
+/-- A sleeping validator's record is untouched by the `tickAllAwake` transition. -/
+theorem tickAllAwakeUpdate_getElem_asleep {t : Time} {c : Config Node Msg NodeState}
+    {w tk : Node → NodeStepResult NodeState Msg} {q : Node}
+    (hq : q ∉ S.awake (t : Int)) :
+    (tickAllAwakeUpdate S t c w tk)[q] = c[q] := by
+  have hn : q ∉ S.awake (t : Int) \ S.adv (t : Int) := fun h =>
+    hq (Finset.mem_sdiff.1 h).1
+  show (if q ∈ S.awake (t : Int) \ S.adv (t : Int) then _
+    else if q ∈ S.awake (t : Int) then _ else _) = _
+  rw [if_neg hn, if_neg hq]
+
+omit [DecidableEq Msg] in
+/-- Every validator awake at `t`, honest or in `S.adv t`, has its clock at `t` after the
+    `tickAllAwake` transition: the clock is time, not an action. -/
+theorem tickAllAwakeUpdate_clock_awake {t : Time} {c : Config Node Msg NodeState}
+    {w tk : Node → NodeStepResult NodeState Msg} {q : Node}
+    (hq : q ∈ S.awake (t : Int)) :
+    (tickAllAwakeUpdate S t c w tk)[q].clock = t := by
+  by_cases hadv : q ∈ S.adv (t : Int)
+  · rw [tickAllAwakeUpdate_getElem_awake_adv hq hadv]
+  · rw [tickAllAwakeUpdate_getElem_awake hq hadv]
+
+omit [DecidableEq Msg] in
+/-- A validator in `S.adv t` keeps its state and view through the `tickAllAwake`
+    transition, awake or not: it does not react. -/
+theorem tickAllAwakeUpdate_getElem_adv {t : Time} {c : Config Node Msg NodeState}
+    {w tk : Node → NodeStepResult NodeState Msg} {q : Node}
+    (hadv : q ∈ S.adv (t : Int)) :
+    (tickAllAwakeUpdate S t c w tk)[q].st = c[q].st ∧
+      (tickAllAwakeUpdate S t c w tk)[q].view = c[q].view := by
+  by_cases hq : q ∈ S.awake (t : Int)
+  · rw [tickAllAwakeUpdate_getElem_awake_adv hq hadv]; exact ⟨rfl, rfl⟩
+  · rw [tickAllAwakeUpdate_getElem_asleep hq]; exact ⟨rfl, rfl⟩
+
+omit [DecidableEq Msg] in
+/-- A message the `tickAllAwake` transition adds to the sent log is signed by a validator
+    that reacts in it: awake at `t` and outside `S.adv t`. So every send of a tick is an
+    honest node's. -/
+theorem mem_tickAllAwakeUpdate_sent {t : Time} {c : Config Node Msg NodeState}
+    {w tk : Node → NodeStepResult NodeState Msg} {m : SignedMsg Node Msg}
+    (hm : m ∈ (tickAllAwakeUpdate S t c w tk).sent) :
+    m ∈ c.sent ∨ (m.sender ∈ S.awake (t : Int) ∧ m.sender ∉ S.adv (t : Int)) := by
+  rcases Multiset.mem_add.1 hm with h | h
+  · exact Or.inl h
+  · right
+    obtain ⟨q, hq, hmq⟩ := Multiset.mem_sum.1 h
+    obtain ⟨m', -, rfl⟩ := Multiset.mem_map.1 hmq
+    exact Finset.mem_sdiff.1 hq
+
 /-- **Synchronized clocks are a theorem of the atomic model**: at every configuration,
     every awake validator's clock reads real time. The fine model must assume this
     (`SynchronizedClocks`) and, read per-configuration, cannot — the configurations
@@ -75,12 +154,7 @@ theorem atomic_awake_clock_eq_time (x : AtomicExec Pr S) (i : Nat) (p : Node)
           rw [ht] at haw ⊢
           rw [hc]
           show ((tickAllAwakeUpdate S t (x.cfg i) w tk)[p]).clock = t
-          unfold tickAllAwakeUpdate
-          show (if p ∈ S.awake (t : Int) then
-              ({ clock := t, st := (tk p).state, view := (x.cfg i)[p].view } :
-                Local Node Msg NodeState)
-            else (x.cfg i)[p]).clock = t
-          rw [if_pos haw]
+          exact tickAllAwakeUpdate_clock_awake haw
       | deliver q m =>
           rw [hl] at hs
           obtain ⟨-, hns⟩ := hs
@@ -119,27 +193,7 @@ theorem atomic_awake_clocks_agree (x : AtomicExec Pr S) (i : Nat) (p q : Node)
   rw [atomic_awake_clock_eq_time x i p hp, atomic_awake_clock_eq_time x i q hq]
 
 
-/-! ### Reading the `tickAllAwake` successor, and case analysis on an atomic step -/
-
-omit [DecidableEq Msg] in
-/-- An awake validator's record after the `tickAllAwake` transition: its tick result,
-    its clock at `t`, its view untouched. -/
-theorem tickAllAwakeUpdate_getElem_awake {t : Time} {c : Config Node Msg NodeState}
-    {w tk : Node → NodeStepResult NodeState Msg} {q : Node}
-    (hq : q ∈ S.awake (t : Int)) :
-    (tickAllAwakeUpdate S t c w tk)[q]
-      = { clock := t, st := (tk q).state, view := c[q].view } := by
-  show (if q ∈ S.awake (t : Int) then _ else _) = _
-  rw [if_pos hq]
-
-omit [DecidableEq Msg] in
-/-- A sleeping validator's record is untouched by the `tickAllAwake` transition. -/
-theorem tickAllAwakeUpdate_getElem_asleep {t : Time} {c : Config Node Msg NodeState}
-    {w tk : Node → NodeStepResult NodeState Msg} {q : Node}
-    (hq : q ∉ S.awake (t : Int)) :
-    (tickAllAwakeUpdate S t c w tk)[q] = c[q] := by
-  show (if q ∈ S.awake (t : Int) then _ else _) = _
-  rw [if_neg hq]
+/-! ### Case analysis on an atomic step -/
 
 omit [DecidableEq Msg] in
 @[simp] theorem tickAllAwakeUpdate_time {t : Time} {c : Config Node Msg NodeState}
@@ -157,7 +211,8 @@ theorem AtomicStep.elim
         (w tk : Node → NodeStepResult NodeState Msg),
       d.time + 1 = t →
       (∀ p, TickAllAwakeWake Pr S t d p (w p)) →
-      (∀ p ∈ S.awake (t : Int), Pr.step p t d[p].view (w p).state .tick (tk p)) →
+      (∀ p ∈ S.awake (t : Int) \ S.adv (t : Int),
+        Pr.step p t d[p].view (w p).state .tick (tk p)) →
       motive (.tickAllAwake t) d (tickAllAwakeUpdate S t d w tk))
     (deliver : ∀ (d : Config Node Msg NodeState) (p : Node) (m : SignedMsg Node Msg)
         (res : NodeStepResult NodeState Msg),
@@ -217,8 +272,7 @@ theorem atomic_clock_le_time (x : AtomicExec Pr S) (i : Nat) (p : Node) :
       · intro d t w tk hen _ _ hh
         have hen' : d.time + 1 = t := hen
         by_cases hp : p ∈ S.awake (t : Int)
-        · simp only [tickAllAwakeUpdate_getElem_awake hp, tickAllAwakeUpdate_time]
-          exact le_rfl
+        · rw [tickAllAwakeUpdate_clock_awake hp, tickAllAwakeUpdate_time]
         · simp only [tickAllAwakeUpdate_getElem_asleep hp, tickAllAwakeUpdate_time]
           omega
       · intro d q m res _ _ hh
@@ -290,5 +344,25 @@ theorem tickAllAwake_of_time (x : AtomicExec Pr S) (k : Nat) {t : Time}
             rw [hl] at hs
             exact absurd
               (show (x.cfg (k + 1)).time = (x.cfg k).time by rw [hs.2]) hsame
+
+/-! ### Every action but `adversarial` is an honest node's -/
+
+/-- A `deliver p m` step is at a validator outside `S.adv` at the step's time. -/
+theorem AtomicStep.deliver_not_adv {p : Node} {m : SignedMsg Node Msg}
+    {c c' : Config Node Msg NodeState} (h : AtomicStep Pr S (.deliver p m) c c') :
+    p ∉ S.adv (c.time : Int) :=
+  h.1.2.2
+
+/-- A `custom p ev` step is at a validator outside `S.adv` at the step's time. -/
+theorem AtomicStep.custom_not_adv {p : Node} {ev : Ev}
+    {c c' : Config Node Msg NodeState} (h : AtomicStep Pr S (.custom p ev) c c') :
+    p ∉ S.adv (c.time : Int) :=
+  h.1.2.2
+
+/-- A `forward p m` step is at a validator outside `S.adv` at the step's time. -/
+theorem AtomicStep.forward_not_adv {p : Node} {m : SignedMsg Node Msg}
+    {c c' : Config Node Msg NodeState} (h : AtomicStep Pr S (.forward p m) c c') :
+    p ∉ S.adv (c.time : Int) :=
+  h.1.2.2
 
 end Framework.StsMultisetLog

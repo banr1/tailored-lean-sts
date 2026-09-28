@@ -32,7 +32,10 @@ structure Schedule (Node : Type) where
   adv : Int → Finset Node
   /-- Awake honest validators at a round. Adversarial validators are always
       awake in both papers, so they are deliberately *not* included here — this
-      is the awake **honest** set. -/
+      is the awake **honest** set. The atomic semantics (`Spec/AtomicExecution.lean`)
+      does not rely on a schedule keeping the two apart: its honest actions (delivery,
+      protocol event, forward, the tick's reactions) are enabled only at validators in
+      `awake` and outside `adv`, so a validator in both acts only adversarially. -/
   awake : Int → Finset Node
 
 namespace Schedule
@@ -45,7 +48,11 @@ variable (S : Schedule Node)
     implicit in Majorum's `A_∞ = lim A_{voting(t)}`. -/
 def MonotoneCorruption : Prop := ∀ r r' : Int, r ≤ r' → S.adv r ⊆ S.adv r'
 
-/-- Awake honest validators are not adversarial. -/
+/-- Awake honest validators are not adversarial: the schedule itself keeps `awake` and
+    `adv` disjoint. The fine semantics needs it to make every reaction an honest node's.
+    The atomic semantics does not: there, a validator in both sets is treated as
+    adversarial by the enabling conditions themselves, so this constraint only says the
+    schedule never lists such a validator. -/
 def AwakeHonest : Prop := ∀ r : Int, Disjoint (S.awake r) (S.adv r)
 
 /-- Mildly adaptive corruption: a validator adversarial at `r + d` was already
