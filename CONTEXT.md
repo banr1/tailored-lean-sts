@@ -1155,6 +1155,8 @@ so `atomic_awake_clock_eq_time` kept its statement. In `Analysis/AtomicLemmas.le
 `tickAllAwakeUpdate_getElem_awake` now also takes `q ∉ S.adv t`; `AtomicStep.elim`'s tick
 case quantifies over `S.awake t \ S.adv t`; new lemmas `tickAllAwakeUpdate_getElem_awake_adv`,
 `tickAllAwakeUpdate_clock_awake`, `tickAllAwakeUpdate_getElem_adv`,
+`tickAllAwakeUpdate_getElem_react`, `tickAllAwakeUpdate_getElem_st_of_not_react`,
+`tickAllAwakeUpdate_getElem_view` (every view is untouched by the tick),
 `mem_tickAllAwakeUpdate_sent` (a tick's send is signed by a validator in
 `S.awake t \ S.adv t`), and `AtomicStep.deliver_not_adv`, `.custom_not_adv`,
 `.forward_not_adv`. `Schedule.awake`'s and `Schedule.AwakeHonest`'s docstrings say the atomic

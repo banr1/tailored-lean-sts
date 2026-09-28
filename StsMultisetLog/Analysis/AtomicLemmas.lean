@@ -104,6 +104,41 @@ theorem tickAllAwakeUpdate_clock_awake {t : Time} {c : Config Node Msg NodeState
   · rw [tickAllAwakeUpdate_getElem_awake hq hadv]
 
 omit [DecidableEq Msg] in
+/-- `tickAllAwakeUpdate_getElem_awake` with its two hypotheses as one membership in the set
+    `S.awake t \ S.adv t` of validators that react. -/
+theorem tickAllAwakeUpdate_getElem_react {t : Time} {c : Config Node Msg NodeState}
+    {w tk : Node → NodeStepResult NodeState Msg} {q : Node}
+    (hq : q ∈ S.awake (t : Int) \ S.adv (t : Int)) :
+    (tickAllAwakeUpdate S t c w tk)[q]
+      = { clock := t, st := (tk q).state, view := c[q].view } :=
+  tickAllAwakeUpdate_getElem_awake (Finset.mem_sdiff.1 hq).1 (Finset.mem_sdiff.1 hq).2
+
+omit [DecidableEq Msg] in
+/-- A validator outside `S.awake t \ S.adv t` — asleep at `t`, or in `S.adv t` — keeps its
+    state through the `tickAllAwake` transition: it does not react. -/
+theorem tickAllAwakeUpdate_getElem_st_of_not_react {t : Time}
+    {c : Config Node Msg NodeState} {w tk : Node → NodeStepResult NodeState Msg} {q : Node}
+    (hq : q ∉ S.awake (t : Int) \ S.adv (t : Int)) :
+    (tickAllAwakeUpdate S t c w tk)[q].st = c[q].st := by
+  by_cases haw : q ∈ S.awake (t : Int)
+  · have hadv : q ∈ S.adv (t : Int) := by
+      by_contra hn; exact hq (Finset.mem_sdiff.2 ⟨haw, hn⟩)
+    rw [tickAllAwakeUpdate_getElem_awake_adv haw hadv]
+  · rw [tickAllAwakeUpdate_getElem_asleep haw]
+
+omit [DecidableEq Msg] in
+/-- Every validator's view is untouched by the `tickAllAwake` transition: delivery is a
+    separate action. -/
+theorem tickAllAwakeUpdate_getElem_view {t : Time} {c : Config Node Msg NodeState}
+    {w tk : Node → NodeStepResult NodeState Msg} {q : Node} :
+    (tickAllAwakeUpdate S t c w tk)[q].view = c[q].view := by
+  by_cases hq : q ∈ S.awake (t : Int)
+  · by_cases hadv : q ∈ S.adv (t : Int)
+    · rw [tickAllAwakeUpdate_getElem_awake_adv hq hadv]
+    · rw [tickAllAwakeUpdate_getElem_awake hq hadv]
+  · rw [tickAllAwakeUpdate_getElem_asleep hq]
+
+omit [DecidableEq Msg] in
 /-- A validator in `S.adv t` keeps its state and view through the `tickAllAwake`
     transition, awake or not: it does not react. -/
 theorem tickAllAwakeUpdate_getElem_adv {t : Time} {c : Config Node Msg NodeState}
