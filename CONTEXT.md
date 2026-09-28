@@ -1139,28 +1139,26 @@ repair (candidates in the consumer project's decision record) is deferred until 
 states something against the fine model again. A linearization bridge (atomic execution →
 fine execution satisfying the fairness bundle) is likewise deferred until first needed.
 
-## RULED, not yet landed: every atomic action but `adversarial` is an honest node's (2026-09-28)
+## LANDED 2026-09-28: every atomic action but `adversarial` is an honest node's
 
 Roberto, 2026-09-28, on learning that `deliver p m`, `custom p ev`, `forward p m` and the
-tick's reacting set test `p ∈ S.awake t` alone: "This is an error in the framework. I think
+tick's reacting set tested `p ∈ S.awake t` alone: "This is an error in the framework. I think
 that any action except adversarial should only be taken by honest nodes" — "Yes. We need to
 do it."
 
-The change, in `StsMultisetLog/Spec/AtomicExecution.lean`'s `atomicSpec`: the enabling
-conditions of `.deliver`, `.custom` and `.forward` gain `p ∉ S.adv (c.time : Int)`, and the
-set that reacts in `TickAllAwakeEffect` becomes `S.awake t \ S.adv t` (entrants likewise).
-`.adversarial` stays enabled by `p ∈ S.adv t` alone. After it the docstring of
-`Schedule.awake` ("this is the awake honest set") and the semantics say the same thing, and
-`Schedule.AwakeHonest` is no longer needed to make a reaction an honest node's.
-
-Consequences for consumers, measured by reading only: a stronger enabling condition removes
-executions, so every universal statement over executions keeps holding; proofs that
-construct an execution (witness pages) have to show their delivered-to and forwarding nodes
-are outside `adv`; "a reaction's send is an honest send" and "a forward is an honest node's"
-become theorems the consumers can use to drop their `\ S.adv t` subtractions. A corrupted
-validator's store never changes again, which is the growing-adversary reading
-`MonotoneCorruption` already takes.
-
-Not landed yet: the consumer project (decoupled-consensus-lean) queues the change behind
-its running campaigns; the commit goes on this branch (`forward-action`, unpushed) with the
-`AtomicLemmas.lean` cases repaired, and the consumer moves its submodule pointer.
+What landed, on `forward-action`: in `Spec/AtomicExecution.lean`'s `atomicSpec` the enabling
+conditions of `.deliver`, `.custom` and `.forward` end with `p ∉ S.adv (c.time : Int)`;
+`.adversarial` is unchanged. In the `tickAllAwake` transition only `S.awake t \ S.adv t`
+reacts (tick step, wake-stage `entrants`, send sum); a validator in `S.awake t ∩ S.adv t`
+still has its clock set to `t` (the clock is time, not an action) and nothing else changes,
+so `atomic_awake_clock_eq_time` kept its statement. In `Analysis/AtomicLemmas.lean`:
+`tickAllAwakeUpdate_getElem_awake` now also takes `q ∉ S.adv t`; `AtomicStep.elim`'s tick
+case quantifies over `S.awake t \ S.adv t`; new lemmas `tickAllAwakeUpdate_getElem_awake_adv`,
+`tickAllAwakeUpdate_clock_awake`, `tickAllAwakeUpdate_getElem_adv`,
+`mem_tickAllAwakeUpdate_sent` (a tick's send is signed by a validator in
+`S.awake t \ S.adv t`), and `AtomicStep.deliver_not_adv`, `.custom_not_adv`,
+`.forward_not_adv`. `Schedule.awake`'s and `Schedule.AwakeHonest`'s docstrings say the atomic
+semantics no longer needs `AwakeHonest`; the fine model (`Spec/Protocol.lean`) is unchanged.
+A stronger enabling condition removes executions, so universal statements over executions
+keep holding; consumers that construct executions must show their acting nodes are outside
+`adv`.
