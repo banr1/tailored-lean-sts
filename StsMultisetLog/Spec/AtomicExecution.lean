@@ -1,5 +1,8 @@
-import Mathlib.Algebra.BigOperators.Group.Finset.Basic
-import StsMultisetLog.Spec.Execution
+module
+public import Mathlib.Algebra.BigOperators.Group.Finset.Basic
+public import StsMultisetLog.Spec.Execution
+
+@[expose] public section
 
 /-!
 # The atomic semantics — one `tickAllAwake` transition per instant

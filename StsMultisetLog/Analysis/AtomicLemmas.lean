@@ -1,5 +1,8 @@
-import StsMultisetLog.Spec.AtomicExecution
-import StsMultisetLog.Analysis.Lemmas
+module
+public import StsMultisetLog.Spec.AtomicExecution
+public import StsMultisetLog.Analysis.Lemmas
+
+@[expose] public section
 
 /-!
 # What the atomic model gives for free

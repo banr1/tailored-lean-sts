@@ -1,4 +1,7 @@
-import StsMultisetLog.Spec.Message
+module
+public import StsMultisetLog.Spec.Message
+
+@[expose] public section
 
 /-!
 # The adversary's schedule

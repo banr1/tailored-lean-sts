@@ -1,5 +1,8 @@
-import Mathlib.Tactic.NormNum
-import StsMultisetLog.Examples.Models
+module
+public import Mathlib.Tactic.NormNum
+public import StsMultisetLog.Examples.Models
+
+@[expose] public section
 
 /-!
 # A worked example

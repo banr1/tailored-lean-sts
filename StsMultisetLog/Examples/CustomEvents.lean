@@ -1,4 +1,7 @@
-import StsMultisetLog.Spec.Protocol
+module
+public import StsMultisetLog.Spec.Protocol
+
+@[expose] public section
 
 /-!
 # Custom events: two timers

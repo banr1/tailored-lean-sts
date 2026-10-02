@@ -1,5 +1,8 @@
-import Mathlib.Data.Finset.Lattice.Fold
-import Mathlib.Data.Int.Interval
+module
+public import Mathlib.Data.Finset.Lattice.Fold
+public import Mathlib.Data.Int.Interval
+
+@[expose] public section
 
 /-!
 # Time, messages, views

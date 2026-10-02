@@ -1,4 +1,7 @@
-import StsMultisetLog.Analysis.Reachable
+module
+public import StsMultisetLog.Analysis.Reachable
+
+@[expose] public section
 
 /-!
 # Signed messages are justified by their signer's state

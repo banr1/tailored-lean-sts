@@ -1,16 +1,19 @@
-import StsMultisetLog.Spec.Message
-import StsMultisetLog.Spec.Schedule
-import StsMultisetLog.Spec.Protocol
-import StsMultisetLog.Spec.Execution
-import StsMultisetLog.Spec.AtomicExecution
-import StsMultisetLog.Analysis.Lemmas
-import StsMultisetLog.Analysis.AtomicLemmas
-import StsMultisetLog.Analysis.Reachable
-import StsMultisetLog.Analysis.Justified
-import StsMultisetLog.Analysis.Execution
-import StsMultisetLog.Examples.Models
-import StsMultisetLog.Examples.Example
-import StsMultisetLog.Examples.CustomEvents
+module
+public import StsMultisetLog.Spec.Message
+public import StsMultisetLog.Spec.Schedule
+public import StsMultisetLog.Spec.Protocol
+public import StsMultisetLog.Spec.Execution
+public import StsMultisetLog.Spec.AtomicExecution
+public import StsMultisetLog.Analysis.Lemmas
+public import StsMultisetLog.Analysis.AtomicLemmas
+public import StsMultisetLog.Analysis.Reachable
+public import StsMultisetLog.Analysis.Justified
+public import StsMultisetLog.Analysis.Execution
+public import StsMultisetLog.Examples.Models
+public import StsMultisetLog.Examples.Example
+public import StsMultisetLog.Examples.CustomEvents
+
+@[expose] public section
 
 /-!
 # A framework for message-passing distributed protocols — multiset log

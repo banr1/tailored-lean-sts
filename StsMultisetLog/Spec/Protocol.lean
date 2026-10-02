@@ -1,5 +1,8 @@
-import Mathlib.Data.Set.Image
-import StsMultisetLog.Spec.Schedule
+module
+public import Mathlib.Data.Set.Image
+public import StsMultisetLog.Spec.Schedule
+
+@[expose] public section
 
 /-!
 # Protocols and the system they induce — the specification

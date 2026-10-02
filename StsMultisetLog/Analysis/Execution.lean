@@ -1,5 +1,8 @@
-import StsMultisetLog.Analysis.Reachable
-import StsMultisetLog.Spec.Execution
+module
+public import StsMultisetLog.Analysis.Reachable
+public import StsMultisetLog.Spec.Execution
+
+@[expose] public section
 
 /-!
 # What holds of every execution

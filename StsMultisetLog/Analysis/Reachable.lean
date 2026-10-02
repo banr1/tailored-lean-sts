@@ -1,4 +1,7 @@
-import StsMultisetLog.Analysis.Lemmas
+module
+public import StsMultisetLog.Analysis.Lemmas
+
+@[expose] public section
 
 /-!
 # Reachability, and one invariant proved through the eliminator

@@ -1,4 +1,7 @@
-import StsMultisetLog.Spec.Protocol
+module
+public import StsMultisetLog.Spec.Protocol
+
+@[expose] public section
 
 /-!
 # Executions, network assumptions, security properties

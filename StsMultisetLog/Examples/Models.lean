@@ -1,5 +1,8 @@
-import Mathlib.Data.Rat.Defs
-import StsMultisetLog.Spec.Execution
+module
+public import Mathlib.Data.Rat.Defs
+public import StsMultisetLog.Spec.Execution
+
+@[expose] public section
 
 /-!
 # Two models, expressed — example scaffolding
